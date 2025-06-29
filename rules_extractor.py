@@ -1,6 +1,5 @@
 from qgis.core import *
 from PyQt5.QtCore import *
-import copy
 
 
 class RulesExtractor:
