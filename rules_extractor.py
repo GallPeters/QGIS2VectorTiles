@@ -2,7 +2,7 @@ from qgis.core import *
 from PyQt5.QtCore import *
 
 
-class RulesExtractor:
+class RuleExtractor:
     """
     Comprehensive PyQGIS class that extracts and flattens all renderer (symbology) 
     and labeling rules from vector layers in the current QGIS project.
@@ -53,7 +53,7 @@ class RulesExtractor:
         if rule_based_renderer:
             # Get the root rule and flatten its children
             root_rule = rule_based_renderer.rootRule()
-            flattened_rules = self._flatten_renderer_rules(root_rule, layer.name())
+            flattened_rules = self._flatten_renderer_rules(root_rule, layer)
             renderer_rules.extend(flattened_rules)
         
         return renderer_rules
@@ -72,14 +72,14 @@ class RulesExtractor:
         if rule_based_labeling:
             # Get the root rule and flatten its children
             root_rule = rule_based_labeling.rootRule()
-            flattened_rules = self._flatten_labeling_rules(root_rule, layer.name())
+            flattened_rules = self._flatten_labeling_rules(root_rule, layer)
             labeling_rules.extend(flattened_rules)
         
         return labeling_rules
     
     def _convert_to_rule_based_renderer(self, renderer):
         """Convert any renderer type to rule-based renderer."""
-        if renderer.type() == 'RuleRenderer':
+        if isinstance(renderer, QgsRuleBasedRenderer):
             return renderer
         
         # Create a new rule-based renderer
@@ -128,13 +128,12 @@ class RulesExtractor:
         
         return rule_based
     
-    def _flatten_renderer_rules(self, rule, layer_name, parent_path="", parent_filter="", 
+    def _flatten_renderer_rules(self, rule, layer_name, parent_path="root", parent_filter="", 
                                parent_min_scale=0, parent_max_scale=0, parent_symbol=None):
         """Recursively flatten renderer rules with inheritance."""
         flattened = []
-        
         # Skip root rules (they're containers only)
-        if parent_path == "":
+        if parent_path == "root":
             for i, child in enumerate(rule.children()):
                 child_rules = self._flatten_renderer_rules(
                     child, layer_name, "", "", 0, 0, None
@@ -177,18 +176,18 @@ class RulesExtractor:
                     current_min_scale, current_max_scale, current_symbol
                 )
                 flattened.extend(child_rules)
-        else:
+        # else:
             # This is a leaf rule, add it to the flattened list
-            flattened.append(flattened_rule)
+        flattened.append(flattened_rule)
         return flattened
     
-    def _flatten_labeling_rules(self, rule, layer_name, parent_path="", parent_filter="",
+    def _flatten_labeling_rules(self, rule, layer_name, parent_path="root", parent_filter="",
                                parent_min_scale=0, parent_max_scale=0, parent_settings=None):
         """Recursively flatten labeling rules with inheritance."""
         flattened = []
         
         # Skip root rules (they're containers only)
-        if parent_path == "":
+        if parent_path == "root":
             for i, child in enumerate(rule.children()):
                 child_rules = self._flatten_labeling_rules(
                     child, layer_name, "", "", 0, 0, None
@@ -231,10 +230,9 @@ class RulesExtractor:
                     current_min_scale, current_max_scale, current_settings
                 )
                 flattened.extend(child_rules)
-        else:
+        # else:
             # This is a leaf rule, add it to the flattened list
-            flattened.append(flattened_rule)
-        
+        flattened.append(flattened_rule)
         return flattened
     
     def _combine_filters(self, parent_filter, child_filter):
@@ -337,8 +335,8 @@ class RulesExtractor:
             print(f"  - Renderer rules: {counts['renderer']}")
             print(f"  - Labeling rules: {counts['labeling']}")
         
-        print("\n=== Sample Rules ===")
-        for i, rule in enumerate(self.extracted_rules[:5]):  # Show first 5 rules
+        print("\n=== Rules ===")
+        for i, rule in enumerate(self.extracted_rules):  # Show first 5 rules
             print(f"\nRule {i+1}:")
             print(f"  Type: {rule['type']}")
             print(f"  Layer: {rule['layer_name']}")
@@ -386,7 +384,7 @@ class RulesExtractor:
 # Console execution
 if __name__ == '__console__':
     # Create the rule extractor
-    extractor = RulesExtractor()
+    extractor = RuleExtractor()
     
     # Extract all rules from the current project
     print("Extracting rules from current QGIS project...")
