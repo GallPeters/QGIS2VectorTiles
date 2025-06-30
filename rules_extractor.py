@@ -4,80 +4,77 @@ from qgis.core import *
 class RuleExtractor:
     """
     Compact PyQGIS class that extracts and flattens all renderer and labeling rules
-    from vector layers in the current QGIS project using unified processing logic.
+    from vector lyrs in the current QGIS project using unified processing logic.
     """
 
     def __init__(self):
         self.project = QgsProject.instance()
-        self.rules_types = ["Renderer", "Labeling"]
+        self.rules_types = ["renderer", "labeling"]
         self.extracted_rules = []
 
     def extract_all_rules(self):
-        """Extract all rules from all vector layers in the project."""
+        """Extract all rules from all vector lyrs in the project."""
         self.extracted_rules = {}
-        vector_layers = [
-            layer
-            for layer in self.project.mapLayers().values()
-            if layer.type() == 0 and layer.geometryType() != 4
+        vector_lyrs = [
+            lyr
+            for lyr in self.project.mapLayers().values()
+            if lyr.type() == 0 and lyr.geometryType() != 4
         ]
 
-        for layer in vector_layers:
+        for lyr in vector_lyrs:
             rules_dict = {}
             try:
                 # Process both renderer and labeling using unified approach
                 for rule_type in self.rules_types:
-                    rule_based = self._get_rule_based_system(layer, rule_type)
+                    rule_based = self._get_rule_based_system(lyr, rule_type)
                     if rule_based and rule_based.rootRule():
                         rules_dict[rule_type] = self._flatten_rules(
                             rule_based.rootRule(), rule_type
                         )
-                self.extracted_rules[layer] = rules_dict
+                self.extracted_rules[lyr] = rules_dict
             except Exception as e:
-                print(f"Error processing layer {layer.name()}: {str(e)}")
-        self._split_rules_by_symbol_layers()
+                print(f"Error processing lyr {lyr.name()}: {str(e)}")
         return self.extracted_rules
 
     def print_rules(self):
         """Print extracted rules with elegant tree structure."""
         print("\n -------- Extracted rules --------\nProject: ")
-        for layer_idx, (layer, rules_dict) in enumerate(self.extracted_rules.items()):
-            is_last_layer = layer_idx == len(self.extracted_rules) - 1
-            layer_prefix = "    " if is_last_layer else "  │  "
-            print(
-                f"{'  └─ ' if is_last_layer else '  ├─ '}Layer {layer_idx + 1}: {layer.name()}"
-            )
+
+        def get_tree_chars(is_last):
+            return (" └─ ", "    ") if is_last else (" ├─ ", " │ ")
+
+        for lyr_idx, (lyr, rules_dict) in enumerate(self.extracted_rules.items()):
+            lyr_last = lyr_idx == len(self.extracted_rules) - 1
+            lyr_conn, lyr_pre = get_tree_chars(lyr_last)
+            print(f"{lyr_conn}layer {lyr_idx + 1}: {lyr.name()}")
 
             for type_idx, (rule_type, rules) in enumerate(rules_dict.items()):
-                is_last_type = type_idx == len(rules_dict) - 1
-                type_prefix = "        " if is_last_type else "   │    "
-                print(
-                    f"{layer_prefix}{'   └─ ' if is_last_type else '   ├─ '}{rule_type}:"
-                )
+                type_last = type_idx == len(rules_dict) - 1
+                type_conn, type_pre = get_tree_chars(type_last)
+                print(f"{lyr_pre}{type_conn}{rule_type}:")
 
                 for rule_idx, rule in enumerate(rules):
-                    is_last_rule = rule_idx == len(rules) - 1
-                    rule_prefix = "     " if is_last_rule else " │   "
-                    print(
-                        f"{layer_prefix}{type_prefix}{' └─ ' if is_last_rule else ' ├─ '}Rule {rule_idx + 1}:"
-                    )
+                    rule_last = rule_idx == len(rules) - 1
+                    rule_conn, rule_pre = get_tree_chars(rule_last)
+                    rule_prefix = f"{lyr_pre}{type_pre}"
+                    print(f"{rule_prefix}{rule_conn}rule {rule_idx + 1}:")
 
                     details = [
-                        ("Name", rule.description()),
-                        ("MinScale", rule.minimumScale()),
-                        ("MaxScale", rule.maximumScale()),
-                        ("Filter", rule.filterExpression()),
+                        ("name", rule.description()),
+                        ("minscale", rule.minimumScale()),
+                        ("maxscale", rule.maximumScale()),
+                        ("filter", rule.filterExpression()),
                     ]
-                    for i, (label, value) in enumerate(details):
-                        connector = "└─ " if i == 3 else "├─ "
-                        print(
-                            f"{layer_prefix}{type_prefix}{rule_prefix}{connector}{label}: {value}"
-                        )
+
+                    for val_idx, (label, value) in enumerate(details):
+                        val_conn = " └─ " if val_idx == 3 else " ├─ "
+                        print(f"{rule_prefix}{rule_pre}{val_conn}{label}: {value}")
 
         print("\n -------- Extraction has been finished successfully --------")
 
-    def _get_rule_based_system(self, layer, rule_type):
+    def _get_rule_based_system(self, lyr, rule_type):
         """Get or convert to rule-based system for both renderer and labeling."""
-        system = layer.renderer() if rule_type == "Renderer" else layer.labeling()
+        system = lyr.renderer() if rule_type == "renderer" else lyr.labeling()
         if not system:
             return None
 
@@ -86,7 +83,7 @@ class RuleExtractor:
             return system
 
         # Convert to rule-based
-        if rule_type == "Renderer":
+        if rule_type == "renderer":
             return QgsRuleBasedRenderer.convertFromRenderer(system)
         else:
             rule = QgsRuleBasedLabeling.Rule(system.settings())
@@ -105,8 +102,11 @@ class RuleExtractor:
             self._inherit_scale(rule, clone, min)
             self._inherit_rule_data(rule, clone, rule_type)
 
-            # Append flattened rule
-            flattened.append(clone)
+            # Split if needed and append flattened rule
+            if rule_type == "renderer":
+                flattened.extend(self.split_rule_by_symbol_layers(clone))
+            else:
+                flattened.append(clone)
         else:
             clone = rule
         # Process children recursively or add leaf rule
@@ -118,13 +118,13 @@ class RuleExtractor:
 
     def _inherit_rule_name(self, rule, clone, rule_type, index):
         """Inherit rule-specific name (label or description)."""
-        clone_name = rule.label() if rule_type == "Renderer" else rule.description()
-        if not clone_name:
-            parent_name = (
-                rule.label() if rule_type == "Renderer" else rule.description()
-            )
-            clone_name = f"{parent_name} > {index}"
-        clone.setDescription(clone_name)
+        name_attr = "label" if rule_type == "renderer" else "description"
+        rule_name = getattr(rule, name_attr)()
+        if not rule_name:
+            rule_name = f"rule {index}"
+        parent_name = getattr(rule.parent(), name_attr)()
+        prefix = f"{parent_name} > " if parent_name else ""
+        clone.setDescription(f"{prefix}{rule_name}")
 
     def _inherit_rule_filter(self, rule, clone):
         """Combine filters using AND logic."""
@@ -152,35 +152,36 @@ class RuleExtractor:
 
     def _inherit_rule_data(self, rule, clone, rule_type):
         """Inherit rule-specific data (symbol or settings)."""
-        if rule_type == "Renderer":
+        if rule_type == "renderer":
             clone_symbol = clone.symbol()
             parent_symbol = rule.parent().symbol()
             if parent_symbol and clone_symbol:
                 for index in range(parent_symbol.symbolLayerCount()):
-                    symbol_layer = parent_symbol.symbolLayer(index).clone()
-                    clone_symbol.appendSymbolLayer(symbol_layer)
+                    symbol_lyr = parent_symbol.symbolLayer(index).clone()
+                    clone_symbol.appendSymbolLayer(symbol_lyr)
 
-    def _split_rules_by_symbol_layers(self):
-        """Split all renderer rules to subrules. Each subrule contains a symbol
-        composed from a single symbol layer"""
-        for layer, rules_dict in self.extracted_rules.items():
-            for rule_type, rules in rules_dict.items():
-                if rule_type == "Renderer":
-                    splitted_rules = []
-                    for rule in rules:
-                        if rule.symbol():
-                            symbol_lyrs_num = rule.symbol().symbolLayerCount()
-                            if symbol_lyrs_num > 1:
-                                for keep_index in range(symbol_lyrs_num):
-                                    clone = rule.clone()
-                                    clone.setDescription(f'{clone.description()}_symbol_lyr_{keep_index}')
-                                    for curr_index in reversed(range(symbol_lyrs_num)):
-                                        if keep_index != curr_index:
-                                            clone.symbol().deleteSymbolLayer(curr_index)
-                                    splitted_rules.append(clone)
-                            else:
-                                splitted_rules.append(rule)
-                    self.extracted_rules[layer]["Renderer"] = splitted_rules
+    def split_rule_by_symbol_layers(self, rule):
+        """Split a rule by symbol layers or return original if single layer."""
+        if not rule.symbol():
+            return [rule]
+
+        layer_count = rule.symbol().symbolLayerCount()
+        if layer_count <= 1:
+            return [rule]
+
+        split_rules = []
+        for keep_idx in range(layer_count):
+            clone = rule.clone()
+            clone.setDescription(f"{clone.description()} (symbol lyr {keep_idx})")
+
+            # Remove all layers except the one we want to keep
+            for remove_idx in reversed(range(layer_count)):
+                if remove_idx != keep_idx:
+                    clone.symbol().deleteSymbolLayer(remove_idx)
+
+            split_rules.append(clone)
+
+        return split_rules
 
 
 # Console execution
