@@ -9,6 +9,7 @@ class RuleExtractor:
 
     def __init__(self):
         self.project = QgsProject.instance()
+        self.rules_types = ["Renderer", "Labeling"]
         self.extracted_rules = []
 
     def extract_all_rules(self):
@@ -19,12 +20,12 @@ class RuleExtractor:
             for layer in self.project.mapLayers().values()
             if layer.type() == 0 and layer.geometryType() != 4
         ]
-        rules_types = ["Renderer", "Labeling"]
+        
         for layer in vector_layers:
             rules_dict = {}
             try:
                 # Process both renderer and labeling using unified approach
-                for rule_type in rules_types:
+                for rule_type in self.rules_types:
                     rule_based = self._get_rule_based_system(layer, rule_type)
                     if rule_based and rule_based.rootRule():
                         rules_dict[rule_type] = self._flatten_rules(
@@ -35,20 +36,35 @@ class RuleExtractor:
                 print(f"Error processing layer {layer.name()}: {str(e)}")
 
         return self.extracted_rules
-
-    def print_rules(self):
-        """Print extracted rules."""
-        for layer, rules_dict in self.extracted_rules.items():
-            print(f'-> {layer.split(' | ')[0]}')
-            for rule_type, rules in rules_dict.items():
-                print(f'    * {rule_type}')
-                for index, rule in enumerate(rules):
-                    print(f'        > Rule {index + 1}:')
-                    print(f'            - Name: {rule.description()}')
-                    print(f'            - MinScale: {rule.minimumScale()}')
-                    print(f'            - MaxScale: {rule.maximumScale()}')
-                    print(f'            - Filter: {rule.filterExpression()}')
     
+    def print_rules(self):
+        """Print extracted rules with elegant tree structure."""
+        print('\n -------- Extracted rules --------\n')
+        print('Project: ')
+        
+        for layer_idx, (layer, rules_dict) in enumerate(self.extracted_rules.items()):
+            is_last_layer = layer_idx == len(self.extracted_rules) - 1
+            layer_prefix = "    " if is_last_layer else "  │  "
+            print(f"{'  └─ ' if is_last_layer else '  ├─ '}Layer {layer_idx + 1}: {layer.split(' | ')[0]}")
+            
+            for type_idx, (rule_type, rules) in enumerate(rules_dict.items()):
+                is_last_type = type_idx == len(rules_dict) - 1
+                type_prefix = "        " if is_last_type else "   │    "
+                print(f"{layer_prefix}{'   └─ ' if is_last_type else '   ├─ '}{rule_type}:")
+                
+                for rule_idx, rule in enumerate(rules):
+                    is_last_rule = rule_idx == len(rules) - 1
+                    rule_prefix = "     " if is_last_rule else " │   "
+                    print(f"{layer_prefix}{type_prefix}{' └─ ' if is_last_rule else ' ├─ '}Rule {rule_idx + 1}:")
+                    
+                    details = [("Name", rule.description()), ("MinScale", rule.minimumScale()), 
+                            ("MaxScale", rule.maximumScale()), ("Filter", rule.filterExpression())]
+                    for i, (label, value) in enumerate(details):
+                        connector = "└─ " if i == 3 else "├─ "
+                        print(f"{layer_prefix}{type_prefix}{rule_prefix}{connector}{label}: {value}")
+        
+        print('\n -------- Extraction has been finished successfully --------')
+
     def _get_rule_based_system(self, layer, rule_type):
         """Get or convert to rule-based system for both renderer and labeling."""
         system = layer.renderer() if rule_type == "Renderer" else layer.labeling()
@@ -139,5 +155,6 @@ if __name__ == "__console__":
     extractor = RuleExtractor()
     print("Extracting rules from current QGIS project...")
     rules = extractor.extract_all_rules()
-    print(f"Rule extractor ready!")
+    print(f"Printing rules...")
+    extractor.print_rules()
 
