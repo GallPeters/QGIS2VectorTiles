@@ -20,7 +20,7 @@ class RuleExtractor:
             for layer in self.project.mapLayers().values()
             if layer.type() == 0 and layer.geometryType() != 4
         ]
-        
+
         for layer in vector_layers:
             rules_dict = {}
             try:
@@ -31,39 +31,49 @@ class RuleExtractor:
                         rules_dict[rule_type] = self._flatten_rules(
                             rule_based.rootRule(), rule_type
                         )
-                self.extracted_rules[f"{layer.name()} | {layer.id()}"] = rules_dict
+                self.extracted_rules[layer] = rules_dict
             except Exception as e:
                 print(f"Error processing layer {layer.name()}: {str(e)}")
-
+        self._split_rules_by_symbol_layers()
         return self.extracted_rules
-    
+
     def print_rules(self):
         """Print extracted rules with elegant tree structure."""
-        print('\n -------- Extracted rules --------\n')
-        print('Project: ')
-        
+        print("\n -------- Extracted rules --------\nProject: ")
         for layer_idx, (layer, rules_dict) in enumerate(self.extracted_rules.items()):
             is_last_layer = layer_idx == len(self.extracted_rules) - 1
             layer_prefix = "    " if is_last_layer else "  │  "
-            print(f"{'  └─ ' if is_last_layer else '  ├─ '}Layer {layer_idx + 1}: {layer.split(' | ')[0]}")
-            
+            print(
+                f"{'  └─ ' if is_last_layer else '  ├─ '}Layer {layer_idx + 1}: {layer.name()}"
+            )
+
             for type_idx, (rule_type, rules) in enumerate(rules_dict.items()):
                 is_last_type = type_idx == len(rules_dict) - 1
                 type_prefix = "        " if is_last_type else "   │    "
-                print(f"{layer_prefix}{'   └─ ' if is_last_type else '   ├─ '}{rule_type}:")
-                
+                print(
+                    f"{layer_prefix}{'   └─ ' if is_last_type else '   ├─ '}{rule_type}:"
+                )
+
                 for rule_idx, rule in enumerate(rules):
                     is_last_rule = rule_idx == len(rules) - 1
                     rule_prefix = "     " if is_last_rule else " │   "
-                    print(f"{layer_prefix}{type_prefix}{' └─ ' if is_last_rule else ' ├─ '}Rule {rule_idx + 1}:")
-                    
-                    details = [("Name", rule.description()), ("MinScale", rule.minimumScale()), 
-                            ("MaxScale", rule.maximumScale()), ("Filter", rule.filterExpression())]
+                    print(
+                        f"{layer_prefix}{type_prefix}{' └─ ' if is_last_rule else ' ├─ '}Rule {rule_idx + 1}:"
+                    )
+
+                    details = [
+                        ("Name", rule.description()),
+                        ("MinScale", rule.minimumScale()),
+                        ("MaxScale", rule.maximumScale()),
+                        ("Filter", rule.filterExpression()),
+                    ]
                     for i, (label, value) in enumerate(details):
                         connector = "└─ " if i == 3 else "├─ "
-                        print(f"{layer_prefix}{type_prefix}{rule_prefix}{connector}{label}: {value}")
-        
-        print('\n -------- Extraction has been finished successfully --------')
+                        print(
+                            f"{layer_prefix}{type_prefix}{rule_prefix}{connector}{label}: {value}"
+                        )
+
+        print("\n -------- Extraction has been finished successfully --------")
 
     def _get_rule_based_system(self, layer, rule_type):
         """Get or convert to rule-based system for both renderer and labeling."""
@@ -102,7 +112,8 @@ class RuleExtractor:
         # Process children recursively or add leaf rule
         if clone.children():
             for child in clone.children():
-                flattened.extend(self._flatten_rules(child, rule_type))
+                if child.active():
+                    flattened.extend(self._flatten_rules(child, rule_type))
         return flattened
 
     def _inherit_rule_name(self, rule, clone, rule_type, index):
@@ -149,6 +160,28 @@ class RuleExtractor:
                     symbol_layer = parent_symbol.symbolLayer(index).clone()
                     clone_symbol.appendSymbolLayer(symbol_layer)
 
+    def _split_rules_by_symbol_layers(self):
+        """Split all renderer rules to subrules. Each subrule contains a symbol
+        composed from a single symbol layer"""
+        for layer, rules_dict in self.extracted_rules.items():
+            for rule_type, rules in rules_dict.items():
+                if rule_type == "Renderer":
+                    splitted_rules = []
+                    for rule in rules:
+                        if rule.symbol():
+                            symbol_lyrs_num = rule.symbol().symbolLayerCount()
+                            if symbol_lyrs_num > 1:
+                                for keep_index in range(symbol_lyrs_num):
+                                    clone = rule.clone()
+                                    clone.setDescription(f'{clone.description()}_symbol_lyr_{keep_index}')
+                                    for curr_index in reversed(range(symbol_lyrs_num)):
+                                        if keep_index != curr_index:
+                                            clone.symbol().deleteSymbolLayer(curr_index)
+                                    splitted_rules.append(clone)
+                            else:
+                                splitted_rules.append(rule)
+                    self.extracted_rules[layer]["Renderer"] = splitted_rules
+
 
 # Console execution
 if __name__ == "__console__":
@@ -157,4 +190,3 @@ if __name__ == "__console__":
     rules = extractor.extract_all_rules()
     print(f"Printing rules...")
     extractor.print_rules()
-
