@@ -1,6 +1,48 @@
 from qgis.core import *
 
 
+class ZoomLevels:
+    """
+    Provides predefined zoom levels and a method to snap a given scale
+    to the nearest zoom level.
+    """
+
+    levels = [
+        591657528,
+        295828764,
+        147914382,
+        73957191,
+        36978595,
+        18489298,
+        9244649,
+        4622324,
+        2311162,
+        1155581,
+        577791,
+        288895,
+        144448,
+        72224,
+        36112,
+        18056,
+        9028,
+        4514,
+        2257,
+        1128,
+        0.433333333333333,
+        0.2375,
+        0.139583333333333,
+        0.090972222222222,
+    ]
+
+    @classmethod
+    def snap_scale_to_level(cls, scale, round_up=True):
+        """Snap scale to nearest zoom level."""
+        levels = sorted(cls.levels)
+        for i, level in enumerate(levels):
+            if scale <= level:
+                return (i, level) if round_up else (i, levels[i - 1])
+
+
 class RuleExtractor:
     """
     Compact PyQGIS class that extracts and flattens all renderer and labeling rules
@@ -28,9 +70,10 @@ class RuleExtractor:
                 for rule_type in self.rules_types:
                     rule_based = self._get_rule_based_system(lyr, rule_type)
                     if rule_based and rule_based.rootRule():
-                        rules_dict[rule_type] = self._flatten_rules(
-                            rule_based.rootRule(), rule_type
-                        )
+                        rules = []
+                        for rule in self._flatten_rules(rule_based.rootRule(), rule_type):
+                            rules.extend(self._split_rule_by_scales(rule))
+                        rules_dict[rule_type] = rules
                 self.extracted_rules[lyr] = rules_dict
             except Exception as e:
                 print(f"Error processing lyr {lyr.name()}: {str(e)}")
@@ -104,7 +147,7 @@ class RuleExtractor:
 
             # Split if needed and append flattened rule
             if rule_type == "renderer":
-                flattened.extend(self.split_rule_by_symbol_layers(clone))
+                flattened.extend(self._split_rule_by_symbol_layers(clone))
             else:
                 flattened.append(clone)
         else:
@@ -160,8 +203,8 @@ class RuleExtractor:
                     symbol_lyr = parent_symbol.symbolLayer(index).clone()
                     clone_symbol.appendSymbolLayer(symbol_lyr)
 
-    def split_rule_by_symbol_layers(self, rule):
-        """Split a rule by symbol layers or return original if single layer."""
+    def _split_rule_by_symbol_layers(self, rule):
+        """Split a rule by symbol layers or return original if symbol contains a single layer."""
         if not rule.symbol():
             return [rule]
 
@@ -169,7 +212,7 @@ class RuleExtractor:
         if layer_count <= 1:
             return [rule]
 
-        split_rules = []
+        splitted_rules = []
         for keep_idx in range(layer_count):
             clone = rule.clone()
             clone.setDescription(f"{clone.description()} (symbol lyr {keep_idx})")
@@ -179,9 +222,37 @@ class RuleExtractor:
                 if remove_idx != keep_idx:
                     clone.symbol().deleteSymbolLayer(remove_idx)
 
-            split_rules.append(clone)
+            splitted_rules.append(clone)
 
-        return split_rules
+        return splitted_rules
+
+    def _split_rule_by_scales(self, rule):
+        """Split a rule by symbol layers or return original if single layer."""
+        zooms = ZoomLevels()
+        filter_exp = rule.filterExpression()
+        min_scale = rule.minimumScale()
+        max_scale = rule.maximumScale()
+
+        # If rule is not scale independent only snapt it scales to the tiling scheme
+        if "@map_scale" not in filter_exp:
+            rule.setMinimumScale(zooms.snap_scale_to_level(min_scale, True))
+            rule.setMaximumScale(zooms.snap_scale_to_level(max_scale))
+            return [rule]
+
+        # If rule is scale dependent split the rule to subrule for each visible scale
+        splitted_rules = []
+
+        rule_levels = [lvl for lvl in zooms.levels if min_scale < lvl <= max_scale]
+        for level in rule_levels:
+            clone = rule.clone()
+            index = zooms.levels.index(level)
+            if index > len(zooms.levels):
+                index -= 1
+            clone.setMinimumScale(level)
+            clone.setMaximumScale(zooms.levels[index + 1])
+            clone.setFilterExpression(filter_exp.replace("@map_scale", level))
+
+        return splitted_rules
 
 
 # Console execution
