@@ -5,8 +5,8 @@ current QGIS project with unified processing logic.
 
 import re
 
-from dataclasses import dataclass
-from typing import List, Union, Optional, Callable
+from dataclasses import dataclass, fields
+from typing import List, Union
 from qgis.core import (
     QgsProject,
     QgsVectorLayer,
@@ -66,12 +66,12 @@ class ZoomLevels:
 class FlatRule:
     """Represents a flattened rule with all inherited properties."""
 
+    rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     name: str
-    source: str
-    flat_rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
-    original_rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
-    layer: QgsVectorLayer
     rule_type: str
+    layer_id: str
+    target_source: str
+    filter: str
     min_scale: float
     max_scale: float
     data: Union[QgsSymbol, QgsPalLayerSettings]
@@ -103,6 +103,15 @@ class RuleExtractor:
 
         return self.extracted_rules
 
+    def print_rules(self):
+        """Print extracted flat rules objects properties"""
+        for index, rule in enumerate(self.extracted_rules):
+            print(f".\n.   # {index} {rule.name}")
+            for field in fields(rule):
+                if field.name not in ['rule','data', 'name', 'layer_id']:
+                    value = getattr(rule, field.name)
+                    print(f".      - {field.name}: {value}")
+
     def _is_relevant_layer(self, layer) -> bool:
         """Check if layer is a visible vector layer."""
         is_vector = layer.type() == 0 and layer.geometryType() != 4
@@ -118,7 +127,7 @@ class RuleExtractor:
 
             root_rule = self._get_root(rule_system, layer, layer_idx, rule_type)
             if root_rule:
-                self._flatten_rules(root_rule, rule_type, layer)
+                self._flatten_rules(root_rule, rule_type, layer.id())
 
     def _get_rule_system(self, layer, rule_type):
         """Get or convert layer system to rule-based."""
@@ -142,14 +151,19 @@ class RuleExtractor:
 
     def _get_root(self, rule_system, layer, layer_idx, rule_type):
         """Prepare root rule with descriptive information."""
+        # Get root rule
         root_rule = rule_system.rootRule()
+
+        # Inherit root rule properties from the layer itself
         layer_name = layer.name() or "unnamed"
         description = f"layer: {layer_idx} ({layer_name}) > type: {rule_type}"
         root_rule.setDescription(description)
         root_rule.setFilterExpression(layer.subsetString())
+        root_rule.setMinimumScale(layer.minimumScale())
+        root_rule.setMaximumScale(layer.maximumScale())
         return root_rule
 
-    def _flatten_rules(self, rule, rule_type, layer, index=None) -> List:
+    def _flatten_rules(self, rule, rule_type, layer_id, index=None) -> List:
         """Recursively flatten rules with inheritance."""
         flattened = []
 
@@ -160,19 +174,19 @@ class RuleExtractor:
             if rule_type == "renderer":
                 splitted_rules = self._split_by_symbol_layers(clone)
             else:
-                splitted_rules = self._split_label_by_symbol(clone, layer)
+                splitted_rules = self._split_label_by_symbol(clone, layer_id)
 
             for split_rule in splitted_rules:
                 flattened.extend(self._split_by_scales(split_rule))
 
         # Generate flat rules
         for flat in flattened:
-            self._create_flat_rule(flat, rule, rule_type, layer)
+            self._create_flat_rule(flat, rule_type, layer_id)
 
         # Process children recursively
         for index, child in enumerate(rule.children()):
             if child.active():
-                self._flatten_rules(child, rule_type, layer, index)
+                self._flatten_rules(child, rule_type, layer_id, index)
 
         return flattened
 
@@ -303,7 +317,7 @@ class RuleExtractor:
 
         return rules
 
-    def _split_label_by_symbol(self, rule, layer):
+    def _split_label_by_symbol(self, rule, layer_id):
         """Split label rule by matching renderer rules with overlapping scales."""
         # Get relevant symbol rules
         splitted_rules = []
@@ -311,11 +325,11 @@ class RuleExtractor:
         for flat_rule in self.extracted_rules:
             if flat_rule.target_source in sym_flats:
                 continue
-            if flat_rule.layer == layer and flat_rule.rule_type == "renderer":
+            if flat_rule.layer_id == layer_id and flat_rule.rule_type == "renderer":
                 sym_flats[flat_rule.target_source] = flat_rule
 
         # Split label rule by symbol rules
-        for sym_flat in sym_flats:
+        for sym_flat in list(sym_flats.values()):
             combined_rule = self._create_combined_rule(rule, sym_flat)
             if combined_rule:
                 splitted_rules.append(combined_rule)
@@ -323,13 +337,13 @@ class RuleExtractor:
 
     def _create_combined_rule(self, lbl_rule, sym_flat):
         """Create combined rule with merged filters and constrained scales."""
-        lbl_min, lbl_max = lbl_rule.minimumScale(), lbl_rule.maxnimumScale()
+        lbl_min, lbl_max = lbl_rule.minimumScale(), lbl_rule.maximumScale()
         sym_min, sym_max = sym_flat.min_scale, sym_flat.max_scale
-        if lbl_min >= sym_min and lbl_max <= sym_max:
+        if lbl_min <= sym_min or lbl_max >= sym_max:
             # Combine filter
             clone = lbl_rule.clone()
             clone_filter = clone.filterExpression()
-            sym_filter = sym_flat.original_rule.filterExpression()
+            sym_filter = sym_flat.filter
             if clone_filter and sym_filter:
                 combined_filter = f"({sym_filter}) AND ({clone_filter})"
             else:
@@ -348,18 +362,18 @@ class RuleExtractor:
             return clone
         return
 
-    def _create_flat_rule(self, flat_rule, original_rule, rule_type, layer):
+    def _create_flat_rule(self, flat_rule, rule_type, layer_id):
         """Create and store a FlatRule instance."""
-        target_source = self.clean_rule_desc(flat_rule.description())
+        target_source = self._clean_rule_desc(flat_rule.description())
         data = flat_rule.symbol() if rule_type == "renderer" else flat_rule.settings()
 
         flat = FlatRule(
+            rule=flat_rule,
             name=flat_rule.description(),
-            target_source=target_source,
-            flat_rule=flat_rule,
-            original_rule=original_rule,
-            layer=layer,
             rule_type=rule_type,
+            layer_id=layer_id,
+            target_source=target_source,
+            filter=flat_rule.filterExpression(),
             min_scale=flat_rule.minimumScale(),
             max_scale=flat_rule.maximumScale(),
             data=data,
@@ -367,7 +381,7 @@ class RuleExtractor:
         self.extracted_rules.append(flat)
 
     @staticmethod
-    def clean_rule_desc(text):
+    def _clean_rule_desc(text):
         """Extract layer, type, all rule values, and limiter from formatted string."""
         layer_match = re.search(r"layer:\s*(\d+)", text)
         type_match = re.search(r"type:\s*(\w+)", text)
@@ -388,17 +402,13 @@ class RuleExtractor:
         return ""
 
 
-def main():
-    """Console execution entry point."""
-    extractor = RuleExtractor()
-    print("Extracting rules from current QGIS project...")
-
-    rules = extractor.extract_all_rules()
-    print(f"Successfully extracted {len(rules)} rules")
-
-    for rule in rules:
-        print(f"  - {rule.name}")
 
 
 if __name__ == "__console__":
-    main()
+    """Console execution entry point."""
+    extractor = RuleExtractor()
+    print(".\n. Extracting rules from current QGIS project...")
+    rules = extractor.extract_all_rules()
+    extractor.print_rules()
+    print(f".\n. Successfully extracted {len(rules)} rules")
+
