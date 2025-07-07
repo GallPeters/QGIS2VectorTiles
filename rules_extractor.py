@@ -3,6 +3,8 @@ Extracts and flattens renderer and labeling rules from vector layers in the
 current QGIS project with unified processing logic.
 """
 
+import re
+
 from dataclasses import dataclass
 from typing import List, Union, Optional, Callable
 from qgis.core import (
@@ -55,7 +57,7 @@ class ZoomLevels:
             if scale >= level:
                 if i == 0 or not snap_up:
                     return level
-                return level if snap_up else cls.LEVELS[i - 1]
+                return level if not snap_up else cls.LEVELS[i - 1]
 
         return cls.LEVELS[-1]
 
@@ -65,6 +67,7 @@ class FlatRule:
     """Represents a flattened rule with all inherited properties."""
 
     name: str
+    source: str
     flat_rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     original_rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     layer: QgsVectorLayer
@@ -143,6 +146,7 @@ class RuleExtractor:
         layer_name = layer.name() or "unnamed"
         description = f"layer: {layer_idx} ({layer_name}) > type: {rule_type}"
         root_rule.setDescription(description)
+        root_rule.setFilterExpression(layer.subsetString())
         return root_rule
 
     def _flatten_rules(self, rule, rule_type, layer, index=None) -> List:
@@ -152,11 +156,11 @@ class RuleExtractor:
         if rule.parent():
             clone = self._inherit_properties(rule, rule_type, index)
 
-            # Split by symbol layers (renderer only) then by scales
+            # Split by symbol layers (renderer only) then by scales then by symbol filters
             if rule_type == "renderer":
                 splitted_rules = self._split_by_symbol_layers(clone)
             else:
-                splitted_rules = [clone]
+                splitted_rules = self._split_label_by_symbol(clone, layer)
 
             for split_rule in splitted_rules:
                 flattened.extend(self._split_by_scales(split_rule))
@@ -198,6 +202,7 @@ class RuleExtractor:
 
     def _inherit_filter(self, clone, rule):
         """Combine parent and rule filters with AND logic."""
+        # Combine rule and parent rule filters
         parent_filter = rule.parent().filterExpression()
         rule_filter = rule.filterExpression()
 
@@ -206,7 +211,18 @@ class RuleExtractor:
         else:
             combined_filter = parent_filter or rule_filter or ""
 
-        clone.setFilterExpression(combined_filter)
+        # Exclude children filters from rule filter
+        children_filters = []
+        for child in rule.children():
+            child_filter = child.filterExpression()
+            if child_filter:
+                children_filters.append(f"({child_filter})")
+        children_filters = " OR ".join(children_filters)
+        if children_filters and combined_filter:
+            excluded_filter = f"({parent_filter}) AND NOT ({rule_filter})"
+        else:
+            excluded_filter = children_filters or combined_filter or ""
+        clone.setFilterExpression(excluded_filter)
 
     def _inherit_scale(self, clone, rule, comparator):
         """Inherit scale limits using min/max comparator."""
@@ -287,12 +303,59 @@ class RuleExtractor:
 
         return rules
 
+    def _split_label_by_symbol(self, rule, layer):
+        """Split label rule by matching renderer rules with overlapping scales."""
+        # Get relevant symbol rules
+        splitted_rules = []
+        sym_flats = {}
+        for flat_rule in self.extracted_rules:
+            if flat_rule.target_source in sym_flats:
+                continue
+            if flat_rule.layer == layer and flat_rule.rule_type == "renderer":
+                sym_flats[flat_rule.target_source] = flat_rule
+
+        # Split label rule by symbol rules
+        for sym_flat in sym_flats:
+            combined_rule = self._create_combined_rule(rule, sym_flat)
+            if combined_rule:
+                splitted_rules.append(combined_rule)
+        return splitted_rules
+
+    def _create_combined_rule(self, lbl_rule, sym_flat):
+        """Create combined rule with merged filters and constrained scales."""
+        lbl_min, lbl_max = lbl_rule.minimumScale(), lbl_rule.maxnimumScale()
+        sym_min, sym_max = sym_flat.min_scale, sym_flat.max_scale
+        if lbl_min >= sym_min and lbl_max <= sym_max:
+            # Combine filter
+            clone = lbl_rule.clone()
+            clone_filter = clone.filterExpression()
+            sym_filter = sym_flat.original_rule.filterExpression()
+            if clone_filter and sym_filter:
+                combined_filter = f"({sym_filter}) AND ({clone_filter})"
+            else:
+                combined_filter = sym_filter or clone_filter or ""
+            clone.setFilterExpression(combined_filter)
+
+            # Combine scale
+            if lbl_min > sym_min:
+                clone.setMinimumScale(sym_min)
+            if lbl_max < sym_max:
+                clone.setMaximumScale(sym_max)
+
+            # Combine name
+            desc = f"{clone.description()} > limiter: {sym_flat.target_source}"
+            clone.setDescription(desc)
+            return clone
+        return
+
     def _create_flat_rule(self, flat_rule, original_rule, rule_type, layer):
         """Create and store a FlatRule instance."""
+        target_source = self.clean_rule_desc(flat_rule.description())
         data = flat_rule.symbol() if rule_type == "renderer" else flat_rule.settings()
 
         flat = FlatRule(
             name=flat_rule.description(),
+            target_source=target_source,
             flat_rule=flat_rule,
             original_rule=original_rule,
             layer=layer,
@@ -302,6 +365,27 @@ class RuleExtractor:
             data=data,
         )
         self.extracted_rules.append(flat)
+
+    @staticmethod
+    def clean_rule_desc(text):
+        """Extract layer, type, all rule values, and limiter from formatted string."""
+        layer_match = re.search(r"layer:\s*(\d+)", text)
+        type_match = re.search(r"type:\s*(\w+)", text)
+        rule_matches = re.findall(r"rule:\s*(\d+)", text)
+        limit_match = re.search(r"limit:\s*(.+?)(?:\s*>|$)", text)
+
+        if layer_match and type_match and rule_matches:
+            layer = layer_match.group(1)
+            type_val = type_match.group(1)
+            rules = "_".join(f"rule{rule}" for rule in rule_matches)
+            result = f"layer{layer}_{type_val}_{rules}"
+
+            if limit_match:
+                limit_val = limit_match.group(1).strip()
+                result += f"limiter_{limit_val}"
+
+            return result
+        return ""
 
 
 def main():
