@@ -173,9 +173,9 @@ class RuleExtractor:
 
             # Split by symbol layers (renderer only) then by scales then by symbol filters
             if rule_type == 0:
-                splitted_rules = self._split_by_symbol_lyrs(clone)
+                splitted_rules = self._split_by_symbol_lyrs(clone, lyr)
             else:
-                splitted_rules = self._split_label_by_symbol(clone, lyr)
+                splitted_rules = self._split_label_by_symbol_filter(clone, lyr)
 
             for split_rule in splitted_rules:
                 flattened.extend(self._split_by_scales(split_rule))
@@ -263,17 +263,27 @@ class RuleExtractor:
                 symbol_lyr = parent_symbol.symbolLayer(i).clone()
                 clone_symbol.appendSymbolLayer(symbol_lyr)
 
-    def _split_by_symbol_lyrs(self, rule) -> List:
+    def _split_by_symbol_lyrs(self, rule, lyr) -> List:
         """Split rule by individual symbol layers."""
-        if not rule.symbol() or rule.symbol().symbolLayerCount() <= 1:
+        # Split only polygon renderer symbol contains outline symbollayer.
+        sym = rule.symbol()
+        if not sym or lyr.geometryType() != 2:
+            return [rule]
+        if not any(l.type() == 1 for l in sym.symbolLayers()):
             return [rule]
 
-        lyr_count = rule.symbol().symbolLayerCount()
+        lyr_count = sym.symbolLayerCount()
         split_rules = []
 
+        # Clone symbol and keep only the relevant symbol layer
         for keep_idx in range(lyr_count):
             clone = rule.clone()
             desc = f"{clone.description()}s{keep_idx + 1}"
+
+            # If layer geomtry type is polygon add character
+            # indicates geometry need to be converted to line
+            if sym.symbolLayer(keep_idx).type() == 1:
+                desc += "g1"
             clone.setDescription(desc)
 
             # Remove all layers except the one to keep
@@ -318,7 +328,7 @@ class RuleExtractor:
 
         return rules
 
-    def _split_label_by_symbol(self, rule, lyr):
+    def _split_label_by_symbol_filter(self, rule, lyr):
         """Split label rule by matching renderer rules with overlapping scales."""
         # Get relevant symbol rules
         splitted_rules = []
@@ -335,6 +345,13 @@ class RuleExtractor:
             combined_rule = self._create_combined_rule(rule, sym_flat.rule)
             if combined_rule:
                 splitted_rules.append(combined_rule)
+
+        # If layer geomtry type is polygon add character
+        # indicates geometry need to be converted to point
+        if lyr.geometryType() == 2:
+            for rule in splitted_rules:
+                rule.setDescription(f"{rule.description()}g0")
+
         return splitted_rules
 
     def _create_combined_rule(self, lbl_rule, sym_rule):
@@ -359,7 +376,7 @@ class RuleExtractor:
                 clone.setMaximumScale(sym_max)
 
             # Combine name
-            desc = f"{clone.description()}r{sym_rule.description()}"
+            desc = f"{clone.description()}f{sym_rule.description()}"
             clone.setDescription(desc)
             return clone
         return
