@@ -16,7 +16,7 @@ from qgis.core import (
 )
 
 
-class ZoomLevels:
+class Zooms:
     """Manages predefined zoom levels and scale snapping."""
 
     LEVELS = [
@@ -60,6 +60,11 @@ class ZoomLevels:
 
         return cls.LEVELS[-1]
 
+    @classmethod
+    def get_zoom(cls, scale):
+        zoom = cls.LEVELS.index(scale)
+        return f"{'0' if zoom < 10 else ''}{zoom}"
+
 
 @dataclass
 class FlatRule:
@@ -102,7 +107,6 @@ class RuleExtractor:
         p2 = f".      -"
         for idx, flat in enumerate(self.extracted_rules):
             rule = flat.rule
-
             print(".")
             print(f"{p1}# {idx + 1} {rule.description()}")
             print(f"{p2}type: {self.RULE_TYPES[flat.type]}")
@@ -126,10 +130,9 @@ class RuleExtractor:
             rule_system = self._get_rule_system(lyr, rule_type)
             if not rule_system:
                 continue
-
             root_rule = self._get_root(rule_system, lyr, lyr_idx, rule_type)
             if root_rule:
-                self._flatten_rules(root_rule, rule_type, lyr)
+                self._flat_rules(lyr, lyr_idx, root_rule, rule_type, 0, 0)
 
     def _get_rule_system(self, lyr, rule_type):
         """Get or convert layer system to rule-based."""
@@ -153,23 +156,19 @@ class RuleExtractor:
 
     def _get_root(self, rule_system, lyr, lyr_idx, rule_type):
         """Prepare root rule with descriptive information."""
-        # Get root rule
+        # Get root rule and inherite it scale range from the layer itself
         root_rule = rule_system.rootRule()
-
-        # Inherit root rule properties from the layer itself
-        lyr_name = lyr.name() or "unnamed"
-        description = f"l{lyr_idx + 1}t{rule_type}"
-        root_rule.setDescription(description)
         root_rule.setMinimumScale(lyr.minimumScale())
         root_rule.setMaximumScale(lyr.maximumScale())
         return root_rule
 
-    def _flatten_rules(self, rule, rule_type, lyr, idx=None) -> List:
+    def _flat_rules(self, lyr, lyr_idx, rule, rule_type, rule_lvl, rule_idx):
         """Recursively flatten rules with inheritance."""
         flattened = []
 
         if rule.parent():
-            clone = self._inherit_properties(rule, rule_type, idx)
+            clone = self._inherit_properties(rule, rule_type)
+            self._set_rule_name(lyr_idx, clone, rule_type, rule_lvl, rule_idx)
 
             # Split by symbol layers (renderer only) then by scales then by symbol filters
             if rule_type == 0:
@@ -185,35 +184,27 @@ class RuleExtractor:
             self._create_flat_rule(flat, rule_type, lyr)
 
         # Process children recursively
-        for idx, child in enumerate(rule.children()):
-            if child.active():
-                self._flatten_rules(child, rule_type, lyr, idx)
-
+        for child_idx, child in enumerate(rule.children()):
+            if not child.active():
+                continue
+            self._flat_rules(lyr, lyr_idx, child, rule_type, rule_lvl + 1, child_idx)
         return flattened
 
-    def _inherit_properties(self, rule, rule_type, rule_idx):
+    def _set_rule_name(self, lyr_idx, rule, rule_type, rule_lvl, rule_idx):
+        """Inherit and combine rule names."""
+        lyr_desc = f"l{self.get_num(lyr_idx)}t0{rule_type}"
+        rule_desc = f"r{self.get_num(rule_lvl, rule_idx)}"
+        rule.setDescription(f"{lyr_desc}{rule_desc}")
+
+    def _inherit_properties(self, rule, rule_type):
         """Inherit all properties from parent rule."""
         clone = rule.clone()
-        self._inherit_name(clone, rule, rule_type, rule_idx)
         self._inherit_filter(clone, rule)
         self._inherit_scale(clone, rule, min)
         self._inherit_scale(clone, rule, max)
         if rule_type == 0:
             self._inherit_symbol(clone, rule)
         return clone
-
-    def _inherit_name(self, clone, rule, rule_type, rule_idx):
-        """Inherit and combine rule names."""
-        parent = rule.parent()
-        is_root_child = not parent.parent()
-
-        attr = "description" if is_root_child or rule_type == 1 else "label"
-
-        rule_name = getattr(rule, attr)() or "unnamed"
-        parent_name = getattr(parent, attr)() or ""
-
-        prefix = f"{parent_name}" if parent_name else ""
-        clone.setDescription(f"{prefix}r{rule_idx + 1}")
 
     def _inherit_filter(self, clone, rule):
         """Combine parent and rule filters with AND logic."""
@@ -266,28 +257,29 @@ class RuleExtractor:
     def _split_by_symbol_lyrs(self, rule, lyr) -> List:
         """Split rule by individual symbol layers."""
         # Split only polygon renderer symbol contains outline symbollayer.
+        split_required = True
         sym = rule.symbol()
         if not sym or lyr.geometryType() != 2:
-            return [rule]
+            split_required = False
         if not any(l.type() == 1 for l in sym.symbolLayers()):
+            split_required = False
+        if not split_required:
+            desc = f"{rule.description()}s00g{self.get_num(lyr.geometryType())}"
+            rule.setDescription(desc)
             return [rule]
-
-        lyr_count = sym.symbolLayerCount()
-        split_rules = []
 
         # Clone symbol and keep only the relevant symbol layer
-        for keep_idx in range(lyr_count):
+        sym_lyr_count = sym.symbolLayerCount()
+        split_rules = []
+        for keep_idx in range(sym_lyr_count):
             clone = rule.clone()
-            desc = f"{clone.description()}s{keep_idx + 1}"
-
-            # If layer geomtry type is polygon add character
-            # indicates geometry need to be converted to line
-            if sym.symbolLayer(keep_idx).type() == 1:
-                desc += "g1"
+            line_sym_lyr = sym.symbolLayer(keep_idx).type() == 1
+            target_geom = 1 if line_sym_lyr else lyr.geometryType()
+            desc = f"{clone.description()}s{self.get_num(keep_idx)}g{self.get_num(target_geom)}"
             clone.setDescription(desc)
 
             # Remove all layers except the one to keep
-            for remove_idx in reversed(range(lyr_count)):
+            for remove_idx in reversed(range(sym_lyr_count)):
                 if remove_idx != keep_idx:
                     clone.symbol().deleteSymbolLayer(remove_idx)
 
@@ -298,17 +290,20 @@ class RuleExtractor:
     def _split_by_scales(self, rule) -> List:
         """Split rule by zoom levels if scale-dependent."""
         filter_expr = rule.filterExpression()
-        min_scale = rule.minimumScale()
-        max_scale = rule.maximumScale()
+        min_scale = Zooms.snap_to_level(rule.minimumScale(), True)
+        max_scale = Zooms.snap_to_level(rule.maximumScale(), False)
 
         # Handle scale-independent rules
         if "@map_scale" not in filter_expr:
-            rule.setMinimumScale(ZoomLevels.snap_to_level(min_scale, True))
-            rule.setMaximumScale(ZoomLevels.snap_to_level(max_scale, False))
+            rule.setMinimumScale(min_scale)
+            rule.setMaximumScale(max_scale)
+
+            suffix = f"o{Zooms.get_zoom(min_scale)}i{Zooms.get_zoom(max_scale)}"
+            rule.setDescription(f"{rule.description()}{suffix}")
             return [rule]
 
         # Split scale-dependent rules by zoom levels
-        rule_lvls = [lvl for lvl in ZoomLevels.LEVELS if max_scale <= lvl <= min_scale]
+        rule_lvls = [lvl for lvl in Zooms.LEVELS if max_scale <= lvl <= min_scale]
         rules = []
 
         for i, level in enumerate(rule_lvls):
@@ -322,8 +317,8 @@ class RuleExtractor:
             new_filter = filter_expr.replace("@map_scale", str(level))
             clone.setFilterExpression(new_filter)
 
-            desc = f"{rule.description()}v{round(level, 2)}"
-            clone.setDescription(desc)
+            suffix = f"o{Zooms.get_zoom(level)}i{Zooms.get_zoom(next_max)}"
+            clone.setDescription(f"{rule.description()}{suffix}")
             rules.append(clone)
 
         return rules
@@ -341,20 +336,22 @@ class RuleExtractor:
                 sym_flats[sym_name] = flat_rule
 
         # Split label rule by symbol rules
-        for sym_flat in list(sym_flats.values()):
-            combined_rule = self._create_combined_rule(rule, sym_flat.rule)
+        for sym_idx, sym_rule in enumerate(sym_flats.values()):
+            combined_rule = self._create_combined_rule(rule, sym_idx, sym_rule.rule)
             if combined_rule:
                 splitted_rules.append(combined_rule)
+        if not splitted_rules:
+            rule.setDescription(f"{rule.description()}f00")
+            splitted_rules = [rule]
 
-        # If layer geomtry type is polygon add character
-        # indicates geometry need to be converted to point
-        if lyr.geometryType() == 2:
-            for rule in splitted_rules:
-                rule.setDescription(f"{rule.description()}g0")
+        # add character indicates destination geometry
+        for rule in splitted_rules:
+            target_geom = 0 if lyr.geometryType() == 2 else lyr.geometryType()
+            rule.setDescription(f"{rule.description()}g{self.get_num(target_geom)}")
 
         return splitted_rules
 
-    def _create_combined_rule(self, lbl_rule, sym_rule):
+    def _create_combined_rule(self, lbl_rule, sym_idx, sym_rule):
         """Create combined rule with merged filters and constrained scales."""
         lbl_min, lbl_max = lbl_rule.minimumScale(), lbl_rule.maximumScale()
         sym_min, sym_max = sym_rule.minimumScale(), sym_rule.maximumScale()
@@ -376,7 +373,7 @@ class RuleExtractor:
                 clone.setMaximumScale(sym_max)
 
             # Combine name
-            desc = f"{clone.description()}f{sym_rule.description()}"
+            desc = f"{clone.description()}f{self.get_num(sym_idx)}"
             clone.setDescription(desc)
             return clone
         return
@@ -387,25 +384,9 @@ class RuleExtractor:
         self.extracted_rules.append(flat)
 
     @staticmethod
-    def _clean_rule_desc(text):
-        """Extract layer, type, all rule values, and limiter from formatted string."""
-        lyr_match = re.search(r"layer:\s*(\d+)", text)
-        type_match = re.search(r"type:\s*(\w+)", text)
-        rule_matches = re.findall(r"rule:\s*(\d+)", text)
-        limit_match = re.search(r"limiter:\s*(.+?)(?:\s*>|$)", text)
-
-        if lyr_match and type_match and rule_matches:
-            lyr = lyr_match.group(1)
-            type_val = type_match.group(1)
-            rules = "_".join(f"rule_{rule}" for rule in rule_matches)
-            result = f"layer_{lyr}_{type_val}_{rules}"
-
-            if limit_match:
-                limit_val = limit_match.group(1).strip()
-                result += f"_limiter_{limit_val}"
-
-            return result
-        return ""
+    def get_num(*nums):
+        """Add zero as prefix to rule index properties if required"""
+        return "".join(f"{'0' if num < 9 else ''}{num + 1}" for num in nums)
 
 
 if __name__ == "__console__":
