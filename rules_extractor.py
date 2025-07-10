@@ -166,7 +166,6 @@ class RuleExporter:
         # Remove unneccessary features
         expression = rule.rule.filterExpression()
         if expression:
-            print(expression)
             lyr = self._run_alg("extractbyexpression", INPUT=lyr, EXPRESSION=expression)
 
         # Remove unneccessary fields
@@ -294,7 +293,7 @@ class RuleExtractor:
             if rule_type == 0:
                 splitted_rules = self._split_by_symbol_lyrs(clone, lyr)
             else:
-                splitted_rules = self._split_label_by_symbol_filter(clone, lyr)
+                splitted_rules = self._split_by_symbol_filter(clone, lyr)
 
             for split_rule in splitted_rules:
                 flatrules.extend(self._split_by_scales(split_rule))
@@ -455,13 +454,13 @@ class RuleExtractor:
 
         return rules
 
-    def _split_label_by_symbol_filter(self, rule, lyr):
+    def _split_by_symbol_filter(self, rule, lyr):
         """Split label rule by matching renderer rules with overlapping scales."""
         # Get relevant symbol rules
         splitted_rules = []
         sym_flats = {}
         for flatrule in self.extracted_rules:
-            sym_name = flatrule.rule.description()
+            sym_name = flatrule.target.split('g')[0]
             if sym_name in sym_flats:
                 continue
             if flatrule.lyr.id() == lyr.id() and flatrule.type == 0:
@@ -514,7 +513,7 @@ class RuleExtractor:
         """Create and store a FlatRule instance."""
         # Set the target dataset name by removing the symbol layer affix
         if rule_type == 0:
-            target = f"{rule.description()[:12]}00{rule.description()[14:]}"
+            target = f"{rule.description()[:13]}00{rule.description()[15:]}"
             data = rule.symbol()
             fields = data.usedAttributes(QgsRenderContext())
         else:
