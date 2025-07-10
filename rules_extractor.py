@@ -3,16 +3,17 @@ Extracts and flattens renderer and labeling rules from vector layers in the
 current QGIS project with unified processing logic.
 """
 
-import re
-
-from dataclasses import dataclass, fields
-from typing import List, Union
+from dataclasses import dataclass
+from typing import Union
+import processing
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
     QgsRuleBasedLabeling,
     QgsPalLayerSettings,
     QgsVectorLayer,
+    QgsSymbol,
+    QgsRenderContext,
 )
 
 
@@ -73,6 +74,125 @@ class FlatRule:
     rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     lyr: QgsVectorLayer
     type: str
+    data: Union[QgsSymbol, QgsPalLayerSettings]
+    fields: list[str]
+    target: str
+
+    def get_attr(self, char):
+        """Extract rule attribute value from description by given"""
+        init = self.rule.description().find(char) + 1
+        return int(self.rule.description()[init : init + 2])
+
+    def set_attr(self, char, value):
+        """Extract rule attribute value from description by given"""
+        init = self.rule.description().find(char) + 1
+        nums = self.rule.description()[init : init + 2]
+        current = f"{char}{nums}"
+        new = f"{char}{value}"
+        self.target = self.target.replace(current, new)
+
+
+class RuleExporter:
+    """Export rules as geoparquets to a destination folder."""
+
+    def __init__(
+        self,
+        flatrules,
+        min_zoom=0,
+        max_zoom=len(Zooms.LEVELS),
+        extent=None,
+        required_field_only=True,
+    ):
+        self.extent = extent
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom
+        self.flatrules = self._get_rules(flatrules)
+        self.source_lyrs = self._get_source_lyrs()
+        self.required_fields = self._get_required_fields(required_field_only)
+        self.exported_rules = {}
+
+    def export_rules(self):
+        """Export all rules using the matching processing"""
+        for flatrule in self.flatrules:
+            if flatrule.target not in self.exported_rules:
+                self._export_rule(flatrule)
+        return self.exported_rules
+
+    def _get_rules(self, flatrules):
+        """Filter and modify rules which displayed out of the input scale range"""
+        inside_range = []
+        for flatrule in flatrules:
+            rule_min, rule_max = flatrule.get_attr("o"), flatrule.get_attr("i")
+            if rule_max < self.min_zoom or rule_min > self.max_zoom:
+                continue
+            flatrule.set_attr("o", min(rule_min, self.min_zoom))
+            flatrule.set_attr("i", max(rule_max, self.max_zoom))
+            inside_range.append(flatrule)
+        return inside_range
+
+    def _get_source_lyrs(self):
+        """Extract and repair rules source layers"""
+        source_lyrs = {}
+        flatrules_lyrs = set(flatrule.lyr for flatrule in self.flatrules)
+        for lyr in flatrules_lyrs:
+            extent = self.extent or lyr.extent()
+            extracted = self._run_alg("extractbyextent", INPUT=lyr, EXTENT=extent)
+            fix_linetwork = self._run_alg("fixgeometries", INPUT=extracted, METHOD=0)
+            fix_structure = self._run_alg(
+                "fixgeometries", INPUT=fix_linetwork, METHOD=1
+            )
+            source_lyrs[lyr.id()] = fix_structure
+        return source_lyrs
+
+    def _get_required_fields(self, required_fields_only):
+        """Get list of target datasets and its required fields"""
+        if not required_fields_only:
+            return
+        required_fields = dict.fromkeys(
+            [flatrule.target for flatrule in self.flatrules], set()
+        )
+        for flatrule in self.flatrules:
+            required_fields.get(flatrule.target).union(set(flatrule.fields))
+        return required_fields
+
+    def _add_additional_fields(self):
+        """Adds geometry attributes if geometry type is being changed"""
+        pass
+
+    def _export_rule(self, rule):
+        """Export dataset using the relevant file keeping only required fields"""
+        lyr = self.source_lyrs[rule.lyr.id()]
+
+        # Remove unneccessary features
+        expression = rule.rule.filterExpression()
+        if expression:
+            print(expression)
+            lyr = self._run_alg("extractbyexpression", INPUT=lyr, EXPRESSION=expression)
+
+        # Remove unneccessary fields
+        if self.required_fields:
+            required_fields = self.required_fields.get(rule.target) or ["fid"]
+            lyr = self._run_alg("retainfields", INPUT=lyr, FIELDS=required_fields)
+
+        # Replace geometry
+        target_geom = rule.get_attr("g")
+        if target_geom != rule.lyr.geometryType():
+            if (
+                target_geom == 1
+            ):  # Processing refer to linestring as 2 in contrast to layer's gemetry type (1).
+                target_geom = 2
+            lyr = self._run_alg(
+                "convertgeometrytype", "qgis", INPUT=lyr, TYPE=target_geom
+            )
+
+        # Insert rule to output dict
+        QgsProject.instance().addMapLayer(lyr)
+        self.exported_rules[rule.target] = lyr
+
+    @staticmethod
+    def _run_alg(alg_id, alg_type="native", **params):
+        params["OUTPUT"] = "TEMPORARY_OUTPUT"
+        return processing.run(f"{alg_type}:{alg_id}", params)["OUTPUT"]
 
 
 class RuleExtractor:
@@ -85,7 +205,7 @@ class RuleExtractor:
         self.lyrs_root = self.project.layerTreeRoot()
         self.extracted_rules = []
 
-    def extract_all_rules(self) -> List[FlatRule]:
+    def extract_rules(self):
         """Extract all rules from visible vector layers."""
         lyrs = self.project.mapLayers().values()
 
@@ -94,7 +214,7 @@ class RuleExtractor:
                 continue
 
             try:
-                self._process_lyr_rules(lyr, idx)
+                self._process_lyr_rules(lyr.clone(), idx)
             except Exception as e:
                 raise (e)
                 print(f"Error processing layer '{lyr.name()}': {e}")
@@ -164,7 +284,7 @@ class RuleExtractor:
 
     def _flat_rules(self, lyr, lyr_idx, rule, rule_type, rule_lvl, rule_idx):
         """Recursively flatten rules with inheritance."""
-        flattened = []
+        flatrules = []
 
         if rule.parent():
             clone = self._inherit_properties(rule, rule_type)
@@ -177,24 +297,36 @@ class RuleExtractor:
                 splitted_rules = self._split_label_by_symbol_filter(clone, lyr)
 
             for split_rule in splitted_rules:
-                flattened.extend(self._split_by_scales(split_rule))
+                flatrules.extend(self._split_by_scales(split_rule))
 
         # Generate flat rules
-        for flat in flattened:
-            self._create_flat_rule(flat, rule_type, lyr)
+        for flatrule in flatrules:
+            self._create_flat_rule(flatrule, rule_type, lyr)
 
         # Process children recursively
         for child_idx, child in enumerate(rule.children()):
             if not child.active():
                 continue
+            # If child filter is ELSE (all other values) convert it to an absolute expresison
+            if child.filterExpression() == "ELSE":
+                else_exp = "NOT " + "AND NOT ".join(
+                    f"({else_child.filterExpression()})"
+                    for else_child in rule.children()
+                    if else_child.active()
+                    and else_child.filterExpression()
+                    and else_child.filterExpression() != "ELSE"
+                )
+                child.setFilterExpression(else_exp)
             self._flat_rules(lyr, lyr_idx, child, rule_type, rule_lvl + 1, child_idx)
-        return flattened
+        return flatrules
 
     def _set_rule_name(self, lyr_idx, rule, rule_type, rule_lvl, rule_idx):
         """Inherit and combine rule names."""
-        lyr_desc = f"l{self.get_num(lyr_idx)}t0{rule_type}"
-        rule_desc = f"r{self.get_num(rule_lvl, rule_idx)}"
-        rule.setDescription(f"{lyr_desc}{rule_desc}")
+        lyr_desc = f"l{self.get_num(lyr_idx)}"
+        type_desc = f"t{self.get_num(rule_type)}"
+        lvl_desc = f"d{self.get_num(rule_lvl)}"
+        rule_desc = f"r{self.get_num(rule_idx)}"
+        rule.setDescription(f"{lyr_desc}{type_desc}{lvl_desc}{rule_desc}")
 
     def _inherit_properties(self, rule, rule_type):
         """Inherit all properties from parent rule."""
@@ -221,7 +353,7 @@ class RuleExtractor:
         children_filters = []
         for child in rule.children():
             child_filter = child.filterExpression()
-            if child_filter:
+            if child_filter and child_filter != "ELSE":
                 children_filters.append(f"({child_filter})")
         children_filters = " OR ".join(children_filters)
         if children_filters and combined_filter:
@@ -254,7 +386,7 @@ class RuleExtractor:
                 symbol_lyr = parent_symbol.symbolLayer(i).clone()
                 clone_symbol.appendSymbolLayer(symbol_lyr)
 
-    def _split_by_symbol_lyrs(self, rule, lyr) -> List:
+    def _split_by_symbol_lyrs(self, rule, lyr):
         """Split rule by individual symbol layers."""
         # Split only polygon renderer symbol contains outline symbollayer.
         split_required = True
@@ -264,7 +396,7 @@ class RuleExtractor:
         if not any(l.type() == 1 for l in sym.symbolLayers()):
             split_required = False
         if not split_required:
-            desc = f"{rule.description()}s00g{self.get_num(lyr.geometryType())}"
+            desc = f"{rule.description()}s00g0{lyr.geometryType()}"
             rule.setDescription(desc)
             return [rule]
 
@@ -275,7 +407,7 @@ class RuleExtractor:
             clone = rule.clone()
             line_sym_lyr = sym.symbolLayer(keep_idx).type() == 1
             target_geom = 1 if line_sym_lyr else lyr.geometryType()
-            desc = f"{clone.description()}s{self.get_num(keep_idx)}g{self.get_num(target_geom)}"
+            desc = f"{clone.description()}s{self.get_num(keep_idx)}g0{target_geom}"
             clone.setDescription(desc)
 
             # Remove all layers except the one to keep
@@ -287,7 +419,7 @@ class RuleExtractor:
 
         return split_rules
 
-    def _split_by_scales(self, rule) -> List:
+    def _split_by_scales(self, rule):
         """Split rule by zoom levels if scale-dependent."""
         filter_expr = rule.filterExpression()
         min_scale = Zooms.snap_to_level(rule.minimumScale(), True)
@@ -328,12 +460,12 @@ class RuleExtractor:
         # Get relevant symbol rules
         splitted_rules = []
         sym_flats = {}
-        for flat_rule in self.extracted_rules:
-            sym_name = flat_rule.rule.description()
+        for flatrule in self.extracted_rules:
+            sym_name = flatrule.rule.description()
             if sym_name in sym_flats:
                 continue
-            if flat_rule.lyr.id() == lyr.id() and flat_rule.type == 0:
-                sym_flats[sym_name] = flat_rule
+            if flatrule.lyr.id() == lyr.id() and flatrule.type == 0:
+                sym_flats[sym_name] = flatrule
 
         # Split label rule by symbol rules
         for sym_idx, sym_rule in enumerate(sym_flats.values()):
@@ -347,7 +479,7 @@ class RuleExtractor:
         # add character indicates destination geometry
         for rule in splitted_rules:
             target_geom = 0 if lyr.geometryType() == 2 else lyr.geometryType()
-            rule.setDescription(f"{rule.description()}g{self.get_num(target_geom)}")
+            rule.setDescription(f"{rule.description()}g0{target_geom}")
 
         return splitted_rules
 
@@ -378,21 +510,36 @@ class RuleExtractor:
             return clone
         return
 
-    def _create_flat_rule(self, flat_rule, rule_type, lyr):
+    def _create_flat_rule(self, rule, rule_type, lyr):
         """Create and store a FlatRule instance."""
-        flat = FlatRule(rule=flat_rule, lyr=lyr, type=rule_type)
+        # Set the target dataset name by removing the symbol layer affix
+        if rule_type == 0:
+            target = f"{rule.description()[:12]}00{rule.description()[14:]}"
+            data = rule.symbol()
+            fields = data.usedAttributes(QgsRenderContext())
+        else:
+            target = rule.description()
+            data = rule.settings()
+            fields = data.referencedFields(QgsRenderContext())
+
+        # Generate flat rule object
+        flat = FlatRule(rule, lyr, rule_type, data, fields, target)
         self.extracted_rules.append(flat)
 
     @staticmethod
-    def get_num(*nums):
+    def get_num(num):
         """Add zero as prefix to rule index properties if required"""
-        return "".join(f"{'0' if num < 9 else ''}{num + 1}" for num in nums)
+        return f"{'0' if num < 9 else ''}{num + 1}"
 
 
 if __name__ == "__console__":
     """Console execution entry point."""
     extractor = RuleExtractor()
     print(".\n. Extracting rules from current QGIS project...")
-    rules = extractor.extract_all_rules()
-    extractor.print_rules()
-    print(f".\n. Successfully extracted {len(rules)} rules\n.")
+    flat_rules = extractor.extract_rules()
+    print(f".\n. Successfully extracted {len(flat_rules)} rules.")
+    exporter = RuleExporter(flat_rules)
+    print(f".\n. Exporting rules...")
+    exported_rules = exporter.export_rules()
+    print(f".\n. Successfully exported {len(exported_rules)} rules.")
+    # extractor.print_rules()
