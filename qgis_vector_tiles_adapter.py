@@ -99,11 +99,12 @@ class FlatRule:
 class TilesGenerator:
     """Generate MBTiles from GeoJSON layers using GDAL MVT driver."""
 
-    def __init__(self, output_dir, cpu_percent, layers_config):
-        self.output_dir = output_dir
+    def __init__(self, output_dir, cpu_percent, gpkg):
         self.cpu_percent = cpu_percent or 75
-        self.layers_config = layers_config
-        self.output_file = os.path.join(output_dir, f"tiles_{int(time.time())}.mbtiles")
+        self.gpkg = gpkg
+        self.output_mbtiles = os.path.join(
+            output_dir, f"tiles_{int(time.time())}.mbtiles"
+        )
 
     def generate(self):
         """Generate MBTiles file from configured layers."""
@@ -113,100 +114,66 @@ class TilesGenerator:
             str(max(1, int(os.cpu_count() * self.cpu_percent / 100))),
         )
 
-        # Parse layers configuration
-        layers_dict = self.layers_config
-
         # Create Web Mercator spatial reference (EPSG:3857)
         web_mercator = osr.SpatialReference()
         web_mercator.ImportFromEPSG(3857)
 
         # Create the MVT dataset
         driver = gdal.GetDriverByName("MVT")
-        if driver is None:
-            raise RuntimeError("MVT driver not available")
-
-        ds = driver.Create(self.output_file, 0, 0, 0, gdal.GDT_Unknown)
-        if ds is None:
-            raise RuntimeError(f"Failed to create MVT dataset: {self.output_file}")
+        ds = driver.Create(self.output_mbtiles, 0, 0, 0, gdal.GDT_Unknown)
 
         # Process each layer
-        for layer_name, layer_config in layers_dict.items():
-            geojson_files = layer_config[0]
-            min_zoom = layer_config[1]
-            max_zoom = layer_config[2]
+        gpkg = ogr.Open(self.gpkg)
+        for index in range(gpkg.GetLayerCount()):
+            src_lyr = gpkg.GetLayer(index)
+            lyr_name = src_lyr.GetName()
+            min_zoom = self.get_attr(lyr_name, "o")
+            max_zoom = self.get_attr(lyr_name, "i")
 
             # Create layer in MVT dataset with Web Mercator projection
             layer = ds.CreateLayer(
-                layer_name, srs=web_mercator, geom_type=ogr.wkbUnknown
+                src_lyr.GetName(), srs=web_mercator, geom_type=ogr.wkbUnknown
             )
-            if layer is None:
-                print(f"Warning: Failed to create layer {layer_name}")
-                continue
 
             # Set layer options
             layer.SetMetadataItem("MINZOOM", str(min_zoom))
             layer.SetMetadataItem("MAXZOOM", str(max_zoom))
 
-            # Process each GeoJSON file for this layer
-            for geojson_file in geojson_files:
-                if not os.path.exists(geojson_file):
-                    print(f"Warning: GeoJSON file not found: {geojson_file}")
-                    continue
+            # Create coordinate transformation to Web Mercator
+            src_srs = src_lyr.GetSpatialRef()
+            transform = None
+            if not src_srs.IsSame(web_mercator):
+                transform = osr.CoordinateTransformation(src_srs, web_mercator)
 
-                # Open GeoJSON file
-                src_ds = ogr.Open(geojson_file)
-                if src_ds is None:
-                    print(f"Warning: Could not open {geojson_file}")
-                    continue
+            # Copy field definitions from source
+            src_defn = src_lyr.GetLayerDefn()
+            for i in range(src_defn.GetFieldCount()):
+                field_defn = src_defn.GetFieldDefn(i)
+                layer.CreateField(field_defn)
 
-                src_layer = src_ds.GetLayer(0)
-                if src_layer is None:
-                    print(f"Warning: No layer found in {geojson_file}")
-                    continue
+            # Copy features with coordinate transformation
+            feature_count = 0
+            for src_feature in src_lyr:
+                # Create new feature
+                dst_feature = ogr.Feature(layer.GetLayerDefn())
 
-                # Get source spatial reference
-                src_srs = src_layer.GetSpatialRef()
-                if src_srs is None:
-                    print(f"Warning: No SRS found in {geojson_file}, assuming WGS84")
-                    src_srs = osr.SpatialReference()
-                    src_srs.ImportFromEPSG(4326)  # Assume WGS84 if no SRS
+                # Copy and transform geometry
+                geom = src_feature.GetGeometryRef()
+                if geom:
+                    geom_copy = geom.Clone()
+                    if transform:
+                        geom_copy.Transform(transform)
+                    dst_feature.SetGeometry(geom_copy)
 
-                # Create coordinate transformation to Web Mercator
-                transform = None
-                if not src_srs.IsSame(web_mercator):
-                    transform = osr.CoordinateTransformation(src_srs, web_mercator)
-
-                # Copy field definitions from source
-                src_defn = src_layer.GetLayerDefn()
+                # Copy attributes
                 for i in range(src_defn.GetFieldCount()):
-                    field_defn = src_defn.GetFieldDefn(i)
-                    layer.CreateField(field_defn)
+                    field_name = src_defn.GetFieldDefn(i).GetName()
+                    if dst_feature.GetFieldIndex(field_name) >= 0:
+                        dst_feature.SetField(field_name, src_feature.GetField(i))
 
-                # Copy features with coordinate transformation
-                feature_count = 0
-                for src_feature in src_layer:
-                    # Create new feature
-                    dst_feature = ogr.Feature(layer.GetLayerDefn())
-
-                    # Copy and transform geometry
-                    geom = src_feature.GetGeometryRef()
-                    if geom:
-                        geom_copy = geom.Clone()
-                        if transform:
-                            geom_copy.Transform(transform)
-                        dst_feature.SetGeometry(geom_copy)
-
-                    # Copy attributes
-                    for i in range(src_defn.GetFieldCount()):
-                        field_name = src_defn.GetFieldDefn(i).GetName()
-                        if dst_feature.GetFieldIndex(field_name) >= 0:
-                            dst_feature.SetField(field_name, src_feature.GetField(i))
-
-                    # Add feature to layer
-                    layer.CreateFeature(dst_feature)
-                    feature_count += 1
-
-                src_ds = None
+                # Add feature to layer
+                layer.CreateFeature(dst_feature)
+                feature_count += 1
 
         # Set dataset metadata
         ds.SetMetadataItem("name", "Generated Tiles")
@@ -217,7 +184,12 @@ class TilesGenerator:
 
         # Close dataset to finalize
         ds = None
-        return self.output_file
+        return self.output_mbtiles
+
+    @staticmethod
+    def get_attr(lyr, char):
+        """Get Layer zoom range."""
+        return lyr[lyr.find(char) + 1 : lyr.find(char) + 3]
 
 
 class RuleExporter:
@@ -239,15 +211,14 @@ class RuleExporter:
         self.output_dir = output_dir
         self.required_fields = self._get_required_fields(required_field_only)
         self.source_lyrs = self._get_source_lyrs()
-        self.exported_rules = {}
+        self.exported_rules = []
 
     def export_rules(self):
         """Export all rules using the matching processing"""
         for flatrule in self.flatrules:
             if flatrule.target not in self.exported_rules:
                 self._export_rule(flatrule)
-        self._package_lyrs()
-        return self.exported_rules
+        return self._package_lyrs()
 
     def _get_rules(self, flatrules):
         """Filter and modify rules which displayed out of the input scale range"""
@@ -267,7 +238,8 @@ class RuleExporter:
         flatrules_lyrs = set(flatrule.lyr for flatrule in self.flatrules)
         for lyr in flatrules_lyrs:
             extent = self.extent or lyr.extent()
-            extracted = self._run_alg("extractbyextent", INPUT=lyr, EXTENT=extent)
+            unique_id = self._run_alg("addautoincrementalfield", INPUT=lyr)
+            extracted = self._run_alg("extractbyextent", INPUT=unique_id, EXTENT=extent)
             fix_linetwork = self._run_alg("fixgeometries", INPUT=extracted, METHOD=0)
             fix_structure = self._run_alg(
                 "fixgeometries", INPUT=fix_linetwork, METHOD=1
@@ -301,7 +273,7 @@ class RuleExporter:
 
         # Remove unneccessary fields
         if self.required_fields:
-            required_fields = self.required_fields.get(rule.target) or ["fid"]
+            required_fields = self.required_fields.get(rule.target) or ["AUTO"]
             lyr = self._run_alg("retainfields", INPUT=lyr, FIELDS=required_fields)
 
         # Replace geometry
@@ -317,20 +289,23 @@ class RuleExporter:
 
         # Insert rule to output dict
         lyr.setName(rule.target)
-        self.exported_rules[rule.target] = [lyr, rule.get_attr("o"), rule.get_attr("i")]
+        self.exported_rules.append(lyr)
 
     def _package_lyrs(self):
         """Package all rule temporary layers into a single gpkg file."""
-        lyrs = [prop[0] for prop in list(self.exported_rules.values())]
-        print(lyrs)
-        gpkg = os.path.join(f"{self.output_dir}", "exported_rules.gpkg")
-        self._run_alg("package", "native", LAYERS=lyrs, SAVE_STYLES=False, OUTPUT=gpkg)
-        for lyr in self.exported_rules:
-            self.exported_rules[lyr][0] = f"{gpkg}|layername={lyr}"
+        gpkg = os.path.join(f"{self.output_dir}", "rules.gpkg")
+        return self._run_alg(
+            "package",
+            "native",
+            LAYERS=self.exported_rules,
+            SAVE_STYLES=False,
+            OUTPUT=gpkg,
+        )
 
-    @staticmethod
-    def _run_alg(alg_id, alg_type="native", **params):
-        params["OUTPUT"] = "TEMPORARY_OUTPUT"
+    def _run_alg(self, alg_id, alg_type="native", **params):
+        """Run processing tools"""
+        if not params.get("OUTPUT"):
+            params["OUTPUT"] = "TEMPORARY_OUTPUT"
         return processing.run(f"{alg_type}:{alg_id}", params)["OUTPUT"]
 
 
@@ -677,7 +652,7 @@ if __name__ == "__console__":
     min_zoom = None
     max_zoom = None
     flatrules = None
-    output_dir = r'C:\test\mvttest'
+    output_dir = r"C:\test\mvttest"
     required_field_only = True
     cpu_percent = None
 
@@ -690,10 +665,11 @@ if __name__ == "__console__":
         extent, min_zoom, max_zoom, extracted_rules, output_dir, required_field_only
     )
     print(f".\n. Exporting rules...")
-    exported_rules = exporter.export_rules()
-    print(f".\n. Successfully exported {len(exported_rules)} rules.")
-    generator = TilesGenerator(output_dir, cpu_percent, exported_rules)
+    rules_gpkg = exporter.export_rules()
+    print(rules_gpkg)
+    print(f".\n. Successfully exported rules.")
+    generator = TilesGenerator(output_dir, cpu_percent, rules_gpkg)
     print(f".\n. Generating tiles...")
-    exported_rules = exporter.export_rules()
-    print(f".\n. Successfully exported {len(exported_rules)} rules.")
+    tiles = generator.generate()
+    print(f".\n. Successfully generated tiles.")
     # extractor.print_rules()
