@@ -101,9 +101,9 @@ class FlatRule:
     def _set(self, char, num):
         """Set rule attribute"""
         num = int(num)
-        new = f"{char}{'0' if num < 9 else ''}{num + 1}"
+        new = f"{char}{'0' if num < 9 else ''}{num}"
         current = self._get(char)
-        if current:
+        if current != None:
             current = f"{char}{current if current > 9 else f'0{current}'}"
             desc = self.rule.description().replace(current, new)
         else:
@@ -120,33 +120,35 @@ class TilesLoader:
         """Load tiles to canvas"""
         tiles = QgsVectorTileLayer(f"type=mbtiles&url={self.tiles}", "MBTiles")
         tiles_lyr = QgsProject.instance().addMapLayer(tiles)
-        # return self._style_tiles(tiles_lyr)
+        return self._style_tiles(tiles_lyr)
 
     def _style_tiles(self, tiles_lyr):
         """Style loaded tiles"""
         tiles_renderer = QgsVectorTileBasicRenderer()
         styles = []
         for rule in self.rules:
-            if rule._get("t") == 1:
+            if rule._get("t") == 0:
                 style = QgsVectorTileBasicRendererStyle()
                 style.setEnabled(True)
-                if rule.lyr.geometryType() == 0:
+                rule_geom = rule._get("c")
+                if rule_geom == 0:
                     geom = QgsWkbTypes.PointGeometry
-                if rule.lyr.geometryType() == 1:
+                elif rule_geom == 1:
                     geom = QgsWkbTypes.LineGeometry
                 else:
                     geom = QgsWkbTypes.PolygonGeometry
                 style.setGeometryType(geom)
-                style.setLayerName(rule.target)
-                print(rule._get("o"))
-                print(rule._get("i"))
-                style.setMinZoomLevel(rule._get("o"))
-                style.setMaxZoomLevel(rule._get("i"))
+                style.setLayerName(rule.rule.description())
+                style.setMinZoomLevel(rule._get("i"))
+                style.setMaxZoomLevel(rule._get("o"))
                 style.setStyleName(rule.rule.description())
-                style.setSymbol(rule.data)
-                # styles.append(style)
-        # tiles_renderer.setStyles(styles)
-        # tiles_lyr.setRenderer(tiles_renderer)
+                sym = rule.rule.symbol()
+                subsym = sym.symbolLayer(0).subSymbol()
+                sym = subsym if subsym else sym
+                style.setSymbol(sym.clone())
+                styles.append(style)
+        tiles_renderer.setStyles(styles)
+        tiles_lyr.setRenderer(tiles_renderer)
         return tiles_lyr
 
 
@@ -270,16 +272,39 @@ class FlatRulesPackager:
             lyr = self._run("retainfields", INPUT=lyr, FIELDS=required_fields)
 
         # Replace geometry If required
-        target_geom = flatrule._get("g")
-        if flatrule._get("j") != target_geom:
-            if target_geom == 1:
-                target_geom = 2
-            lyr = self._run("convertgeometrytype", "qgis", INPUT=lyr, TYPE=target_geom)
+        geom, exp = self._get_geometry_convertion(flatrule)
+        if exp:
+            geom = abs(geom - 2)
+            lyr = self._run(
+                "geometrybyexpression", INPUT=lyr, OUTPUT_GEOMETRY=geom, EXPRESSION=exp
+            )
 
         # Insert rule to output dict
         lyr.setName(flatrule.rule.description())
-        print(lyr.name())
         self.flatrule_lyrs.append(lyr)
+
+    def _get_geometry_convertion(self, flatrule):
+        """Get target geometry type and convertion expression"""
+        target_geom = target_exp = None
+        if flatrule._get("t") == 1:
+            settings = flatrule.rule.settings()
+            if settings.geometryGeneratorEnabled:
+                target_geom = settings.geometryGeneratorType
+                target_exp = settings.geometryGenerator
+            elif flatrule._get("g") == 2:
+                target_geom = 0
+                target_exp = "centroid(@geometry)"
+        else:
+            symlyr = flatrule.rule.symbol().symbolLayers()[0]
+            if symlyr.layerType() == "GeometryGenerator":
+                target_geom = symlyr.subSymbol().type()
+                target_exp = symlyr.geometryExpression()
+            elif flatrule._get("g") != flatrule._get("c"):
+                target_geom = flatrule._get("c")
+                target_exp = (
+                    f'{"centroid" if target_geom ==0 else "boundary"}(@geometry)'
+                )
+        return target_geom, target_exp
 
     def _clean_flatrule_lyr(self, flatrule):
         """Extract and repair rules source layers"""
@@ -294,7 +319,7 @@ class FlatRulesPackager:
     def _get_required_fields(self, flatrule):
         """Get list of target datasets and its required fields"""
         rule = flatrule.rule
-        if flatrule._get("t") == 1:
+        if flatrule._get("t") == 0:
             return rule.symbol().usedAttributes(QgsRenderContext())
         return rule.settings().referencedFields(QgsRenderContext())
 
@@ -419,8 +444,8 @@ class RulesFlattener:
         flatrule._set("t", rule_type)
         flatrule._set("d", rule_lvl)
         flatrule._set("r", rule_idx)
-        flatrule._set("j", flatrule.lyr.geometryType())
         flatrule._set("g", flatrule.lyr.geometryType())
+        flatrule._set("c", flatrule.lyr.geometryType())
         flatrule._set("o", Zooms._zoom(flatrule.rule.minimumScale()))
         flatrule._set("i", Zooms._zoom(flatrule.rule.maximumScale()))
         flatrule._set("s" if rule_type == 0 else "f", 0)
@@ -502,23 +527,24 @@ class RulesFlattener:
         """Split rule by individual symbol layers."""
         # Split only polygon renderer symbol contains outline symbollayer.
         rule = flatrule.rule
-        split_required = True
-        sym = rule.symbol()
-        if not sym or flatrule.lyr.geometryType() != 2:
-            split_required = False
-        if not any(l.type() == 1 for l in sym.symbolLayers()):
-            split_required = False
-        if not split_required:
-            return [flatrule]
+        # split_required = True
+        # if not sym or flatrule.lyr.geometryType() != 2:
+        #     split_required = False
+        # if not any(l.type() == 1 for l in sym.symbolLayers()):
+        #     split_required = False
+        # if not split_required:
+        #     return [flatrule]
 
         # Clone symbol and keep only the relevant symbol layer
+        sym = rule.symbol()
         sym_lyr_count = sym.symbolLayerCount()
         splitted_flatrules = []
         for keep_idx in range(sym_lyr_count):
             flatclone = FlatRule(rule.clone(), flatrule.lyr)
-            if sym.symbolLayer(keep_idx).type() == 1:  # Line symbol layer
-                flatclone._set("g", 1)
-                flatclone._set("s", keep_idx)
+            subsym = sym.symbolLayer(keep_idx).subSymbol()
+            sym_type = subsym.type() if subsym else sym.type()
+            flatclone._set("c", sym_type)
+            flatclone._set("s", keep_idx)
 
             # Remove all layers except the one to keep
             for remove_idx in reversed(range(sym_lyr_count)):
@@ -653,7 +679,8 @@ class QVTA:
             print(f"Successfully generated tiles.")
             loader = TilesLoader(flatrules, tiles)
             print(f"Load tiles...")
-            return loader.load_tiles()
+            lyr = loader.load_tiles()
+            print("Process have been finished successfully.")
         except Exception as e:
             # print(f"Error processing layer '{lyr.name()}': {e}")
             raise (e)
