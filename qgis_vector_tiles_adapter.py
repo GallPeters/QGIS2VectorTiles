@@ -19,9 +19,11 @@ from qgis.core import (
     QgsSymbol,
     QgsRenderContext,
     QgsVectorTileLayer,
+    QgsWkbTypes,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicRendererStyle,
-    QgsWkbTypes,
+    QgsVectorTileBasicLabeling,
+    QgsVectorTileBasicLabelingStyle
 )
 
 
@@ -59,7 +61,7 @@ class Zooms:
     def _snap_scale(cls, scale, snap_up=True) -> float:
         """Snap scale to the nearest zoom level."""
         if scale <= 0:
-            return cls.LEVELS[-1] if snap_up else cls.LEVELS[0]
+            return cls.LEVELS[0] if snap_up else cls.LEVELS[-1]
 
         for i, level in enumerate(cls.LEVELS):
             if scale >= level:
@@ -101,10 +103,10 @@ class FlatRule:
     def _set(self, char, num):
         """Set rule attribute"""
         num = int(num)
-        new = f"{char}{'0' if num < 9 else ''}{num}"
+        new = f"{char}{'0' if num < 10 else ''}{num}"
         current = self._get(char)
         if current != None:
-            current = f"{char}{current if current > 9 else f'0{current}'}"
+            current = f"{char}{current if current > 10 else f'0{current}'}"
             desc = self.rule.description().replace(current, new)
         else:
             desc = f"{self.rule.description()}{new}"
@@ -112,44 +114,63 @@ class FlatRule:
 
 
 class TilesLoader:
-    def __init__(self, rules, tiles):
-        self.rules = rules
-        self.tiles = tiles
+    def __init__(self, flatrules, tiles):
+        self.flatrules = flatrules
+        self.tiles_lyr = self._get_tiles_lyr(tiles)
+        self.renderer_styles = []
+        self.labeling_styles = []
 
     def load_tiles(self):
         """Load tiles to canvas"""
-        tiles = QgsVectorTileLayer(f"type=mbtiles&url={self.tiles}", "MBTiles")
-        tiles_lyr = QgsProject.instance().addMapLayer(tiles)
-        return self._style_tiles(tiles_lyr)
+        for flatrule in self.flatrules:
+            self._style_flatrule(flatrule)
+        self._apply_styles()
+        return self.tiles_lyr
 
-    def _style_tiles(self, tiles_lyr):
-        """Style loaded tiles"""
-        tiles_renderer = QgsVectorTileBasicRenderer()
-        styles = []
-        for rule in self.rules:
-            if rule._get("t") == 0:
-                style = QgsVectorTileBasicRendererStyle()
-                style.setEnabled(True)
-                rule_geom = rule._get("c")
-                if rule_geom == 0:
-                    geom = QgsWkbTypes.PointGeometry
-                elif rule_geom == 1:
-                    geom = QgsWkbTypes.LineGeometry
-                else:
-                    geom = QgsWkbTypes.PolygonGeometry
-                style.setGeometryType(geom)
-                style.setLayerName(rule.rule.description())
-                style.setMinZoomLevel(rule._get("i"))
-                style.setMaxZoomLevel(rule._get("o"))
-                style.setStyleName(rule.rule.description())
-                sym = rule.rule.symbol()
-                subsym = sym.symbolLayer(0).subSymbol()
-                sym = subsym if subsym else sym
-                style.setSymbol(sym.clone())
-                styles.append(style)
-        tiles_renderer.setStyles(styles)
-        tiles_lyr.setRenderer(tiles_renderer)
-        return tiles_lyr
+    def _get_tiles_lyr(self, tiles):
+        """Get project layer"""
+        tiles = QgsVectorTileLayer(f"type=mbtiles&url={tiles}", "MBTiles")
+        return QgsProject.instance().addMapLayer(tiles)
+    
+    def _style_flatrule(self, flatrule):
+        """Style mbtiles labelibg"""
+        if flatrule._get("t") == 0:
+            style = QgsVectorTileBasicRendererStyle()
+        else:
+            style = QgsVectorTileBasicLabelingStyle()
+        style.setEnabled(True)
+        rule_geom = flatrule._get("c")
+        if rule_geom == 0:
+            geom = QgsWkbTypes.PointGeometry
+        elif rule_geom == 1:
+            geom = QgsWkbTypes.LineGeometry
+        else:
+            geom = QgsWkbTypes.PolygonGeometry
+        style.setGeometryType(geom)
+        style.setLayerName(flatrule.rule.description())
+        style.setMinZoomLevel(flatrule._get("o"))
+        style.setMaxZoomLevel(flatrule._get("i"))
+        style.setStyleName(flatrule.rule.description())
+        if flatrule._get("t") == 0:
+            sym = flatrule.rule.symbol()
+            subsym = sym.symbolLayer(0).subSymbol()
+            sym = subsym if subsym else sym
+            style.setSymbol(sym.clone())
+            target = self.renderer_styles
+        else:
+            settings_clone = QgsPalLayerSettings(flatrule.rule.settings())
+            style.setLabelSettings(settings_clone)
+            target = self.labeling_styles
+        target.append(style)
+    
+    def _apply_styles(self):
+        """Apply styles on lyr"""
+        renderer = QgsVectorTileBasicRenderer()  
+        renderer.setStyles(self.renderer_styles)
+        labeling = QgsVectorTileBasicLabeling()
+        labeling.setStyles(self.labeling_styles)
+        self.tiles_lyr.setRenderer(renderer)
+        self.tiles_lyr.setLabeling(labeling)
 
 
 class TilesGenerator:
@@ -181,7 +202,6 @@ class TilesGenerator:
         for index in range(gpkg.GetLayerCount()):
             src_lyr = gpkg.GetLayer(index)
             lyr_name = src_lyr.GetName()
-
             min_zoom = int(lyr_name.split("o")[1][:2])
             max_zoom = int(lyr_name.split("i")[1][:2])
 
@@ -191,7 +211,6 @@ class TilesGenerator:
             # Set layer options
             lyr.SetMetadataItem("MINZOOM", str(min_zoom))
             lyr.SetMetadataItem("MAXZOOM", str(max_zoom))
-
             # Create coordinate transformation to Web Mercator
             src_srs = src_lyr.GetSpatialRef()
             transform = None
@@ -274,10 +293,9 @@ class FlatRulesPackager:
         # Replace geometry If required
         geom, exp = self._get_geometry_convertion(flatrule)
         if exp:
+            alg = "geometrybyexpression"
             geom = abs(geom - 2)
-            lyr = self._run(
-                "geometrybyexpression", INPUT=lyr, OUTPUT_GEOMETRY=geom, EXPRESSION=exp
-            )
+            lyr = self._run(alg, INPUT=lyr, OUTPUT_GEOMETRY=geom, EXPRESSION=exp)
 
         # Insert rule to output dict
         lyr.setName(flatrule.rule.description())
@@ -285,26 +303,27 @@ class FlatRulesPackager:
 
     def _get_geometry_convertion(self, flatrule):
         """Get target geometry type and convertion expression"""
-        target_geom = target_exp = None
+        target_geom = geom_exp = None
         if flatrule._get("t") == 1:
             settings = flatrule.rule.settings()
             if settings.geometryGeneratorEnabled:
                 target_geom = settings.geometryGeneratorType
-                target_exp = settings.geometryGenerator
+                geom_exp = settings.geometryGenerator
+                settings.geometryGeneratorEnabled = False
             elif flatrule._get("g") == 2:
                 target_geom = 0
-                target_exp = "centroid(@geometry)"
+                geom_exp = "centroid(@geometry)"
+            if target_geom != None:
+                flatrule._set("c", target_geom)
         else:
             symlyr = flatrule.rule.symbol().symbolLayers()[0]
             if symlyr.layerType() == "GeometryGenerator":
                 target_geom = symlyr.subSymbol().type()
-                target_exp = symlyr.geometryExpression()
+                geom_exp = symlyr.geometryExpression()
             elif flatrule._get("g") != flatrule._get("c"):
                 target_geom = flatrule._get("c")
-                target_exp = (
-                    f'{"centroid" if target_geom ==0 else "boundary"}(@geometry)'
-                )
-        return target_geom, target_exp
+                geom_exp = f'{"centroid" if target_geom ==0 else "boundary"}(@geometry)'
+        return target_geom, geom_exp
 
     def _clean_flatrule_lyr(self, flatrule):
         """Extract and repair rules source layers"""
@@ -403,8 +422,9 @@ class RulesFlattener:
         """Prepare root rule with descriptive information."""
         # Get root rule and inherite it scale range from the layer itself
         root_rule = rule_system.rootRule()
-        root_rule.setMinimumScale(lyr.minimumScale())
-        root_rule.setMaximumScale(lyr.maximumScale())
+        if lyr.hasScaleBasedVisibility():
+            root_rule.setMinimumScale(lyr.minimumScale())
+            root_rule.setMaximumScale(lyr.maximumScale())
         return root_rule
 
     def _flat(self, lyr, lyr_idx, rule, rule_type, rule_lvl, rule_idx):
@@ -629,7 +649,6 @@ class RulesFlattener:
 
             new_filter = filter_expr.replace("@map_scale", str(level))
             flatclone.rule.setFilterExpression(new_filter)
-
             flatclone._set("o", Zooms._zoom(level))
             flatclone._set("i", Zooms._zoom(next_max))
             rules.append(flatclone)
@@ -641,7 +660,7 @@ class QVTA:
     def __init__(
         self,
         min_zoom=0,
-        max_zoom=10,
+        max_zoom=23,
         extent=iface.mapCanvas().extent(),
         output_dir=tempd(),
         cpu_percent=70,
@@ -664,7 +683,7 @@ class QVTA:
             print("Extracting rules...")
             flatrules = flattener.flat_rules()
             if not flatrules:
-                print("Project does not contain vector layers")
+                print("Project does not contain visible valid vector layers")
                 return
             print(f"Successfully extracted {len(flatrules)} rules.")
             packager = FlatRulesPackager(
