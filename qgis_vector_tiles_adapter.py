@@ -8,7 +8,7 @@ from os import cpu_count
 from tempfile import mkdtemp, TemporaryDirectory as tempd
 from osgeo import gdal, ogr, osr
 from dataclasses import dataclass
-from typing import Union, Optional
+from typing import Union
 import processing
 from qgis.core import (
     QgsProject,
@@ -207,7 +207,12 @@ class TilesGenerator:
         output_mbtiles = join(self.output_dir, f"tiles.mbtiles")
 
         driver = gdal.GetDriverByName("MVT")
-        ds = driver.Create(output_mbtiles, 0, 0, 0, gdal.GDT_Unknown)
+        creation_options = [
+                "TILE_FORMAT=MVT",
+                "SIMPLIFICATION=0",
+                "EXTENT=16384"
+            ]
+        ds = driver.Create(output_mbtiles, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
 
         # Process each layer
         gpkg = ogr.Open(self.gpkg)
@@ -223,6 +228,9 @@ class TilesGenerator:
             # Set layer options
             lyr.SetMetadataItem("MINZOOM", str(min_zoom))
             lyr.SetMetadataItem("MAXZOOM", str(max_zoom))
+            lyr.SetMetadataItem("SIMPLIFICATION", '1.0')
+            lyr.SetMetadataItem("SIMPLIFICATION_MAX_ZOOM", '4')
+            
             # Create coordinate transformation to Web Mercator
             src_srs = src_lyr.GetSpatialRef()
             transform = None
