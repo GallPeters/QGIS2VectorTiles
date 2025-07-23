@@ -23,7 +23,7 @@ from qgis.core import (
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling,
-    QgsVectorTileBasicLabelingStyle
+    QgsVectorTileBasicLabelingStyle,
 )
 
 
@@ -131,7 +131,7 @@ class TilesLoader:
         """Get project layer"""
         tiles = QgsVectorTileLayer(f"type=mbtiles&url={tiles}", "MBTiles")
         return QgsProject.instance().addMapLayer(tiles)
-    
+
     def _style_flatrule(self, flatrule):
         """Style mbtiles labelibg"""
         if flatrule._get("t") == 0:
@@ -153,8 +153,11 @@ class TilesLoader:
         style.setStyleName(flatrule.rule.description())
         if flatrule._get("t") == 0:
             sym = flatrule.rule.symbol()
-            subsym = sym.symbolLayer(0).subSymbol()
-            sym = subsym if subsym else sym
+            subsym = sym.symbolLayers()[-1].subSymbol()
+            if subsym:
+                self._copy_dd_properties(sym, subsym)
+                self._copy_dd_properties(sym.symbolLayers()[-1], subsym.symbolLayers()[-1])
+                sym = subsym
             style.setSymbol(sym.clone())
             target = self.renderer_styles
         else:
@@ -162,10 +165,19 @@ class TilesLoader:
             style.setLabelSettings(settings_clone)
             target = self.labeling_styles
         target.append(style)
-    
+
+    def _copy_dd_properties(self, obj1, obj2):
+        """Copy Data Driven Properties between one object to another"""
+        ddp1 = obj1.dataDefinedProperties()
+        ddp2 = obj2.dataDefinedProperties()
+        for k in obj1.propertyDefinitions():
+            v = ddp1.property(k)
+            ddp2.setProperty(k, v)
+            ddp2.property(k).setActive(True)
+
     def _apply_styles(self):
         """Apply styles on lyr"""
-        renderer = QgsVectorTileBasicRenderer()  
+        renderer = QgsVectorTileBasicRenderer()
         renderer.setStyles(self.renderer_styles)
         labeling = QgsVectorTileBasicLabeling()
         labeling.setStyles(self.labeling_styles)
@@ -262,6 +274,14 @@ class TilesGenerator:
 class FlatRulesPackager:
     """Export rules as geoparquets to a destination folder."""
 
+    _FIELDS_PREFIX = "qvta"
+    _GEOM_ATTRS = {
+        "$area": "area_meters",
+        "area(@geometry)": "area_degrees",
+        "$length": "length_meters",
+        "length(@geometry)": "length_degrees",
+    }
+
     def __init__(self, flatrules, extent, output_dir, all_fields):
         self.flatrules = flatrules
         self.extent = extent
@@ -275,6 +295,26 @@ class FlatRulesPackager:
             self._flatrule_to_lyr(flatrule)
         return self._package_lyrs()
 
+    def _dd_properties_fetcher(self, flatrule, attr, new_attr=None):
+        """Get data driven properties frm object"""
+        rule_type = flatrule._get("t")
+        if rule_type == 0:
+            objects = [flatrule.rule.symbol()] + flatrule.rule.symbol().symbolLayers()
+        else:
+            objects = [flatrule.rule.settings()]
+        properties = []
+        for obj in objects:
+            ddp = obj.dataDefinedProperties()
+            for idx in obj.propertyDefinitions():
+                prop = ddp.property(idx)
+                if prop:
+                    prop_exp = prop.expressionString()
+                    if attr in prop_exp:
+                        properties.append(prop)
+                        if new_attr:
+                            prop.setExpressionString(prop_exp.replace(attr, new_attr))
+        return properties
+
     def _flatrule_to_lyr(self, flatrule):
         """Export dataset using the relevant file keeping only required fields"""
         lyr = self._clean_flatrule_lyr(flatrule)
@@ -285,17 +325,26 @@ class FlatRulesPackager:
         if expression:
             lyr = self._run("extractbyexpression", INPUT=lyr, EXPRESSION=expression)
 
+        # Get geometry attributes
+        for exp, new_field in self._GEOM_ATTRS.items():
+            field_name = f"{self._FIELDS_PREFIX}_{new_field}"
+            if self._dd_properties_fetcher(flatrule, exp, f'"{field_name}"'):
+                lyr = self._run(
+                    "fieldcalculator", INPUT=lyr, FIELD_NAME=field_name, FORMULA=exp, FIELD_TYPE=0
+                )
+
         # Remove unneccessary fields
         if not self.all_fields:
-            required_fields = list(self._get_required_fields(flatrule)) + ["AUTO"]
+            required_fields = list(self._get_required_fields(flatrule)) + [f"{self._FIELDS_PREFIX}_fid"]
             lyr = self._run("retainfields", INPUT=lyr, FIELDS=required_fields)
 
         # Replace geometry If required
         geom, exp = self._get_geometry_convertion(flatrule)
         if exp:
-            alg = "geometrybyexpression"
             geom = abs(geom - 2)
-            lyr = self._run(alg, INPUT=lyr, OUTPUT_GEOMETRY=geom, EXPRESSION=exp)
+            lyr = self._run(
+                "geometrybyexpression", INPUT=lyr, OUTPUT_GEOMETRY=geom, EXPRESSION=exp
+            )
 
         # Insert rule to output dict
         lyr.setName(flatrule.rule.description())
@@ -329,7 +378,13 @@ class FlatRulesPackager:
         """Extract and repair rules source layers"""
         lyr = flatrule.lyr
         extent = self.extent or lyr.extent()
-        unique_id = self._run("addautoincrementalfield", INPUT=lyr)
+        unique_id = self._run(
+            "fieldcalculator",
+            INPUT=lyr,
+            FIELD_NAME=f"{self._FIELDS_PREFIX}_fid",
+            FORMULA=f"'{lyr.name}_' || @id",
+            FIELD_TYPE=2
+        )
         extracted = self._run("extractbyextent", INPUT=unique_id, EXTENT=extent)
         fix_network = self._run("fixgeometries", INPUT=extracted, METHOD=0)
         fix_struct = self._run("fixgeometries", INPUT=fix_network, METHOD=1)
@@ -402,7 +457,7 @@ class RulesFlattener:
         """Get or convert layer system to rule-based."""
         system = lyr.renderer() if rule_type == 0 else lyr.labeling()
 
-        if not system:
+        if not system or rule_type == 1 and not lyr.labelsEnabled():
             return None
 
         # Return if already rule-based
@@ -643,10 +698,8 @@ class RulesFlattener:
         for idx, level in enumerate(rule_lvls):
             flatclone = FlatRule(rule.clone(), flatrule.lyr)
             flatclone.rule.setMinimumScale(level)
-
-            next_max = rule_lvls[idx + 1] if idx + 1 < len(rule_lvls) else max_scale
+            next_max = rule_lvls[idx] if idx < len(rule_lvls) else max_scale
             flatclone.rule.setMaximumScale(next_max)
-
             new_filter = filter_expr.replace("@map_scale", str(level))
             flatclone.rule.setFilterExpression(new_filter)
             flatclone._set("o", Zooms._zoom(level))
