@@ -6,18 +6,14 @@ Generates styled MBTiles from project layers with identical styling
 import tempfile
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
-    QgsProcessing,
     QgsProcessingAlgorithm,
     QgsProcessingParameterNumber,
     QgsProcessingParameterExtent,
     QgsProcessingParameterFolderDestination,
     QgsProcessingParameterBoolean,
-    QgsProcessingContext,
-    QgsProcessingFeedback,
-    QgsMessageLog,
-    Qgis
 )
 from qgis.utils import iface
+from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
 
 
 class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
@@ -26,14 +22,14 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
     This wrapper provides a user interface for the MBTiles generation process
     through the QGIS Processing Toolbox.
     """
-    
+
     # Parameter names (constants for consistency)
-    MIN_ZOOM = 'MIN_ZOOM'
-    MAX_ZOOM = 'MAX_ZOOM'
-    EXTENT = 'EXTENT'
-    OUTPUT_DIR = 'OUTPUT_DIR'
-    CPU_PERCENT = 'CPU_PERCENT'
-    ALL_FIELDS = 'ALL_FIELDS'
+    MIN_ZOOM = "MIN_ZOOM"
+    MAX_ZOOM = "MAX_ZOOM"
+    EXTENT = "EXTENT"
+    OUTPUT_DIR = "OUTPUT_DIR"
+    CPU_PERCENT = "CPU_PERCENT"
+    ALL_FIELDS = "ALL_FIELDS"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -43,7 +39,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Returns a translatable string with the self.tr() function.
         """
-        return QCoreApplication.translate('Processing', string)
+        return QCoreApplication.translate("Processing", string)
 
     def createInstance(self):
         """
@@ -56,26 +52,26 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return 'generate_styled_mbtiles'
+        return "generate_styled_mbtiles"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr('Generate Styled MBTiles From Project Layers')
+        return self.tr("Generate Styled MBTiles From Project Layers")
 
     def group(self):
         """
         Returns the name of the group this algorithm belongs to.
         """
-        return self.tr('Tile Generation')
+        return self.tr("Tile Generation")
 
     def groupId(self):
         """
         Returns the unique ID of the group this algorithm belongs to.
         """
-        return 'tile_generation'
+        return "tile_generation"
 
     def shortHelpString(self):
         """
@@ -97,16 +93,16 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Define the inputs and outputs of the algorithm.
         """
-        
+
         # Minimum zoom level parameter
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MIN_ZOOM,
-                self.tr('Minimum Zoom Level'),
+                self.tr("Minimum Zoom Level"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=0,
                 minValue=0,
-                maxValue=23
+                maxValue=23,
             )
         )
 
@@ -114,19 +110,17 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MAX_ZOOM,
-                self.tr('Maximum Zoom Level'),
+                self.tr("Maximum Zoom Level"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=23,
                 minValue=0,
-                maxValue=23
+                maxValue=23,
             )
         )
 
         # Extent parameter - defaults to current map canvas extent
         extent_param = QgsProcessingParameterExtent(
-            self.EXTENT,
-            self.tr('Tile Generation Extent'),
-            optional=False
+            self.EXTENT, self.tr("Tile Generation Extent"), optional=False
         )
         # Set default to current map canvas extent if available
         if iface and iface.mapCanvas():
@@ -137,9 +131,9 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT_DIR,
-                self.tr('Output Directory'),
+                self.tr("Output Directory"),
                 optional=False,
-                defaultValue=tempfile.gettempdir()
+                defaultValue=tempfile.gettempdir(),
             )
         )
 
@@ -147,20 +141,18 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.CPU_PERCENT,
-                self.tr('CPU Usage Percentage'),
+                self.tr("CPU Usage Percentage"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=70,
                 minValue=1,
-                maxValue=100
+                maxValue=100,
             )
         )
 
         # All fields boolean parameter
         self.addParameter(
             QgsProcessingParameterBoolean(
-                self.ALL_FIELDS,
-                self.tr('Include All Layer Fields'),
-                defaultValue=False
+                self.ALL_FIELDS, self.tr("Include All Layer Fields"), defaultValue=False
             )
         )
 
@@ -171,75 +163,73 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         """
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
-        
+
         # Check that min_zoom <= max_zoom
         if min_zoom > max_zoom:
-            return False, self.tr('Minimum zoom level must be less than or equal to maximum zoom level')
-        
+            return False, self.tr(
+                "Minimum zoom level must be less than or equal to maximum zoom level"
+            )
+
         return super().checkParameterValues(parameters, context)
 
     def processAlgorithm(self, parameters, context, feedback):
         """
         Main processing method. This is where your existing MBTiles generation logic
         should be called.
-        
+
         Args:
             parameters: Dictionary containing parameter values
             context: QgsProcessingContext object
             feedback: QgsProcessingFeedback object for progress reporting
-            
+
         Returns:
             Dictionary with results (can be empty for this use case)
         """
-        
+
         # Extract parameter values
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
         extent = self.parameterAsExtent(parameters, self.EXTENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
-        all_fields = self.parameterAsBool(parameters, self.ALL_FIELDS, context)
-        
-        # TODO: Replace this placeholder with your actual MBTiles generation logic
-        # Example call to your existing processing class:
-        """
+        include_all_fields = self.parameterAsBool(parameters, self.ALL_FIELDS, context)
+
         try:
             # Your existing MBTiles generator class would be called here
-            # mbtiles_generator = YourMBTilesGenerator(
-            #     min_zoom=min_zoom,
-            #     max_zoom=max_zoom,
-            #     extent=extent,
-            #     output_dir=output_dir,
-            #     cpu_percent=cpu_percent,
-            #     all_fields=all_fields
-            # )
-            # 
+            mbtiles_generator = QGISVectorTilesAdapter(
+                min_zoom=min_zoom,
+                max_zoom=max_zoom,
+                extent=extent,
+                output_dir=output_dir,
+                cpu_percent=cpu_percent,
+                include_all_fields=include_all_fields,
+            )
+
             # # Set up progress reporting
             # def progress_callback(current, total):
             #     if feedback.isCanceled():
             #         return False
             #     feedback.setProgress(int((current / total) * 100))
             #     return True
-            # 
+
             # # Run the generation process
-            # mbtiles_generator.process_layers(progress_callback=progress_callback)
-            # 
-            # feedback.pushInfo("MBTiles generation completed successfully")
-            
+            # mbtiles_generator.convert_project_to_vector_tiles(progress_callback=progress_callback)
+            mbtiles_generator.convert_project_to_vector_tiles()
+            feedback.pushInfo("MBTiles generation completed successfully")
+
         except Exception as e:
             feedback.reportError(f"Error during MBTiles generation: {str(e)}")
             return {}
-        """
-        
+
         # Placeholder implementation - remove when integrating your logic
         feedback.pushInfo("MBTiles generation process ready for implementation")
-        
+
         # Simulate progress for testing
         for i in range(101):
             if feedback.isCanceled():
                 break
             feedback.setProgress(i)
-        
+
         # Return empty results dictionary (modify as needed for your use case)
         return {}
 
@@ -249,54 +239,54 @@ if __name__ == "__console__":
     """
     Test block for running the algorithm from QGIS Python console.
     Usage in QGIS Python Console:
-    
+
     exec(open('/path/to/this/file.py').read())
-    
+
     Or copy-paste this entire file into the console.
     """
     import processing
     from qgis.core import QgsApplication, QgsProcessingProvider
-    
+
     # Create a proper temporary provider class
     class TempMBTilesProvider(QgsProcessingProvider):
         def __init__(self):
             super().__init__()
-        
+
         def id(self):
-            return 'temp_mbtiles_provider'
-        
+            return "temp_mbtiles_provider"
+
         def name(self):
-            return 'Temporary MBTiles Provider'
-        
+            return "Temporary MBTiles Provider"
+
         def loadAlgorithms(self):
             self.addAlgorithm(GenerateStyledMBTilesAlgorithm())
-    
+
     # Create algorithm instance for testing
     alg = GenerateStyledMBTilesAlgorithm()
-    
+
     # Register the provider temporarily for testing
     try:
         provider = TempMBTilesProvider()
         QgsApplication.processingRegistry().addProvider(provider)
-        
+
         print("Algorithm registered successfully")
         print("Available in Processing Toolbox under 'Tile Generation' group")
-        
+
         # Test algorithm execution with default parameters
         if iface and iface.mapCanvas():
             result = processing.run(
                 "temp_mbtiles_provider:generate_styled_mbtiles",
                 {
-                    'MIN_ZOOM': 0,
-                    'MAX_ZOOM': 10,
-                    'EXTENT': iface.mapCanvas().extent(),
-                    'OUTPUT_DIR': tempfile.gettempdir(),
-                    'CPU_PERCENT': 50,
-                    'ALL_FIELDS': False
-                }
+                    "MIN_ZOOM": 0,
+                    "MAX_ZOOM": 10,
+                    "EXTENT": iface.mapCanvas().extent(),
+                    "OUTPUT_DIR": tempfile.gettempdir(),
+                    "CPU_PERCENT": 50,
+                    "ALL_FIELDS": False,
+                },
             )
             print("Algorithm test completed")
-            
+
     except Exception as e:
         print(f"Registration or test failed: {e}")
         print("You can still manually test the algorithm by creating an instance")

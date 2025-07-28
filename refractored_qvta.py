@@ -235,13 +235,7 @@ class VectorTileGenerator:
 
         # Create MVT dataset
         driver = gdal.GetDriverByName("MVT")
-        creation_options = [
-            "EXTENT=16384",
-            "MINZOOM=0",
-            "MAXZOOM=20",
-            "SIMPLIFICATION=0",
-            "SIMPLIFICATION_MAX_ZOOM=0",
-        ]
+        creation_options = ["EXTENT=16384", "MINZOOM=0", "MAXZOOM=15","SIMPLIFICATION=100", "SIMPLIFICATION_MAX_ZOOM=0"]
         dataset = driver.Create(
             output_path, 0, 0, 0, gdal.GDT_Unknown, options=creation_options
         )
@@ -291,16 +285,14 @@ class VectorTileGenerator:
         """Create MVT layer from source layer."""
         # Create layer in MVT dataset
         mvt_layer = dataset.CreateLayer(
-            layer_name,
-            srs=web_mercator,
-            geom_type=ogr.wkbUnknown
+            layer_name, srs=web_mercator, geom_type=ogr.wkbUnknown, options=["MINZOOM=0", "MAXZOOM=7"]
         )
 
         # Set layer metadata
         mvt_layer.SetMetadataItem("MINZOOM", str(min_zoom))
         mvt_layer.SetMetadataItem("MAXZOOM", str(max_zoom))
-        mvt_layer.SetMetadataItem("SIMPLIFICATION", "0")
-        mvt_layer.SetMetadataItem("SIMPLIFICATION_MAX_ZOOM", "20")
+        mvt_layer.SetMetadataItem("SIMPLIFICATION", "1.0")
+        mvt_layer.SetMetadataItem("SIMPLIFICATION_MAX_ZOOM", "23")
 
         # Setup coordinate transformation
         transform = self._create_coordinate_transform(source_layer, web_mercator)
@@ -959,7 +951,7 @@ class QGISVectorTilesAdapter:
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
-        self.output_dir = output_dir or TemporaryDirectory().name
+        self.output_dir = output_dir or TemporaryDirectory()
         self.cpu_percent = cpu_percent
         self.include_all_fields = include_all_fields
 
@@ -971,7 +963,7 @@ class QGISVectorTilesAdapter:
             QgsVectorTileLayer: The created vector tiles layer, or None if failed
         """
         try:
-            temp_dir = mkdtemp(dir=self.output_dir)
+            temp_dir = mkdtemp(dir=self.output_dir.name)
             print("Starting conversion process...")
 
             # Step 1: Flatten all rules
