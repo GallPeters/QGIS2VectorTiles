@@ -200,15 +200,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         all_fields = self.parameterAsBool(parameters, self.ALL_FIELDS, context)
         
-        # Log the parameters for debugging
-        feedback.pushInfo(f"Parameters received:")
-        feedback.pushInfo(f"  Min Zoom: {min_zoom}")
-        feedback.pushInfo(f"  Max Zoom: {max_zoom}")
-        feedback.pushInfo(f"  Extent: {extent.toString()}")
-        feedback.pushInfo(f"  Output Directory: {output_dir}")
-        feedback.pushInfo(f"  CPU Percentage: {cpu_percent}")
-        feedback.pushInfo(f"  Include All Fields: {all_fields}")
-        
         # TODO: Replace this placeholder with your actual MBTiles generation logic
         # Example call to your existing processing class:
         """
@@ -233,24 +224,21 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             # # Run the generation process
             # mbtiles_generator.process_layers(progress_callback=progress_callback)
             # 
-            # feedback.pushInfo("MBTiles generation completed successfully!")
+            # feedback.pushInfo("MBTiles generation completed successfully")
             
         except Exception as e:
             feedback.reportError(f"Error during MBTiles generation: {str(e)}")
             return {}
         """
         
-        # Placeholder implementation
-        feedback.pushInfo("🔧 PLACEHOLDER: Your MBTiles generation logic will be called here")
-        feedback.pushInfo("📁 Ready to process project layers with the specified parameters")
+        # Placeholder implementation - remove when integrating your logic
+        feedback.pushInfo("MBTiles generation process ready for implementation")
         
-        # Simulate some progress for testing
+        # Simulate progress for testing
         for i in range(101):
             if feedback.isCanceled():
                 break
             feedback.setProgress(i)
-            
-        feedback.pushInfo(" Processing wrapper is ready - integrate your MBTiles logic here")
         
         # Return empty results dictionary (modify as needed for your use case)
         return {}
@@ -286,24 +274,16 @@ if __name__ == "__console__":
     # Create algorithm instance for testing
     alg = GenerateStyledMBTilesAlgorithm()
     
-    # Print algorithm information
-    print(f"Algorithm Name: {alg.name()}")
-    print(f"Display Name: {alg.displayName()}")
-    print(f"Group: {alg.group()}")
-    print(f"Help: {alg.shortHelpString()}")
-    
     # Register the provider temporarily for testing
     try:
         provider = TempMBTilesProvider()
         QgsApplication.processingRegistry().addProvider(provider)
         
-        print("\n Algorithm registered successfully!")
-        print("🔍 Look for 'Generate Styled MBTiles From Project Layers' in Processing Toolbox")
-        print("📂 Under 'Tile Generation' group")
+        print("Algorithm registered successfully")
+        print("Available in Processing Toolbox under 'Tile Generation' group")
         
         # Test algorithm execution with default parameters
         if iface and iface.mapCanvas():
-            print("\n🚀 Testing algorithm execution...")
             result = processing.run(
                 "temp_mbtiles_provider:generate_styled_mbtiles",
                 {
@@ -315,12 +295,8 @@ if __name__ == "__console__":
                     'ALL_FIELDS': False
                 }
             )
-            print(" Algorithm test completed!")
-        else:
-            print("  No map canvas available - skipping test execution")
+            print("Algorithm test completed")
             
     except Exception as e:
-        print(f"⚠️  Registration or test failed: {e}")
-        print("💡 You can still manually test the algorithm by creating an instance:")
-        print("    alg = GenerateStyledMBTilesAlgorithm()")
-        print("    # Then call alg.processAlgorithm() directly with parameters")
+        print(f"Registration or test failed: {e}")
+        print("You can still manually test the algorithm by creating an instance")
