@@ -28,7 +28,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
     OUTPUT_DIR = "OUTPUT_DIR"
-    CPU_PERCENT = "CPU_PERCENT"
     ALL_FIELDS = "ALL_FIELDS"
 
     def __init__(self):
@@ -85,7 +84,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             "• Min/Max Zoom: Define the zoom level range (0-23)\n"
             "• Extent: Area to generate tiles for (default: current map canvas)\n"
             "• Output Directory: Where to save the MBTiles files\n"
-            "• CPU Usage: Percentage of CPU cores to use (1-100%)\n"
             "• All Fields: Include all layer fields in tiles (affects file size)"
         )
 
@@ -137,18 +135,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
-        # CPU usage percentage parameter
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.CPU_PERCENT,
-                self.tr("CPU Usage Percentage"),
-                type=QgsProcessingParameterNumber.Integer,
-                defaultValue=70,
-                minValue=1,
-                maxValue=100,
-            )
-        )
-
         # All fields boolean parameter
         self.addParameter(
             QgsProcessingParameterBoolean(
@@ -191,7 +177,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
         extent = self.parameterAsExtent(parameters, self.EXTENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
-        cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         include_all_fields = self.parameterAsBool(parameters, self.ALL_FIELDS, context)
 
         try:
@@ -201,7 +186,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 max_zoom=max_zoom,
                 extent=extent,
                 output_dir=output_dir,
-                cpu_percent=cpu_percent,
                 include_all_fields=include_all_fields,
             )
 
@@ -281,7 +265,6 @@ if __name__ == "__console__":
                     "MAX_ZOOM": 10,
                     "EXTENT": iface.mapCanvas().extent(),
                     "OUTPUT_DIR": tempfile.gettempdir(),
-                    "CPU_PERCENT": 50,
                     "ALL_FIELDS": False,
                 },
             )

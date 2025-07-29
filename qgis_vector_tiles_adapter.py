@@ -5,19 +5,21 @@ Converts QGIS vector layer styling to vector tiles format by:
 1. Flattening nested rule-based renderers/labeling with property inheritance
 2. Splitting rules by symbol layers and matching label rules to renderer rules
 3. Exporting each rule as a separate dataset with geometry transformations
-4. Generating MBTiles using GDAL MVT driver with multi-threading support
+4. Generating Tiles (pbf) directory using QGIS XYZ vector tiles processing
 5. Loading and styling the tiles in QGIS with appropriate symbology
 
 The adapter handles complex styling scenarios including geometry generators,
 scale-dependent styling, nested filters, and ensures proper tile-based rendering.
 """
 
+from os import mkdir
 from os.path import join
-from os import cpu_count
-from tempfile import mkdtemp, TemporaryDirectory
-from osgeo import gdal, ogr, osr
+from tempfile import gettempdir
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Union, List, Optional, Tuple
+from urllib.request import pathname2url
+
 import processing
 from qgis.core import (
     QgsProject,
@@ -25,7 +27,6 @@ from qgis.core import (
     QgsRuleBasedLabeling,
     QgsPalLayerSettings,
     QgsVectorLayer,
-    QgsSymbol,
     QgsRenderContext,
     QgsVectorTileLayer,
     QgsWkbTypes,
@@ -63,7 +64,6 @@ class ZoomLevels:
         0.433333333333333,
         0.2375,
         0.139583333333333,
-        0.090972222222222,
     ]
 
     @classmethod
@@ -126,8 +126,16 @@ class FlattenedRule:
 class VectorTileStyler:
     """Applies styling to vector tile layers from flattened rules."""
 
-    def __init__(self, flattened_rules: List[FlattenedRule], tiles_path: str):
+    def __init__(
+        self,
+        flattened_rules: List[FlattenedRule],
+        min_zoom: int,
+        max_zoom: int,
+        tiles_path: str,
+    ):
         self.flattened_rules = flattened_rules
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom
         self.tiles_layer = self._create_tiles_layer(tiles_path)
         self.renderer_styles = []
         self.labeling_styles = []
@@ -141,7 +149,12 @@ class VectorTileStyler:
 
     def _create_tiles_layer(self, tiles_path: str) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        layer = QgsVectorTileLayer(f"type=mbtiles&url={tiles_path}", "Vector Tiles")
+        template = r"/{z}/{x}/{y}.pbf"
+        tiles_url = pathname2url(f"{tiles_path}{template}")
+        suffix = "&http-header:referer="
+        layer = QgsVectorTileLayer(
+            f"type=xyz&url=file:{tiles_url}{suffix}", "Vector Tiles"
+        )
         return QgsProject.instance().addMapLayer(layer)
 
     def _create_style_from_rule(self, flat_rule: FlattenedRule) -> None:
@@ -166,8 +179,11 @@ class VectorTileStyler:
         symbol = flat_rule.rule.symbol()
         # Handle subsymbol for geometry changes
         sub_symbol = symbol.symbolLayers()[-1].subSymbol()
-        if sub_symbol:
+        if sub_symbol and flat_rule.get_attribute("g") != flat_rule.get_attribute("c"):
             self._copy_data_driven_properties(symbol, sub_symbol)
+            self._copy_data_driven_properties(
+                symbol.symbolLayers()[-1], sub_symbol.symbolLayers()[-1]
+            )
             symbol = sub_symbol
         style.setSymbol(symbol.clone())
 
@@ -218,153 +234,8 @@ class VectorTileStyler:
         self.tiles_layer.setLabeling(labeling)
 
 
-class VectorTileGenerator:
-    """Generates MBTiles from GeoPackage using GDAL MVT driver."""
-
-    def __init__(self, output_dir: str, cpu_percent: int, gpkg_path: str):
-        self.output_dir = output_dir
-        self.cpu_percent = cpu_percent
-        self.gpkg_path = gpkg_path
-
-    def generate(self) -> str:
-        """Generate MBTiles file with multi-threading support."""
-        self._configure_gdal_threading()
-
-        output_path = join(self.output_dir, "tiles.mbtiles")
-        web_mercator = self._create_web_mercator_srs()
-
-        # Create MVT dataset
-        driver = gdal.GetDriverByName("MVT")
-        creation_options = [
-            "EXTENT=16384",
-            "MINZOOM=0",
-            "MAXZOOM=20",
-            "SIMPLIFICATION=0",
-            "SIMPLIFICATION_MAX_ZOOM=0",
-        ]
-        dataset = driver.Create(
-            output_path, 0, 0, 0, gdal.GDT_Unknown, options=creation_options
-        )
-
-        self._process_gpkg_layers(dataset, web_mercator)
-        self._set_dataset_metadata(dataset)
-
-        dataset = None  # Close dataset
-        return output_path
-
-    def _configure_gdal_threading(self) -> None:
-        """Configure GDAL threading based on CPU percentage."""
-        cpu_threads = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
-        gdal.SetConfigOption("GDAL_NUM_THREADS", cpu_threads)
-
-    def _create_web_mercator_srs(self) -> osr.SpatialReference:
-        """Create Web Mercator spatial reference system."""
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(3857)
-        return srs
-
-    def _process_gpkg_layers(self, dataset, web_mercator: osr.SpatialReference) -> None:
-        """Process all layers from GeoPackage into MVT dataset."""
-        gpkg = ogr.Open(self.gpkg_path)
-
-        for i in range(gpkg.GetLayerCount()):
-            source_layer = gpkg.GetLayer(i)
-            layer_name = source_layer.GetName()
-
-            # Extract zoom levels from layer name
-            min_zoom = int(layer_name.split("o")[1][:2])
-            max_zoom = int(layer_name.split("i")[1][:2])
-
-            self._create_mvt_layer(
-                dataset, source_layer, layer_name, web_mercator, min_zoom, max_zoom
-            )
-
-    def _create_mvt_layer(
-        self,
-        dataset,
-        source_layer,
-        layer_name: str,
-        web_mercator: osr.SpatialReference,
-        min_zoom: int,
-        max_zoom: int,
-    ) -> None:
-        """Create MVT layer from source layer."""
-        # Create layer in MVT dataset
-        mvt_layer = dataset.CreateLayer(
-            layer_name,
-            srs=web_mercator,
-            geom_type=ogr.wkbUnknown
-        )
-
-        # Set layer metadata
-        mvt_layer.SetMetadataItem("MINZOOM", str(min_zoom))
-        mvt_layer.SetMetadataItem("MAXZOOM", str(max_zoom))
-        mvt_layer.SetMetadataItem("SIMPLIFICATION", "0")
-        mvt_layer.SetMetadataItem("SIMPLIFICATION_MAX_ZOOM", "20")
-
-        # Setup coordinate transformation
-        transform = self._create_coordinate_transform(source_layer, web_mercator)
-
-        # Copy field definitions
-        self._copy_field_definitions(source_layer, mvt_layer)
-
-        # Copy features with transformation
-        self._copy_features(source_layer, mvt_layer, transform)
-
-    def _create_coordinate_transform(
-        self, source_layer, web_mercator: osr.SpatialReference
-    ) -> Optional[osr.CoordinateTransformation]:
-        """Create coordinate transformation if needed."""
-        source_srs = source_layer.GetSpatialRef()
-        if source_srs and not source_srs.IsSame(web_mercator):
-            return osr.CoordinateTransformation(source_srs, web_mercator)
-        return None
-
-    def _copy_field_definitions(self, source_layer, target_layer) -> None:
-        """Copy field definitions from source to target layer."""
-        source_defn = source_layer.GetLayerDefn()
-        for i in range(source_defn.GetFieldCount()):
-            field_defn = source_defn.GetFieldDefn(i)
-            target_layer.CreateField(field_defn)
-
-    def _copy_features(self, source_layer, target_layer, transform) -> None:
-        """Copy features from source to target with coordinate transformation."""
-        source_defn = source_layer.GetLayerDefn()
-
-        for source_feature in source_layer:
-            target_feature = ogr.Feature(target_layer.GetLayerDefn())
-
-            # Transform and set geometry
-            geom = source_feature.GetGeometryRef()
-            if geom:
-                geom_copy = geom.Clone()
-                if transform:
-                    geom_copy.Transform(transform)
-                target_feature.SetGeometry(geom_copy)
-
-            # Copy attributes
-            for i in range(source_defn.GetFieldCount()):
-                field_name = source_defn.GetFieldDefn(i).GetName()
-                if target_feature.GetFieldIndex(field_name) >= 0:
-                    target_feature.SetField(field_name, source_feature.GetField(i))
-
-            target_layer.CreateFeature(target_feature)
-
-    def _set_dataset_metadata(self, dataset) -> None:
-        """Set dataset metadata for MBTiles."""
-        metadata = {
-            "name": "Generated Tiles",
-            "description": "MBTiles",
-            "version": "1.0.0",
-            "format": "pbf",
-            "type": "overlay",
-        }
-        for key, value in metadata.items():
-            dataset.SetMetadataItem(key, value)
-
-
-class RuleDatasetExporter:
-    """Exports flattened rules as datasets with geometry transformations."""
+class RulesTilesGenerator:
+    """Generate tiles from flattened rules."""
 
     FIELD_PREFIX = "qvta"
     GEOMETRY_ATTRIBUTES = {
@@ -387,11 +258,11 @@ class RuleDatasetExporter:
         self.include_all_fields = include_all_fields
         self.processed_layers = []
 
-    def export_all_rules(self) -> str:
-        """Export all rules and package into single GeoPackage."""
+    def generate(self) -> tuple:
+        """Export all rules to XYZ tiles directory."""
         for rule in self.flattened_rules:
             self._export_single_rule(rule)
-        return self._package_layers()
+        return self._generat_tiles()
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
@@ -570,21 +441,45 @@ class RuleDatasetExporter:
                     if new_attr:
                         new_expr = prop.expressionString().replace(old_attr, new_attr)
                         prop.setExpressionString(new_expr)
-
         return found_properties
 
-    def _package_layers(self) -> str:
-        """Package all processed layers into single GeoPackage."""
-        gpkg_path = join(self.output_dir, "rules.gpkg")
-        self._run_processing(
-            "package", LAYERS=self.processed_layers, SAVE_STYLES=False, OUTPUT=gpkg_path
+    def _generat_tiles(self) -> tuple:
+        """Generate vector tiles from rules layers."""
+        layers = self._get_tiles_layers_properties()
+        tiles_min = min(lyr["minZoom"] for lyr in layers)
+        tiles_max = max(lyr["maxZoom"] for lyr in layers)
+        processing.run(
+            "native:writevectortiles_xyz",
+            {
+                "OUTPUT_DIRECTORY": self.output_dir,
+                "XYZ_TEMPLATE": r"{z}/{x}/{y}.pbf",
+                "LAYERS": layers,
+                "MIN_ZOOM": tiles_min,
+                "MAX_ZOOM": tiles_max,
+                "EXTENT": self.extent,
+            },
         )
-        return gpkg_path
+
+        return tiles_min, tiles_max
+
+    def _get_tiles_layers_properties(self) -> list:
+        """Extract vector tiles layer properties"""
+        properties = []
+        for layer in self.processed_layers:
+            layer_dict = {
+                "layer": layer,
+                "layerName": layer.name(),
+                "minZoom": int(layer.name().split("o")[1][:2]),
+                "maxZoom": int(layer.name().split("i")[1][:2]),
+            }
+            properties.append(layer_dict)
+        return properties
 
     def _run_processing(self, algorithm: str, algorithm_type: str = "native", **params):
         """Execute QGIS processing algorithm."""
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
+            # params["OUTPUT"] = join(self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f.shp"))
         return processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
 
 
@@ -713,15 +608,20 @@ class RuleFlattener:
         flat_rule.set_attribute("r", rule_idx)  # Rule index at level
         flat_rule.set_attribute("g", flat_rule.layer.geometryType())  # Source geometry
         flat_rule.set_attribute("c", flat_rule.layer.geometryType())  # Target geometry
-        flat_rule.set_attribute(
-            "o", ZoomLevels.scale_to_zoom(flat_rule.rule.minimumScale())
-        )
-        flat_rule.set_attribute(
-            "i", ZoomLevels.scale_to_zoom(flat_rule.rule.maximumScale())
-        )
+        flat_rule.set_attribute("o", self._get_rule_zoom_range(flat_rule, min))
+        flat_rule.set_attribute("i", self._get_rule_zoom_range(flat_rule, max))
         flat_rule.set_attribute(
             "s" if rule_type == 0 else "f", 0
         )  # Symbol/feature index
+
+    def _get_rule_zoom_range(self, flat_rule, comparator):
+        """Extract rule maximum and minimum range using general range."""
+        attr_name = f"{comparator.__name__}imumScale"
+        rule_scale = getattr(flat_rule.rule, attr_name)()
+        rule_zoom = int(ZoomLevels.scale_to_zoom(rule_scale))
+        tiles_zoom = getattr(self, f"{comparator.__name__}_zoom")
+        opposite = min if comparator == max else max
+        return opposite(rule_zoom, tiles_zoom)
 
     def _convert_else_filter(self, else_rule, parent_rule) -> None:
         """Convert ELSE filter to explicit exclusion of sibling conditions."""
@@ -950,17 +850,15 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 23,
+        max_zoom: int = 10,
         extent=None,
-        output_dir: TemporaryDirectory = None,
-        cpu_percent: int = 70,
+        output_dir: str = None,
         include_all_fields: bool = False,
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
-        self.output_dir = output_dir or TemporaryDirectory().name
-        self.cpu_percent = cpu_percent
+        self.output_dir = output_dir or gettempdir()
         self.include_all_fields = include_all_fields
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -971,7 +869,10 @@ class QGISVectorTilesAdapter:
             QgsVectorTileLayer: The created vector tiles layer, or None if failed
         """
         try:
-            temp_dir = mkdtemp(dir=self.output_dir)
+            temp_dir = join(
+                self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f")
+            )
+            mkdir(temp_dir)
             print("Starting conversion process...")
 
             # Step 1: Flatten all rules
@@ -985,23 +886,19 @@ class QGISVectorTilesAdapter:
 
             print(f"Successfully extracted {len(flattened_rules)} rules")
 
-            # Step 2: Export rules as datasets
-            print("Exporting rules to datasets...")
-            exporter = RuleDatasetExporter(
+            # Step 2: Export rules to tiles
+            print("Generate tiles from rules...")
+            generator = RulesTilesGenerator(
                 flattened_rules, self.extent, temp_dir, self.include_all_fields
             )
-            gpkg_path = exporter.export_all_rules()
-            print("Successfully exported rule datasets")
-
-            # Step 3: Generate vector tiles
-            print("Generating vector tiles...")
-            generator = VectorTileGenerator(temp_dir, self.cpu_percent, gpkg_path)
-            tiles_path = generator.generate()
-            print("Successfully generated vector tiles")
+            tiles_min, tiles_max = generator.generate()
+            print("Successfully generated tiles")
 
             # Step 4: Load and style tiles
             print("Loading and styling tiles...")
-            styler = VectorTileStyler(flattened_rules, tiles_path)
+            styler = VectorTileStyler(
+                flattened_rules, tiles_min, tiles_max, temp_dir
+            )
             tiles_layer = styler.apply_styling()
             print("Process completed successfully")
 
