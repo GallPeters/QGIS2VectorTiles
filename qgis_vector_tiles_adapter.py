@@ -29,6 +29,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsRenderContext,
     QgsVectorTileLayer,
+    QgsCoordinateReferenceSystem,
     QgsWkbTypes,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicRendererStyle,
@@ -289,12 +290,24 @@ class RulesTilesGenerator:
         # Transform geometry if needed
         layer = self._transform_geometry_if_needed(layer, flat_rule)
 
+        layer = self._run_processing(
+            "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
+        )
         layer.setName(flat_rule.rule.description())
         self.processed_layers.append(layer)
 
     def _prepare_base_layer(self, flat_rule: FlattenedRule) -> QgsVectorLayer:
         """Prepare base layer with extent clipping and geometry fixes."""
         layer = flat_rule.layer
+
+        # Reproject to web mercator (EPSG:3857)
+        layer = self._run_processing(
+            "reprojectlayer",
+            INPUT=layer,
+            TARGET_CRS=QgsCoordinateReferenceSystem("EPSG:3857"),
+            CONVERT_CURVED_GEOMETRIES=False,
+        )
+
         extent = self.extent or layer.extent()
 
         # Add unique ID field
@@ -896,9 +909,7 @@ class QGISVectorTilesAdapter:
 
             # Step 4: Load and style tiles
             print("Loading and styling tiles...")
-            styler = VectorTileStyler(
-                flattened_rules, tiles_min, tiles_max, temp_dir
-            )
+            styler = VectorTileStyler(flattened_rules, tiles_min, tiles_max, temp_dir)
             tiles_layer = styler.apply_styling()
             print("Process completed successfully")
 
