@@ -145,7 +145,7 @@ class VectorTileStyler:
 
     def _create_tiles_layer(self, tiles_path: str) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        suffix = "&http-header:referer="
+        suffix = "&http-header:referer=" if tiles_path.split('.')[-1] != 'mbtiles' else ''
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
         return QgsProject.instance().addMapLayer(layer)
 
@@ -229,9 +229,10 @@ class VectorTileStyler:
 class TilesGenerator:
     """Generate vector tiles from datasets list according given configuration"""
 
-    def __init__(self, layers, output_dir, tiles_conf):
+    def __init__(self, layers, output_dir, output_type, tiles_conf):
         self.layers: list = layers
         self.output_dir = output_dir
+        self.output_type = output_type
         self.tiles_conf = tiles_conf
 
     def generate(self) -> tuple:
@@ -263,8 +264,7 @@ class TilesGenerator:
 
     def _get_uri(self) -> str:
         """Get output uri string (XYZ directory or mbtiles file, depend on the user preference)"""
-        output_type = self.tiles_conf[0]
-        if output_type == "xyz":
+        if self.output_type == "xyz":
             template = r"/{z}/{x}/{y}.pbf"
             tiles_url = pathname2url(f"{self.output_dir}{template}")
             return f"type=xyz&url=file:{tiles_url}{template}"
@@ -274,7 +274,7 @@ class TilesGenerator:
         """Generate tiles matrix according to user prefernces (Default: Web Mercator)"""
         matrix = QgsTileMatrix()
         crs_id, top_left_xy, root_dimention, ratio_width, ratio_height = (
-            self.tiles_conf[1:]
+            self.tiles_conf
         )
         crs = QgsCoordinateReferenceSystem(crs_id)
         top_left_x, top_left_y = top_left_xy
@@ -890,17 +890,19 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 10,
+        max_zoom: int = 15,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
-        tiles_conf=["xyz", 4326, (-80, 90), 180.0, 1, 1],
+        output_type=None,
+        tiles_conf=[4326, (-80, 90), 180.0, 1, 1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_all_fields = include_all_fields
+        self.output_type = output_type
         self.tiles_conf = tiles_conf
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -931,14 +933,14 @@ class QGISVectorTilesAdapter:
             # Step 2: Export rules to datasets
             print("Exporting rules to layers...")
             exporter = RulesLayersExporter(
-                rules, self.extent, self.include_all_fields, self.tiles_conf[1]
+                rules, self.extent, self.include_all_fields, self.tiles_conf[0]
             )
             layers = exporter.export()
             print("Successfully exported rules")
 
             # Step 3: Generate tiles from datasets
             print("Generating tiles...")
-            generator = TilesGenerator(layers, temp_dir, self.tiles_conf)
+            generator = TilesGenerator(layers, temp_dir, self.output_type, self.tiles_conf)
             tiles = generator.generate()
             print("Successfully generated tiles")
 
