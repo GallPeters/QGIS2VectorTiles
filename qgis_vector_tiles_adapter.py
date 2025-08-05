@@ -35,6 +35,9 @@ from qgis.core import (
     QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling,
     QgsVectorTileBasicLabelingStyle,
+    QgsTileMatrix,
+    QgsPointXY,
+    QgsVectorTileWriter,
 )
 
 
@@ -127,16 +130,8 @@ class FlattenedRule:
 class VectorTileStyler:
     """Applies styling to vector tile layers from flattened rules."""
 
-    def __init__(
-        self,
-        flattened_rules: List[FlattenedRule],
-        min_zoom: int,
-        max_zoom: int,
-        tiles_path: str,
-    ):
+    def __init__(self, flattened_rules: List[FlattenedRule], tiles_path: str):
         self.flattened_rules = flattened_rules
-        self.min_zoom = min_zoom
-        self.max_zoom = max_zoom
         self.tiles_layer = self._create_tiles_layer(tiles_path)
         self.renderer_styles = []
         self.labeling_styles = []
@@ -150,12 +145,8 @@ class VectorTileStyler:
 
     def _create_tiles_layer(self, tiles_path: str) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        template = r"/{z}/{x}/{y}.pbf"
-        tiles_url = pathname2url(f"{tiles_path}{template}")
         suffix = "&http-header:referer="
-        layer = QgsVectorTileLayer(
-            f"type=xyz&url=file:{tiles_url}{suffix}", "Vector Tiles"
-        )
+        layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
         return QgsProject.instance().addMapLayer(layer)
 
     def _create_style_from_rule(self, flat_rule: FlattenedRule) -> None:
@@ -235,8 +226,76 @@ class VectorTileStyler:
         self.tiles_layer.setLabeling(labeling)
 
 
-class RulesTilesGenerator:
-    """Generate tiles from flattened rules."""
+class TilesGenerator:
+    """Generate vector tiles from datasets list according given configuration"""
+
+    def __init__(self, layers, output_dir, tiles_conf):
+        self.layers: list = layers
+        self.output_dir = output_dir
+        self.tiles_conf = tiles_conf
+
+    def generate(self) -> tuple:
+        """Generate vector tiles from rules layers."""
+        layers = self._get_layers()
+        minzoom, maxzoom = self._get_zoom_levels(layers)
+        uri = self._get_uri()
+        matrix = self._get_matrix()
+        writer = self._set_writer(layers, minzoom, maxzoom, uri, matrix)
+        writer.writeTiles()
+        return uri
+
+    def _get_layers(self) -> list:
+        """Extract vector tiles layers"""
+        layers = []
+        for layer in self.layers:
+            tiles_layer = QgsVectorTileWriter.Layer(layer)
+            tiles_layer.setLayerName(layer.name())
+            tiles_layer.setMinZoom(int(layer.name().split("o")[1][:2]))
+            tiles_layer.setMaxZoom(int(layer.name().split("i")[1][:2]))
+            layers.append(tiles_layer)
+        return layers
+
+    def _get_zoom_levels(self, layers):
+        """Get maximum and minimum zoom levels from layers list"""
+        min_zoom = min(lyr.minZoom() for lyr in layers)
+        max_zoom = max(lyr.maxZoom() for lyr in layers)
+        return min_zoom, max_zoom
+
+    def _get_uri(self) -> str:
+        """Get output uri string (XYZ directory or mbtiles file, depend on the user preference)"""
+        output_type = self.tiles_conf[0]
+        if output_type == "xyz":
+            template = r"/{z}/{x}/{y}.pbf"
+            tiles_url = pathname2url(f"{self.output_dir}{template}")
+            return f"type=xyz&url=file:{tiles_url}{template}"
+        return join(self.output_dir, "QVTA.mbtiles")
+
+    def _get_matrix(self):
+        """Generate tiles matrix according to user prefernces (Default: Web Mercator)"""
+        matrix = QgsTileMatrix()
+        crs_id, top_left_xy, root_dimention, ratio_width, ratio_height = (
+            self.tiles_conf[1:]
+        )
+        crs = QgsCoordinateReferenceSystem(crs_id)
+        top_left_x, top_left_y = top_left_xy
+        top_left_pnt = QgsPointXY(top_left_x, top_left_y)
+        return matrix.fromCustomDef(
+            0, crs, top_left_pnt, root_dimention, ratio_width, ratio_height
+        )
+
+    def _set_writer(self, layers, minzoom, maxzoom, uri, matrix):
+        """Set vector tiles writer object and its configurations."""
+        writer = QgsVectorTileWriter()
+        writer.setLayers(layers)
+        writer.setMinZoom(minzoom)
+        writer.setMaxZoom(maxzoom)
+        writer.setDestinationUri(uri)
+        writer.setRootTileMatrix(matrix)
+        return writer
+
+
+class RulesLayersExporter:
+    """Export all rules to memory datasets."""
 
     FIELD_PREFIX = "qvta"
     GEOMETRY_ATTRIBUTES = {
@@ -250,20 +309,20 @@ class RulesTilesGenerator:
         self,
         flattened_rules: List[FlattenedRule],
         extent,
-        output_dir: str,
         include_all_fields: bool,
+        crs_id,
     ):
         self.flattened_rules = flattened_rules
         self.extent = extent
-        self.output_dir = output_dir
         self.include_all_fields = include_all_fields
         self.processed_layers = []
+        self.crs_id = crs_id
 
-    def generate(self) -> tuple:
-        """Export all rules to XYZ tiles directory."""
+    def export(self) -> list:
+        """Export all rules to memory datasets."""
         for rule in self.flattened_rules:
             self._export_single_rule(rule)
-        return self._generat_tiles()
+        return self.processed_layers
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
@@ -304,7 +363,7 @@ class RulesTilesGenerator:
         layer = self._run_processing(
             "reprojectlayer",
             INPUT=layer,
-            TARGET_CRS=QgsCoordinateReferenceSystem("EPSG:3857"),
+            TARGET_CRS=QgsCoordinateReferenceSystem(f"EPSG:{self.crs_id}"),
             CONVERT_CURVED_GEOMETRIES=False,
         )
 
@@ -455,38 +514,6 @@ class RulesTilesGenerator:
                         new_expr = prop.expressionString().replace(old_attr, new_attr)
                         prop.setExpressionString(new_expr)
         return found_properties
-
-    def _generat_tiles(self) -> tuple:
-        """Generate vector tiles from rules layers."""
-        layers = self._get_tiles_layers_properties()
-        tiles_min = min(lyr["minZoom"] for lyr in layers)
-        tiles_max = max(lyr["maxZoom"] for lyr in layers)
-        processing.run(
-            "native:writevectortiles_xyz",
-            {
-                "OUTPUT_DIRECTORY": self.output_dir,
-                "XYZ_TEMPLATE": r"{z}/{x}/{y}.pbf",
-                "LAYERS": layers,
-                "MIN_ZOOM": tiles_min,
-                "MAX_ZOOM": tiles_max,
-                "EXTENT": self.extent,
-            },
-        )
-
-        return tiles_min, tiles_max
-
-    def _get_tiles_layers_properties(self) -> list:
-        """Extract vector tiles layer properties"""
-        properties = []
-        for layer in self.processed_layers:
-            layer_dict = {
-                "layer": layer,
-                "layerName": layer.name(),
-                "minZoom": int(layer.name().split("o")[1][:2]),
-                "maxZoom": int(layer.name().split("i")[1][:2]),
-            }
-            properties.append(layer_dict)
-        return properties
 
     def _run_processing(self, algorithm: str, algorithm_type: str = "native", **params):
         """Execute QGIS processing algorithm."""
@@ -867,12 +894,14 @@ class QGISVectorTilesAdapter:
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
+        tiles_conf=["xyz", 4326, (-80, 90), 180.0, 1, 1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_all_fields = include_all_fields
+        self.tiles_conf = tiles_conf
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
         """
@@ -889,27 +918,33 @@ class QGISVectorTilesAdapter:
             print("Starting conversion process...")
 
             # Step 1: Flatten all rules
-            print("Extracting and flattening rules...")
+            print("Flattening rules...")
             flattener = RuleFlattener(self.min_zoom, self.max_zoom)
-            flattened_rules = flattener.flatten_all_rules()
+            rules = flattener.flatten_all_rules()
 
-            if not flattened_rules:
+            if not rules:
                 print("No visible vector layers found in project")
                 return None
 
-            print(f"Successfully extracted {len(flattened_rules)} rules")
+            print(f"Successfully extracted {len(rules)} rules")
 
-            # Step 2: Export rules to tiles
-            print("Generate tiles from rules...")
-            generator = RulesTilesGenerator(
-                flattened_rules, self.extent, temp_dir, self.include_all_fields
+            # Step 2: Export rules to datasets
+            print("Exporting rules to layers...")
+            exporter = RulesLayersExporter(
+                rules, self.extent, self.include_all_fields, self.tiles_conf[1]
             )
-            tiles_min, tiles_max = generator.generate()
+            layers = exporter.export()
+            print("Successfully exported rules")
+
+            # Step 3: Generate tiles from datasets
+            print("Generating tiles...")
+            generator = TilesGenerator(layers, temp_dir, self.tiles_conf)
+            tiles = generator.generate()
             print("Successfully generated tiles")
 
             # Step 4: Load and style tiles
             print("Loading and styling tiles...")
-            styler = VectorTileStyler(flattened_rules, tiles_min, tiles_max, temp_dir)
+            styler = VectorTileStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
             print("Process completed successfully")
 
