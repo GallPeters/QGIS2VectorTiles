@@ -145,7 +145,9 @@ class VectorTileStyler:
 
     def _create_tiles_layer(self, tiles_path: str) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        suffix = "&http-header:referer=" if tiles_path.split('.')[-1] != 'mbtiles' else ''
+        suffix = (
+            "&http-header:referer=" if tiles_path.split(".")[-1] != "mbtiles" else ""
+        )
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
         return QgsProject.instance().addMapLayer(layer)
 
@@ -242,7 +244,9 @@ class TilesGenerator:
         uri = self._get_uri()
         matrix = self._get_matrix()
         writer = self._set_writer(layers, minzoom, maxzoom, uri, matrix)
-        writer.writeTiles()
+        result = writer.writeTiles()
+        if not result:
+            print(writer.errorMessage())
         return uri
 
     def _get_layers(self) -> list:
@@ -264,24 +268,25 @@ class TilesGenerator:
 
     def _get_uri(self) -> str:
         """Get output uri string (XYZ directory or mbtiles file, depend on the user preference)"""
-        if self.output_type == "xyz":
-            template = r"/{z}/{x}/{y}.pbf"
-            tiles_url = pathname2url(f"{self.output_dir}{template}")
-            return f"type=xyz&url=file:{tiles_url}{template}"
+        if self.output_type == "XYZ":
+            template = pathname2url(r"/{z}/{x}/{y}.pbf")
+            tiles_url = self.output_dir
+            uri = f'{tiles_url}{template}'
+            return f"type=xyz&url=file:///{uri}"
         return join(self.output_dir, "QVTA.mbtiles")
 
     def _get_matrix(self):
         """Generate tiles matrix according to user prefernces (Default: Web Mercator)"""
         matrix = QgsTileMatrix()
-        crs_id, top_left_xy, root_dimention, ratio_width, ratio_height = (
+        crs_id, top_left_x, top_left_y, root_dimention, ratio_width, ratio_height = (
             self.tiles_conf
         )
         crs = QgsCoordinateReferenceSystem(crs_id)
-        top_left_x, top_left_y = top_left_xy
         top_left_pnt = QgsPointXY(top_left_x, top_left_y)
-        return matrix.fromCustomDef(
+        matrix = matrix.fromCustomDef(
             0, crs, top_left_pnt, root_dimention, ratio_width, ratio_height
         )
+        return matrix
 
     def _set_writer(self, layers, minzoom, maxzoom, uri, matrix):
         """Set vector tiles writer object and its configurations."""
@@ -291,6 +296,7 @@ class TilesGenerator:
         writer.setMaxZoom(maxzoom)
         writer.setDestinationUri(uri)
         writer.setRootTileMatrix(matrix)
+        writer.setExtent(matrix.extent())
         return writer
 
 
@@ -359,11 +365,11 @@ class RulesLayersExporter:
         """Prepare base layer with extent clipping and geometry fixes."""
         layer = flat_rule.layer
 
-        # Reproject to web mercator (EPSG:3857)
+        # Reproject to destination EPSG
         layer = self._run_processing(
             "reprojectlayer",
             INPUT=layer,
-            TARGET_CRS=QgsCoordinateReferenceSystem(f"EPSG:{self.crs_id}"),
+            TARGET_CRS=QgsCoordinateReferenceSystem(self.crs_id),
             CONVERT_CURVED_GEOMETRIES=False,
         )
 
@@ -519,7 +525,7 @@ class RulesLayersExporter:
         """Execute QGIS processing algorithm."""
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
-            # params["OUTPUT"] = join(self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f.shp"))
+            # params["OUTPUT"] = join(r'C:\Users\P0026701\AppData\Local\Temp\06_08_2025_17_24_07_824669',  datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f.shp"))
         return processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
 
 
@@ -890,12 +896,12 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 15,
+        max_zoom: int = 5,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
-        output_type=None,
-        tiles_conf=[4326, (-80, 90), 180.0, 1, 1],
+        output_type="XYZ",
+        tiles_conf=[4326, -180.0, 90.0, 180.0, 1, 1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
@@ -940,7 +946,9 @@ class QGISVectorTilesAdapter:
 
             # Step 3: Generate tiles from datasets
             print("Generating tiles...")
-            generator = TilesGenerator(layers, temp_dir, self.output_type, self.tiles_conf)
+            generator = TilesGenerator(
+                layers, temp_dir, self.output_type, self.tiles_conf
+            )
             tiles = generator.generate()
             print("Successfully generated tiles")
 

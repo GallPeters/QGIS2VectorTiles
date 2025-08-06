@@ -92,7 +92,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         Returns the algorithm icon.
         """
         cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
-        icon_path = os.path.join(os.path.join(cmd_folder, 'icon.svg'))
+        icon_path = os.path.join(os.path.join(cmd_folder, "icon.svg"))
         if os.path.exists(icon_path):
             return QIcon(icon_path)
         return super().icon()
@@ -125,7 +125,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 self.OUTPUT_TYPE,
                 self.tr("Output Type"),
                 options=["XYZ", "MBTiles"],
-                defaultValue=1,  # Default to MBTiles
+                defaultValue=0,  # Default to XYZ
                 optional=False,
             )
         )
@@ -184,7 +184,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         crs_param = QgsProcessingParameterCrs(
             self.CRS_ID,
             self.tr("Coordinate Reference System"),
-            defaultValue=QgsCoordinateReferenceSystem("EPSG:3857"),  # Web Mercator
+            defaultValue=QgsCoordinateReferenceSystem("EPSG:4326"),  # WGS84
             optional=False,
         )
         crs_param.setFlags(
@@ -196,7 +196,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.TOP_LEFT_X,
             self.tr("Top Left X"),
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=1.2,
+            defaultValue=-80,
             optional=False,
         )
         top_left_x_param.setFlags(
@@ -208,7 +208,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.TOP_LEFT_Y,
             self.tr("Top Left Y"),
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=2.3,
+            defaultValue=90,
             optional=False,
         )
         top_left_y_param.setFlags(
@@ -220,7 +220,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.ROOT_DIMENSION,
             self.tr("Root Dimension"),
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=256.0,
+            defaultValue=180,
             optional=False,
         )
         root_dimension_param.setFlags(
@@ -244,7 +244,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.RATIO_HEIGHT,
             self.tr("Ratio Height"),
             type=QgsProcessingParameterNumber.Integer,
-            defaultValue=2,
+            defaultValue=1,
             optional=False,
         )
         ratio_height_param.setFlags(
@@ -312,7 +312,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                     parameters, self.RATIO_HEIGHT, context
                 ),
             }
-
+        tile_matrix_values = list(tile_matrix_params.values())
         try:
             # Your existing MBTiles generator class would be called here
             mbtiles_generator = QGISVectorTilesAdapter(
@@ -322,7 +322,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_all_fields=include_all_fields,
                 output_type=output_type,
-                **tile_matrix_params,
+                tiles_conf=tile_matrix_values,
             )
 
             # Run the generation process
@@ -429,7 +429,7 @@ if __name__ == "__console__":
         def icon(self):
             """Provider icon"""
             cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
-            icon_path = os.path.join(os.path.join(cmd_folder, 'icon.svg'))
+            icon_path = os.path.join(os.path.join(cmd_folder, "icon.svg"))
             if os.path.exists(icon_path):
                 return QIcon(icon_path)
             return super().icon()
