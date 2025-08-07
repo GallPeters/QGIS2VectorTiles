@@ -38,6 +38,9 @@ from qgis.core import (
     QgsTileMatrix,
     QgsPointXY,
     QgsVectorTileWriter,
+    QgsMarkerSymbol,
+    QgsLineSymbol,
+    QgsFillSymbol
 )
 
 
@@ -172,13 +175,27 @@ class VectorTileStyler:
 
         symbol = flat_rule.rule.symbol()
         # Handle subsymbol for geometry changes
-        sub_symbol = symbol.symbolLayers()[-1].subSymbol()
-        if sub_symbol and flat_rule.get_attribute("g") != flat_rule.get_attribute("c"):
-            self._copy_data_driven_properties(symbol, sub_symbol)
-            self._copy_data_driven_properties(
-                symbol.symbolLayers()[-1], sub_symbol.symbolLayers()[-1]
-            )
-            symbol = sub_symbol
+        symbol_layer = symbol.symbolLayers()[-1]
+        sub_symbol = symbol_layer.subSymbol()
+        source_geom = int(flat_rule.get_attribute("g"))
+        target_geom = int(flat_rule.get_attribute("c"))
+        if source_geom != target_geom:
+            if sub_symbol:
+                self._copy_data_driven_properties(symbol, sub_symbol)
+                self._copy_data_driven_properties(
+                    symbol.symbolLayers()[-1], sub_symbol.symbolLayers()[-1]
+                )
+                symbol = sub_symbol
+            else:
+                symbol=None
+                if target_geom == 0:
+                    symbol = QgsMarkerSymbol()
+                elif target_geom == 1:
+                    symbol = QgsLineSymbol()
+                else:
+                    symbol = QgsFillSymbol()
+                symbol.appendSymbolLayer(symbol_layer.clone())
+                symbol.deleteSymbolLayer(0)
         style.setSymbol(symbol.clone())
 
     def _setup_labeling_style(
@@ -771,8 +788,9 @@ class RuleFlattener:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
             # Determine target geometry type
-            sub_symbol = symbol.symbolLayer(layer_idx).subSymbol()
-            symbol_type = sub_symbol.type() if sub_symbol else symbol.type()
+            symbol_layer = symbol.symbolLayer(layer_idx)
+            sub_symbol = symbol_layer.subSymbol()
+            symbol_type = sub_symbol.type() if sub_symbol else symbol_layer.type()
             rule_clone.set_attribute("c", symbol_type)
             rule_clone.set_attribute("s", layer_idx)
 
