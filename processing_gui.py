@@ -22,6 +22,7 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
+from index_generator import TileIndexGenerator
 
 
 class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
@@ -314,6 +315,16 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             }
         tile_matrix_values = list(tile_matrix_params.values())
         try:
+            
+            # Your existing MBTiles generator class would be called here
+            output_path = (r"C:\Users\P0026701\OneDrive - Ness Israel\Desktop\ScratchWorkspace\abc.gpkg")
+            layers = [iface.activeLayer()]
+            extent = iface.mapCanvas().extent()
+            generator = TileIndexGenerator(output_path)
+            index_layer = generator.generate(layers, extent, min_zoom=min_zoom, max_zoom=max_zoom)
+            print(f'Tiles Count: {len(generator.xyz_tiles)}')
+            return  index_layer
+
             # Your existing MBTiles generator class would be called here
             mbtiles_generator = QGISVectorTilesAdapter(
                 min_zoom=min_zoom,
@@ -458,7 +469,7 @@ if __name__ == "__console__":
                 {
                     "OUTPUT_TYPE": 1,  # MBTiles
                     "MIN_ZOOM": 0,
-                    "MAX_ZOOM": 10,
+                    "MAX_ZOOM": 3,
                     "EXTENT": iface.mapCanvas().extent(),
                     "OUTPUT_DIR": tempfile.gettempdir(),
                     "ALL_FIELDS": False,

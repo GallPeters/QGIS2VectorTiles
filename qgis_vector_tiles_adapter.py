@@ -40,7 +40,9 @@ from qgis.core import (
     QgsVectorTileWriter,
     QgsMarkerSymbol,
     QgsLineSymbol,
-    QgsFillSymbol
+    QgsFillSymbol,
+    QgsGeometry,
+    QgsTileXYZ,
 )
 
 
@@ -130,7 +132,7 @@ class FlattenedRule:
         self.rule.setDescription(desc)
 
 
-class VectorTileStyler:
+class TilesStyler:
     """Applies styling to vector tile layers from flattened rules."""
 
     def __init__(self, flattened_rules: List[FlattenedRule], tiles_path: str):
@@ -187,7 +189,7 @@ class VectorTileStyler:
                 )
                 symbol = sub_symbol
             else:
-                symbol=None
+                symbol = None
                 if target_geom == 0:
                     symbol = QgsMarkerSymbol()
                 elif target_geom == 1:
@@ -258,10 +260,12 @@ class TilesGenerator:
         """Generate vector tiles from rules layers."""
         layers = self._get_layers()
         minzoom, maxzoom = self._get_zoom_levels(layers)
-        uri = self._get_uri()
         matrix = self._get_matrix()
+        tiles = self._get_tiles(layers, minzoom, maxzoom, matrix)
+        uri = self._get_uri()
         writer = self._set_writer(layers, minzoom, maxzoom, uri, matrix)
-        result = writer.writeTiles()
+        self._set_directories_tree(tiles, minzoom, maxzoom)
+        result = self._write_tiles(writer, tiles)
         if not result:
             print(writer.errorMessage())
         return uri
@@ -288,7 +292,7 @@ class TilesGenerator:
         if self.output_type == "XYZ":
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
             tiles_url = self.output_dir
-            uri = f'{tiles_url}{template}'
+            uri = f"{tiles_url}{template}"
             return f"type=xyz&url=file:///{uri}"
         return join(self.output_dir, "QVTA.mbtiles")
 
@@ -305,6 +309,26 @@ class TilesGenerator:
         )
         return matrix
 
+    def _get_tiles(self, layers, minzoom, maxzoom, matrix):
+        """Get XYZ tiles list"""
+        fetcher = TilesFetcher(layers, minzoom, maxzoom, matrix)
+        return fetcher.fetch()
+
+    def _set_directories_tree(self, tiles, minzoom, maxzoom):
+        """Set directory tree according to {Z}{X}{Y} template"""
+        if self.output_type == "XYZ":
+            zs = list(range(minzoom, maxzoom + 1))
+            zxs = set([(tile.zoomLevel(), tile.column()) for tile in tiles])
+            tree = {z: [] for z in zs}
+            for z, x in zxs:
+                tree[z].append(x)
+            for z in tree:
+                zp = join(self.output_dir, str(z))
+                mkdir(zp)
+                for x in tree[z]:
+                    xp = join(zp, str(x))
+                    mkdir(xp)
+
     def _set_writer(self, layers, minzoom, maxzoom, uri, matrix):
         """Set vector tiles writer object and its configurations."""
         writer = QgsVectorTileWriter()
@@ -313,11 +337,114 @@ class TilesGenerator:
         writer.setMaxZoom(maxzoom)
         writer.setDestinationUri(uri)
         writer.setRootTileMatrix(matrix)
-        writer.setExtent(matrix.extent())
         return writer
 
+    def _write_tiles(self, writer, tiles):
+        """Write the tiles which covers rules layers extent."""
+        for tile in tiles:
+            tile_bytes = writer.writeSingleTile(tile)
+            print(tile)
+            with open(
+                f"{self.output_dir}\\{tile.zoomLevel()}\\{tile.column()}\\{tile.row()}.mvt",
+                "wb",
+            ) as f:
+                f.write(tile_bytes.data())
+            del f
 
-class RulesLayersExporter:
+
+class TilesFetcher:
+    """
+    High-performance tile index generator for QGIS layers.
+    Creates a spatial index of tiles that intersect with input geometries.
+    """
+
+    def __init__(self, layers, minzoom, maxzoom, matrix):
+        self.layers = layers
+        self.minzoom = minzoom
+        self.maxzoom = maxzoom
+        self.matrix = matrix
+        self.tiles = []
+
+    def fetch(self) -> QgsVectorLayer:
+        """Generate tile index for given layers and extent."""
+
+        # Collect layer geometries and extent
+        layers_extent = self._get_layers_extent()
+        layers_geometries = self._get_layers_geometries()
+
+        # Process zoom levels
+        current_extents = [layers_extent]
+        for zoom in range(self.minzoom, self.maxzoom + 1):
+            current_extents = self._process_zoom_level(
+                zoom, current_extents, layers_geometries
+            )
+        return self.tiles
+
+    def _get_layers_extent(self):
+        """Get extent of all layers"""
+        layers_extents = []
+
+        for layer in self.layers:
+            bbox_geom = QgsGeometry.fromWkt(layer.layer().sourceExtent().asWktPolygon())
+            layers_extents.append(bbox_geom)
+
+        layers_union = QgsGeometry.unaryUnion(layers_extents)
+        return layers_union.boundingBox()
+
+    def _get_layers_geometries(self):
+        """Efficiently collect and cache layer geometries."""
+        layers_geometries = []
+
+        for layer in self.layers:
+            min_zoom = layer.minZoom()
+            max_zoom = layer.maxZoom()
+            layer = layer.layer()
+
+            # Cache geometry collections to avoid recomputation
+            geometries = [f.geometry() for f in list(layer.getFeatures())]
+
+            # Use unaryUnion for badd .etter performance with many geometries
+            if len(geometries) == 1:
+                combined_geom = geometries[0]
+            else:
+                combined_geom = QgsGeometry.unaryUnion(geometries)
+            layers_geometries.append((min_zoom, max_zoom, combined_geom))
+
+        return layers_geometries
+
+    def _process_zoom_level(self, zoom: int, extents, layer_geometries):
+        """Process a single zoom level and return new extents for next level."""
+        # Filter geometries valid for this zoom level
+        zoom_geoms = [
+            geom for minz, maxz, geom in layer_geometries if minz <= zoom <= maxz
+        ]
+
+        if not zoom_geoms:
+            return []
+
+        inner_extents = []
+
+        zoom_matrix = QgsTileMatrix().fromTileMatrix(zoom, self.matrix)
+        for extent in extents:
+            tile_range = zoom_matrix.tileRangeFromExtent(extent)
+            for row in range(tile_range.startRow(), tile_range.endRow() + 1):
+                for col in range(tile_range.startColumn(), tile_range.endColumn() + 1):
+                    tile = QgsTileXYZ(col, row, zoom)
+                    tile_extent = zoom_matrix.tileExtent(tile)
+
+                    # Check intersection with any geometry
+                    if any(
+                        geom.intersects(QgsGeometry.fromWkt(tile_extent.asWktPolygon()))
+                        for geom in zoom_geoms
+                    ):
+
+                        inner_extents.append(tile_extent)
+                        self.tiles.append(tile)
+
+        return inner_extents
+
+
+class RulesExporter:
     """Export all rules to memory datasets."""
 
     FIELD_PREFIX = "qvta"
@@ -919,7 +1046,7 @@ class QGISVectorTilesAdapter:
         output_dir: str = None,
         include_all_fields: bool = False,
         output_type="XYZ",
-        tiles_conf=[4326, -180.0, 90.0, 180.0, 1, 1],
+        tiles_conf=[4326, -180.0, 90.0, 180.0, 2, 1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
@@ -956,7 +1083,7 @@ class QGISVectorTilesAdapter:
 
             # Step 2: Export rules to datasets
             print("Exporting rules to layers...")
-            exporter = RulesLayersExporter(
+            exporter = RulesExporter(
                 rules, self.extent, self.include_all_fields, self.tiles_conf[0]
             )
             layers = exporter.export()
@@ -972,7 +1099,7 @@ class QGISVectorTilesAdapter:
 
             # Step 4: Load and style tiles
             print("Loading and styling tiles...")
-            styler = VectorTileStyler(rules, tiles)
+            styler = TilesStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
             print("Process completed successfully")
 
