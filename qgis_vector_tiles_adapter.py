@@ -13,14 +13,18 @@ scale-dependent styling, nested filters, and ensures proper tile-based rendering
 """
 
 from os import mkdir
-from os.path import join
+from os.path import join, basename
 from tempfile import gettempdir
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Union, List, Optional, Tuple
 from urllib.request import pathname2url
+from time import perf_counter as prf
+from osgeo import gdal, ogr, osr
+from os import cpu_count
 
 import processing
+from PyQt5.QtCore import QVariant
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
@@ -43,6 +47,11 @@ from qgis.core import (
     QgsFillSymbol,
     QgsGeometry,
     QgsTileXYZ,
+    QgsFields,
+    QgsField,
+    QgsVectorFileWriter,
+    QgsFeature,
+    QgsFeatureRequest,
 )
 
 
@@ -247,7 +256,138 @@ class TilesStyler:
         self.tiles_layer.setLabeling(labeling)
 
 
-class TilesGenerator:
+class GDALTilesGenerator:
+    """Generate MBTiles from GeoJSON layers using GDAL MVT driver."""
+    
+    def __init__(self, layers, output_dir, output_type, tiles_conf, cpu_percent=75):
+        self.layers = layers
+        self.output_dir = output_dir
+        self.output_type = output_type
+        self.tiles_conf = tiles_conf
+        self.cpu_percent = cpu_percent
+
+    def generate(self):
+        """Generate MBTiles file from configured layers."""
+        # Set GDAL threading options
+        cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
+        gdal.SetConfigOption("GDAL_NUM_THREADS", cpu_num)
+        
+        # Unpack tile configuration
+        crs_id, top_left_x, top_left_y, root_dimension, ratio_width, ratio_height = self.tiles_conf
+        
+        # Create spatial reference object
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(crs_id)
+        
+        # Determine output path and format
+        if self.output_type == "XYZ":
+            output = join(self.output_dir, 'tiles')
+            template = pathname2url(r"/{z}/{x}/{y}.pbf")
+            tiles_url = output
+            template_path = f"{tiles_url}{template}"
+            uri= f"type=xyz&url=file:///{template_path}"
+        else:
+            output = join(self.output_dir, "tiles.mbtiles")
+            uri = output
+        
+        # Initialize MVT driver
+        driver = gdal.GetDriverByName("MVT")
+        creation_options = [
+            "TILE_FORMAT=MVT",
+            "SIMPLIFICATION=0",
+            "EXTENT=16384",
+            f"MINZOOM={self._get_global_min_zoom()}",
+            f"MAXZOOM={self._get_global_max_zoom()}",
+            f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension}"
+        ]
+        if self.output_type == 'MBTiles':
+            creation_options = creation_options[:-1]
+        
+        ds = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
+        
+        # Process each layer
+        for lyr in self.layers:
+            self._process_layer(ds, lyr, sr)
+        
+        # Flush and close dataset
+        ds.FlushCache()
+        ds = None
+        
+        return uri
+        
+    
+    def _process_layer(self, ds, lyr, sr):
+        """Process a single layer and add it to the dataset."""
+        lyr_name = basename(lyr.source()).split('.')[0]
+        
+        # Extract zoom levels from layer name (format: ...oXXiYY...)
+        min_zoom = int(lyr_name.split("o")[1][:2])
+        max_zoom = int(lyr_name.split("i")[1][:2])
+
+        
+        # Open source layer
+        src_ds = ogr.Open(lyr.source())
+
+        
+        src_layer = src_ds.GetLayer(0)
+        
+        # Create output layer with zoom level options
+        layer_options = [
+            f"MINZOOM={min_zoom}",
+            f"MAXZOOM={max_zoom}",
+        ]
+        
+        out_layer = ds.CreateLayer(
+            lyr_name,
+            srs=sr,
+            geom_type=src_layer.GetGeomType(),
+            options=layer_options
+        )
+
+        
+        # Copy field definitions
+        src_defn = src_layer.GetLayerDefn()
+        for i in range(src_defn.GetFieldCount()):
+            field_defn = src_defn.GetFieldDefn(i)
+            out_layer.CreateField(field_defn)
+        
+        # Copy features
+        out_defn = out_layer.GetLayerDefn()
+        src_layer.ResetReading()
+        
+        for src_feat in src_layer:
+            out_feat = ogr.Feature(out_defn)
+            out_feat.SetGeometry(src_feat.GetGeometryRef())
+            
+            for i in range(out_defn.GetFieldCount()):
+                out_feat.SetField(i, src_feat.GetField(i))
+            
+            out_layer.CreateFeature(out_feat)
+            out_feat = None
+        
+        # Cleanup
+        src_ds = None
+    
+    def _get_global_min_zoom(self):
+        """Get minimum zoom level across all layers."""
+        min_zoom = float('inf')
+        for lyr in self.layers:
+            lyr_name = basename(lyr.source()).split('.')[0]
+            zoom = int(lyr_name.split("o")[1][:2])
+            min_zoom = min(min_zoom, zoom)
+        return int(min_zoom) if min_zoom != float('inf') else 0
+    
+    def _get_global_max_zoom(self):
+        """Get maximum zoom level across all layers."""
+        max_zoom = 0
+        for lyr in self.layers:
+            lyr_name = basename(lyr.source()).split('.')[0]
+            zoom = int(lyr_name.split("i")[1][:2])
+            max_zoom = max(max_zoom, zoom)
+        return max_zoom if max_zoom > 0 else 14
+    
+
+class QGISTilesGenerator:
     """Generate vector tiles from datasets list according given configuration"""
 
     def __init__(self, layers, output_dir, output_type, tiles_conf):
@@ -261,11 +401,11 @@ class TilesGenerator:
         layers = self._get_layers()
         minzoom, maxzoom = self._get_zoom_levels(layers)
         matrix = self._get_matrix()
-        tiles = self._get_tiles(layers, minzoom, maxzoom, matrix)
         uri = self._get_uri()
         writer = self._set_writer(layers, minzoom, maxzoom, uri, matrix)
-        self._set_directories_tree(tiles, minzoom, maxzoom)
-        result = self._write_tiles(writer, tiles)
+        # tiles = self._get_tiles(layers, minzoom, maxzoom, matrix)
+        # self._set_directories_tree(tiles, minzoom, maxzoom)
+        result = self._write_tiles(writer)
         if not result:
             print(writer.errorMessage())
         return uri
@@ -311,7 +451,7 @@ class TilesGenerator:
 
     def _get_tiles(self, layers, minzoom, maxzoom, matrix):
         """Get XYZ tiles list"""
-        fetcher = TilesFetcher(layers, minzoom, maxzoom, matrix)
+        fetcher = TilesFetcher(layers, minzoom, maxzoom, matrix, self.output_dir)
         return fetcher.fetch()
 
     def _set_directories_tree(self, tiles, minzoom, maxzoom):
@@ -332,24 +472,24 @@ class TilesGenerator:
     def _set_writer(self, layers, minzoom, maxzoom, uri, matrix):
         """Set vector tiles writer object and its configurations."""
         writer = QgsVectorTileWriter()
+        writer.setTransformContext(QgsProject.instance().transformContext())
         writer.setLayers(layers)
         writer.setMinZoom(minzoom)
         writer.setMaxZoom(maxzoom)
         writer.setDestinationUri(uri)
         writer.setRootTileMatrix(matrix)
+        writer.setExtent(matrix.extent())
         return writer
 
-    def _write_tiles(self, writer, tiles):
+    def _write_tiles(self, writer, tiles=None):
         """Write the tiles which covers rules layers extent."""
-        for tile in tiles:
-            tile_bytes = writer.writeSingleTile(tile)
-            print(tile)
-            with open(
-                f"{self.output_dir}\\{tile.zoomLevel()}\\{tile.column()}\\{tile.row()}.mvt",
-                "wb",
-            ) as f:
-                f.write(tile_bytes.data())
-            del f
+        writer.writeTiles()
+        # for tile in tiles:
+        #     with open(
+        #         f"{self.output_dir}\\{tile.zoomLevel()}\\{tile.column()}\\{tile.row()}.pbf",
+        #         "wb",
+        #     ) as f:
+        #         f.write(writer.writeSingleTile(tile))
 
 
 class TilesFetcher:
@@ -358,11 +498,12 @@ class TilesFetcher:
     Creates a spatial index of tiles that intersect with input geometries.
     """
 
-    def __init__(self, layers, minzoom, maxzoom, matrix):
+    def __init__(self, layers, minzoom, maxzoom, matrix, output_dir):
         self.layers = layers
         self.minzoom = minzoom
         self.maxzoom = maxzoom
         self.matrix = matrix
+        self.output_dir = output_dir
         self.tiles = []
 
     def fetch(self) -> QgsVectorLayer:
@@ -378,6 +519,7 @@ class TilesFetcher:
             current_extents = self._process_zoom_level(
                 zoom, current_extents, layers_geometries
             )
+        self._export_index()
         return self.tiles
 
     def _get_layers_extent(self):
@@ -412,6 +554,61 @@ class TilesFetcher:
 
         return layers_geometries
 
+    def _export_index(self):
+        """Export index to a given gpk file."""
+        # Create Index dataset
+        output_index = join(self.output_dir, f"tiles_index.gpkg")
+        fields = QgsFields(
+            [
+                QgsField("fid", QVariant.Int),
+                QgsField("X", QVariant.Int),
+                QgsField("Y", QVariant.Int),
+                QgsField("Z", QVariant.Int),
+            ]
+        )
+
+        crs = self.matrix.crs()
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "gpkg"
+
+        QgsVectorFileWriter.create(
+            fileName=output_index,
+            fields=fields,
+            geometryType=QgsWkbTypes.Polygon,
+            srs=crs,
+            transformContext=QgsProject.instance().transformContext(),
+            options=options,
+        )
+        index_layer = QgsVectorLayer(output_index, "Tiles Index")
+
+        # Export tiles geometries into index dataset
+        tiles_features = []
+        current_id = 1
+        sorted_tiles = sorted(self.tiles, key=lambda x: x.zoomLevel(), reverse=True)
+        for tile in sorted_tiles:
+            matrix = QgsTileMatrix.fromTileMatrix(tile.zoomLevel(), self.matrix)
+            feat = QgsFeature(fields)
+            feat.setAttributes(
+                [current_id, tile.column(), tile.row(), tile.zoomLevel()]
+            )
+            feat.setGeometry(
+                QgsGeometry.fromWkt(matrix.tileExtent(tile).asWktPolygon())
+            )
+            tiles_features.append(feat)
+            current_id += 1
+        index_layer.dataProvider().addFeatures(tiles_features)
+
+        # Add index layer to current project.
+        # Layer renderer order determined by tile Z values.
+        renderer = index_layer.renderer()
+        renderer.setOrderByEnabled(True)
+        request = QgsFeatureRequest()
+        request.addOrderBy('"Z"', True)
+        renderer.setOrderBy(request.orderBy())
+        renderer.symbol().setOpacity(0.2)
+        QgsProject.instance().addMapLayer(index_layer)
+        return index_layer
+
     def _process_zoom_level(self, zoom: int, extents, layer_geometries):
         """Process a single zoom level and return new extents for next level."""
         # Filter geometries valid for this zoom level
@@ -423,21 +620,17 @@ class TilesFetcher:
             return []
 
         inner_extents = []
-
-        zoom_matrix = QgsTileMatrix().fromTileMatrix(zoom, self.matrix)
+        matrix = QgsTileMatrix.fromTileMatrix(zoom, self.matrix)
         for extent in extents:
-            tile_range = zoom_matrix.tileRangeFromExtent(extent)
+            tile_range = matrix.tileRangeFromExtent(extent)
             for row in range(tile_range.startRow(), tile_range.endRow() + 1):
                 for col in range(tile_range.startColumn(), tile_range.endColumn() + 1):
                     tile = QgsTileXYZ(col, row, zoom)
-                    tile_extent = zoom_matrix.tileExtent(tile)
+                    tile_extent = matrix.tileExtent(tile)
+                    tile_geom = QgsGeometry.fromWkt(tile_extent.asWktPolygon())
 
                     # Check intersection with any geometry
-                    if any(
-                        geom.intersects(QgsGeometry.fromWkt(tile_extent.asWktPolygon()))
-                        for geom in zoom_geoms
-                    ):
-
+                    if any(geom.intersects(tile_geom) for geom in zoom_geoms):
                         inner_extents.append(tile_extent)
                         self.tiles.append(tile)
 
@@ -465,14 +658,21 @@ class RulesExporter:
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_all_fields = include_all_fields
-        self.processed_layers = []
         self.crs_id = crs_id
+        self.temp_dir = self._generate_temp_dir()
+        self.processed_layers = []
 
     def export(self) -> list:
         """Export all rules to memory datasets."""
         for rule in self.flattened_rules:
             self._export_single_rule(rule)
         return self.processed_layers
+
+    def _generate_temp_dir(self):
+        """Geneare temporary directory which will contains rule's datasets"""
+        temp_dir = join(gettempdir(), datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f"))
+        mkdir(temp_dir)
+        return temp_dir
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
@@ -499,10 +699,14 @@ class RulesExporter:
         # Transform geometry if needed
         layer = self._transform_geometry_if_needed(layer, flat_rule)
 
+        # Export clipped dataset to a temporary geopraquet file.
+        rule_desc = flat_rule.rule.description()
+        output_dataset = join(self.temp_dir, f"{rule_desc}.parquet")
         layer = self._run_processing(
-            "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
+            "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent, OUTPUT=output_dataset
         )
-        layer.setName(flat_rule.rule.description())
+        layer.setName(rule_desc)
+
         self.processed_layers.append(layer)
 
     def _prepare_base_layer(self, flat_rule: FlattenedRule) -> QgsVectorLayer:
@@ -629,7 +833,7 @@ class RulesExporter:
             if target_geom == 0:  # Point
                 return target_geom, "centroid(@geometry)"
             elif target_geom == 1:  # Line
-                return target_geom, "boundary(@geometry)"
+                return target_geom, " exterior_ring(@geometry)"
 
         return None, None
 
@@ -670,7 +874,10 @@ class RulesExporter:
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
             # params["OUTPUT"] = join(r'C:\Users\P0026701\AppData\Local\Temp\06_08_2025_17_24_07_824669',  datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f.shp"))
-        return processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
+        output = processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
+        if isinstance(output, str):
+            output = QgsVectorLayer(output)
+        return output
 
 
 class RuleFlattener:
@@ -1041,12 +1248,12 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 5,
+        max_zoom: int = 3,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
-        output_type="XYZ",
-        tiles_conf=[4326, -180.0, 90.0, 180.0, 2, 1],
+        output_type="MBTiles",
+        tiles_conf=[4326, -180.0, 180.0, 360, 1, 1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
@@ -1069,6 +1276,7 @@ class QGISVectorTilesAdapter:
             )
             mkdir(temp_dir)
             print("Starting conversion process...")
+            start_time = prf()
 
             # Step 1: Flatten all rules
             print("Flattening rules...")
@@ -1091,7 +1299,7 @@ class QGISVectorTilesAdapter:
 
             # Step 3: Generate tiles from datasets
             print("Generating tiles...")
-            generator = TilesGenerator(
+            generator = GDALTilesGenerator(
                 layers, temp_dir, self.output_type, self.tiles_conf
             )
             tiles = generator.generate()
@@ -1101,7 +1309,8 @@ class QGISVectorTilesAdapter:
             print("Loading and styling tiles...")
             styler = TilesStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
-            print("Process completed successfully")
+            process_time = prf() - start_time    
+            print(f"Process completed successfully ({round(process_time,2)} seconds)")
 
             return tiles_layer
 
@@ -1114,3 +1323,4 @@ class QGISVectorTilesAdapter:
 if __name__ == "__console__":
     adapter = QGISVectorTilesAdapter()
     adapter.convert_project_to_vector_tiles()
+

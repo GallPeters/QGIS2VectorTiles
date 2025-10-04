@@ -22,7 +22,6 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
-from index_generator import TileIndexGenerator
 
 
 class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
@@ -149,7 +148,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 self.MAX_ZOOM,
                 self.tr("Maximum Zoom Level"),
                 type=QgsProcessingParameterNumber.Integer,
-                defaultValue=10,
+                defaultValue=5,
                 minValue=0,
                 maxValue=22,
             )
@@ -197,7 +196,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.TOP_LEFT_X,
             self.tr("Top Left X"),
             type=QgsProcessingParameterNumber.Double,
-            defaultValue=-80,
+            defaultValue=-180,
             optional=False,
         )
         top_left_x_param.setFlags(
@@ -233,7 +232,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             self.RATIO_WIDTH,
             self.tr("Ratio Width"),
             type=QgsProcessingParameterNumber.Integer,
-            defaultValue=1,
+            defaultValue=2,
             optional=False,
         )
         ratio_width_param.setFlags(
@@ -315,16 +314,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             }
         tile_matrix_values = list(tile_matrix_params.values())
         try:
-            
-            # Your existing MBTiles generator class would be called here
-            output_path = (r"C:\Users\P0026701\OneDrive - Ness Israel\Desktop\ScratchWorkspace\abc.gpkg")
-            layers = [iface.activeLayer()]
-            extent = iface.mapCanvas().extent()
-            generator = TileIndexGenerator(output_path)
-            index_layer = generator.generate(layers, extent, min_zoom=min_zoom, max_zoom=max_zoom)
-            print(f'Tiles Count: {len(generator.xyz_tiles)}')
-            return  index_layer
-
             # Your existing MBTiles generator class would be called here
             mbtiles_generator = QGISVectorTilesAdapter(
                 min_zoom=min_zoom,
