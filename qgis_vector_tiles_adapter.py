@@ -289,6 +289,7 @@ class GDALTilesGenerator:
         else:
             output = join(self.output_dir, "tiles.mbtiles")
             uri = output
+            
         
         # Initialize MVT driver
         driver = gdal.GetDriverByName("MVT")
