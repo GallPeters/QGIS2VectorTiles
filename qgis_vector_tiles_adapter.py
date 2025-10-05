@@ -191,7 +191,7 @@ class TilesStyler:
         source_geom = int(flat_rule.get_attribute("g"))
         target_geom = int(flat_rule.get_attribute("c"))
         if source_geom != target_geom:
-            if sub_symbol:
+            if sub_symbol and symbol_layer.layerType() == "GeometryGenerator":
                 self._copy_data_driven_properties(symbol, sub_symbol)
                 self._copy_data_driven_properties(
                     symbol.symbolLayers()[-1], sub_symbol.symbolLayers()[-1]
@@ -257,7 +257,7 @@ class TilesStyler:
 
 
 class GDALTilesGenerator:
-    """Generate MBTiles from GeoJSON layers using GDAL MVT driver."""
+    """Generate mbtiles from GeoJSON layers using GDAL MVT driver."""
     
     def __init__(self, layers, output_dir, output_type, tiles_conf, cpu_percent=75):
         self.layers = layers
@@ -267,7 +267,7 @@ class GDALTilesGenerator:
         self.cpu_percent = cpu_percent
 
     def generate(self):
-        """Generate MBTiles file from configured layers."""
+        """Generate mbtiles file from configured layers."""
         # Set GDAL threading options
         cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
         gdal.SetConfigOption("GDAL_NUM_THREADS", cpu_num)
@@ -280,29 +280,24 @@ class GDALTilesGenerator:
         sr.ImportFromEPSG(crs_id)
         
         # Determine output path and format
-        if self.output_type == "XYZ":
+        if self.output_type == "xyz":
             output = join(self.output_dir, 'tiles')
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
             tiles_url = output
             template_path = f"{tiles_url}{template}"
             uri= f"type=xyz&url=file:///{template_path}"
         else:
-            output = join(self.output_dir, "tiles.mbtiles")
-            uri = output
+            subdir = self._generate_subdir()
+            output = join(subdir, "tiles.mbtiles")
+            uri = f"type=mbtiles&url={output}"
             
         
         # Initialize MVT driver
         driver = gdal.GetDriverByName("MVT")
-        creation_options = [
-            "TILE_FORMAT=MVT",
-            "SIMPLIFICATION=0",
-            "EXTENT=16384",
-            f"MINZOOM={self._get_global_min_zoom()}",
-            f"MAXZOOM={self._get_global_max_zoom()}",
-            f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension}"
-        ]
-        if self.output_type == 'MBTiles':
-            creation_options = creation_options[:-1]
+        if self.output_type == "mbtiles":
+            creation_options = []
+        else:
+            creation_options = [f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}"]
         
         ds = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
         
@@ -316,6 +311,11 @@ class GDALTilesGenerator:
         
         return uri
         
+    def _generate_subdir(self):
+        """Geneare temporary directory which will contains rule's datasets"""
+        subdir = join(self.output_dir, 'tiles')
+        mkdir(subdir)
+        return subdir
     
     def _process_layer(self, ds, lyr, sr):
         """Process a single layer and add it to the dataset."""
@@ -404,7 +404,7 @@ class QGISTilesGenerator:
         matrix = self._get_matrix()
         uri = self._get_uri()
         writer = self._set_writer(layers, minzoom, maxzoom, uri, matrix)
-        # tiles = self._get_tiles(layers, minzoom, maxzoom, matrix)
+        self._get_tiles(layers, minzoom, maxzoom, matrix)
         # self._set_directories_tree(tiles, minzoom, maxzoom)
         result = self._write_tiles(writer)
         if not result:
@@ -430,12 +430,12 @@ class QGISTilesGenerator:
 
     def _get_uri(self) -> str:
         """Get output uri string (XYZ directory or mbtiles file, depend on the user preference)"""
-        if self.output_type == "XYZ":
+        if self.output_type == "xyz":
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
             tiles_url = self.output_dir
             uri = f"{tiles_url}{template}"
             return f"type=xyz&url=file:///{uri}"
-        return join(self.output_dir, "QVTA.mbtiles")
+        return join(self.output_dir, "tiles.mbtiles")
 
     def _get_matrix(self):
         """Generate tiles matrix according to user prefernces (Default: Web Mercator)"""
@@ -457,7 +457,7 @@ class QGISTilesGenerator:
 
     def _set_directories_tree(self, tiles, minzoom, maxzoom):
         """Set directory tree according to {Z}{X}{Y} template"""
-        if self.output_type == "XYZ":
+        if self.output_type == "xyz":
             zs = list(range(minzoom, maxzoom + 1))
             zxs = set([(tile.zoomLevel(), tile.column()) for tile in tiles])
             tree = {z: [] for z in zs}
@@ -504,7 +504,7 @@ class TilesFetcher:
         self.minzoom = minzoom
         self.maxzoom = maxzoom
         self.matrix = matrix
-        self.output_dir = output_dir
+        self.output_dir = self._generate_subdir(output_dir)
         self.tiles = []
 
     def fetch(self) -> QgsVectorLayer:
@@ -522,6 +522,12 @@ class TilesFetcher:
             )
         self._export_index()
         return self.tiles
+
+    def _generate_subdir(self, output_dir):
+        """Geneare temporary directory which will contains rule's datasets"""
+        subdir = join(output_dir, 'index')
+        mkdir(subdir)
+        return subdir
 
     def _get_layers_extent(self):
         """Get extent of all layers"""
@@ -558,7 +564,7 @@ class TilesFetcher:
     def _export_index(self):
         """Export index to a given gpk file."""
         # Create Index dataset
-        output_index = join(self.output_dir, f"tiles_index.gpkg")
+        output_index = join(self.output_dir, f"index.parquet")
         fields = QgsFields(
             [
                 QgsField("fid", QVariant.Int),
@@ -570,7 +576,7 @@ class TilesFetcher:
 
         crs = self.matrix.crs()
         options = QgsVectorFileWriter.SaveVectorOptions()
-        options.driverName = "gpkg"
+        options.driverName = "Parquet"
 
         QgsVectorFileWriter.create(
             fileName=output_index,
@@ -652,6 +658,7 @@ class RulesExporter:
     def __init__(
         self,
         flattened_rules: List[FlattenedRule],
+        output_dir,
         extent,
         include_all_fields: bool,
         crs_id,
@@ -660,7 +667,7 @@ class RulesExporter:
         self.extent = extent
         self.include_all_fields = include_all_fields
         self.crs_id = crs_id
-        self.temp_dir = self._generate_temp_dir()
+        self.temp_dir = self._generate_subdir(output_dir)
         self.processed_layers = []
 
     def export(self) -> list:
@@ -669,11 +676,11 @@ class RulesExporter:
             self._export_single_rule(rule)
         return self.processed_layers
 
-    def _generate_temp_dir(self):
+    def _generate_subdir(self, output_dir):
         """Geneare temporary directory which will contains rule's datasets"""
-        temp_dir = join(gettempdir(), datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f"))
-        mkdir(temp_dir)
-        return temp_dir
+        subdir = join(output_dir, 'datasets')
+        mkdir(subdir)
+        return subdir
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
@@ -1125,7 +1132,7 @@ class RuleFlattener:
             # Determine target geometry type
             symbol_layer = symbol.symbolLayer(layer_idx)
             sub_symbol = symbol_layer.subSymbol()
-            symbol_type = sub_symbol.type() if sub_symbol else symbol_layer.type()
+            symbol_type = sub_symbol.type() if symbol_layer.layerType() == "GeometryGenerator" else symbol_layer.type()
             rule_clone.set_attribute("c", symbol_type)
             rule_clone.set_attribute("s", layer_idx)
 
@@ -1249,19 +1256,19 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 3,
+        max_zoom: int = 13,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
-        output_type="MBTiles",
-        tiles_conf=[4326, -180.0, 180.0, 360, 1, 1],
+        output_type="xyz",
+        tiles_conf=[3857,-20037508.343,20037508.343,40075016.686,1,1],
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_all_fields = include_all_fields
-        self.output_type = output_type
+        self.output_type = output_type.lower()
         self.tiles_conf = tiles_conf
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1293,7 +1300,7 @@ class QGISVectorTilesAdapter:
             # Step 2: Export rules to datasets
             print("Exporting rules to layers...")
             exporter = RulesExporter(
-                rules, self.extent, self.include_all_fields, self.tiles_conf[0]
+                rules, temp_dir, self.extent, self.include_all_fields, self.tiles_conf[0]
             )
             layers = exporter.export()
             print("Successfully exported rules")
