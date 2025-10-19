@@ -987,6 +987,7 @@ class RuleFlattener:
             rulebased_renderer = QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
             if rulebased_renderer and inactive_rules:
                 for rule_index in sorted(inactive_rules, reverse=True):
+                    rule = rulebased_renderer.rootRule().children()[rule_index]
                     rulebased_renderer.rootRule().removeChildAt(rule_index)
             return rulebased_renderer
         
@@ -1093,6 +1094,8 @@ class RuleFlattener:
 
         if sibling_filters:
             else_expression = f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)})'
+        else:
+            else_expression = ''
             else_rule.setFilterExpression(else_expression)
 
     def _inherit_rule_properties(self, rule, rule_type: int):
@@ -1316,7 +1319,7 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 6,
+        max_zoom: int = 10,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
