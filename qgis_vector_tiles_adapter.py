@@ -316,7 +316,8 @@ class GDALTilesGenerator:
                 f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}"
             ]
             creation_options = [
-                "TILE_EXTENSION=mvt",
+                "COMPRESS=YES"
+                "TILE_EXTENSION=.mvt",
                 "EPSG:3857,-20037508.3427892,20037508.3427892,40075016.6855784",
             ]
 
@@ -419,8 +420,9 @@ class QGISTilesGenerator:
         # self._get_tiles(layers, minzoom, maxzoom, matrix)
         # self._set_directories_tree(tiles, minzoom, maxzoom)
         result = self._write_tiles(writer)
-        if not result:
-            print(writer.errorMessage())
+        errors = writer.errorMessage()
+        if errors:
+            print(f"Error during tiles generation: {errors}")
         return uri
 
     def _get_layers(self) -> list:
@@ -708,6 +710,10 @@ class RulesExporter:
         # Add geometry attributes for data-driven properties
         layer = self._add_geometry_attributes(layer, flat_rule)
 
+        # Add labeling expression as field if required
+        if flat_rule.get_attribute("t") == 1:
+           layer = self._calculate_label_expression(layer, flat_rule)
+
         # Keep only required fields
         if not self.include_all_fields:
             required_fields = list(self._get_required_fields(flat_rule))
@@ -716,10 +722,10 @@ class RulesExporter:
                 "retainfields", INPUT=layer, FIELDS=required_fields
             )
 
-        # Extract features by extent
-        layer = self._run_processing(
-            "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
-        )
+        # # Extract features by extent
+        # layer = self._run_processing(
+        #     "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
+        # )
 
         # Transform geometry if needed
         layer = self._transform_geometry_if_needed(layer, flat_rule)
@@ -751,13 +757,13 @@ class RulesExporter:
             "fieldcalculator",
             INPUT=layer,
             FIELD_NAME=f"{self.FIELD_PREFIX}_fid",
-            FORMULA=f"'{layer.name()}_' || @id",
+            FORMULA=f"@id",
             FIELD_TYPE=2,
         )
 
         # Extract by extent and fix geometries
         extracted = self._run_processing(
-            "extractbyextent", INPUT=with_id, EXTENT=extent
+            "extractbyextent", INPUT=with_id,CLIP=True, EXTENT=extent
         )
         fixed_network = self._run_processing("fixgeometries", INPUT=extracted, METHOD=0)
         fixed_structure = self._run_processing(
@@ -784,6 +790,23 @@ class RulesExporter:
                     FORMULA=expression,
                     FIELD_TYPE=0,
                 )
+        return layer
+    
+    def _calculate_label_expression(
+        self, layer: QgsVectorLayer, flat_rule: FlattenedRule
+    ) -> QgsVectorLayer:
+        """Add geometry attributes needed for data-driven properties."""
+        field_name = f'{self.FIELD_PREFIX}_label_expression'
+        expression = flat_rule.rule.settings().getLabelExpression().expression()
+        layer = self._run_processing(
+            "fieldcalculator",
+            INPUT=layer,
+            FIELD_NAME=field_name,
+            FORMULA=expression,
+            FIELD_TYPE=2
+        )
+        flat_rule.rule.settings().isExpression = False
+        flat_rule.rule.settings().fieldName = field_name
         return layer
 
     def _transform_geometry_if_needed(
@@ -1276,7 +1299,7 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 1,
+        max_zoom: int = 6,
         extent=None,
         output_dir: str = None,
         include_all_fields: bool = False,
@@ -1312,10 +1335,10 @@ class QGISVectorTilesAdapter:
             rules = flattener.flatten_all_rules()
 
             if not rules:
-                print("No visible vector layers found in project")
+                print("No visible vector layers found in project.")
                 return None
 
-            print(f"Successfully extracted {len(rules)} rules")
+            print(f"Successfully extracted {len(rules)} rules.")
 
             # Step 2: Export rules to datasets
             print("Exporting rules to layers...")
@@ -1327,7 +1350,7 @@ class QGISVectorTilesAdapter:
                 self.tiles_conf[0],
             )
             layers = exporter.export()
-            print("Successfully exported rules")
+            print("Successfully exported rules.")
 
             # Step 3: Generate tiles from datasets
             print("Generating tiles...")
@@ -1338,14 +1361,14 @@ class QGISVectorTilesAdapter:
                 layers, temp_dir, self.output_type, self.tiles_conf
             )
             tiles = generator.generate()
-            print("Successfully generated tiles")
+            print("Successfully generated tiles.")
 
             # Step 4: Load and style tiles
             print("Loading and styling tiles...")
             styler = TilesStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
             process_time = prf() - start_time
-            print(f"Process completed successfully ({round(process_time,2)} seconds)")
+            print(f"Process completed successfully ({round(process_time,2)} seconds).")
 
             return tiles_layer
 
