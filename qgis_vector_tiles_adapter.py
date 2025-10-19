@@ -35,6 +35,8 @@ from qgis.core import (
     QgsRenderContext,
     QgsVectorTileLayer,
     QgsCoordinateReferenceSystem,
+    QgsGraduatedSymbolRenderer,
+    QgsCategorizedSymbolRenderer,
     QgsWkbTypes,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicRendererStyle,
@@ -159,7 +161,7 @@ class TilesStyler:
     def apply_styling(self) -> QgsVectorTileLayer:
         """Apply styles to vector tiles layer and add to project."""
 
-        for rule in self.flattened_rules:
+        for rule in self.flattened_rules[::-1]:
             self._create_style_from_rule(rule)
         self._apply_styles_to_layer()
         return self.tiles_layer
@@ -972,7 +974,22 @@ class RuleFlattener:
             system = layer.renderer()
             if isinstance(system, QgsRuleBasedRenderer):
                 return system
-            return QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
+            rules_method = None
+            inactive_rules = []
+            if isinstance(system, QgsGraduatedSymbolRenderer):
+                rules_method = 'ranges'
+            elif isinstance(system, QgsCategorizedSymbolRenderer):
+                rules_method = 'categories'
+            if rules_method:
+                for index, rule in enumerate(getattr(system, rules_method)()):
+                    if not rule.renderState():
+                        inactive_rules.append(index)
+            rulebased_renderer = QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
+            if rulebased_renderer and inactive_rules:
+                for rule_index in sorted(inactive_rules, reverse=True):
+                    rulebased_renderer.rootRule().removeChildAt(rule_index)
+            return rulebased_renderer
+        
         else:  # Labeling
             system = layer.labeling()
             if not system or not layer.labelsEnabled():
@@ -1006,7 +1023,7 @@ class RuleFlattener:
     ) -> None:
         """Recursively flatten rule hierarchy with inheritance."""
         # Process current rule (skip root)
-        if rule.parent():
+        if rule.parent() :
             inherited_rule = self._inherit_rule_properties(rule, rule_type)
             if inherited_rule:
                 flat_rule = FlattenedRule(inherited_rule, layer)
