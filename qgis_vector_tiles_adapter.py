@@ -25,7 +25,11 @@ from os import cpu_count
 from re import sub
 
 import processing
-from PyQt5.QtCore import QVariant
+
+try:
+    from PyQt5.QtCore import QVariant
+except ImportError:
+    from PyQt6.QtCore import QVariant
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
@@ -172,6 +176,7 @@ class TilesStyler:
             "&http-header:referer=" if tiles_path.split(".")[-1] != "mbtiles" else ""
         )
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
+        # layer.setTileBorderRenderingEnabled(True)
         return QgsProject.instance().addMapLayer(layer)
 
     def _create_style_from_rule(self, flat_rule: FlattenedRule) -> None:
@@ -315,15 +320,20 @@ class GDALTilesGenerator:
             creation_options = []
         else:
             creation_options = [
-                f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}"
+                "COMPRESS=NO",
+                f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}",
             ]
-            creation_options = [
-                "COMPRESS=YES"
-                "TILE_EXTENSION=.mvt",
-                "EPSG:3857,-20037508.3427892,20037508.3427892,40075016.6855784",
-            ]
+            # creation_options = ["COMPRESS=NO","TILING_SCHEME=EPSG:3857,-20037508.343,20037508.343,40075016.686"]
+            # creation_options = ["COMPRESS=NO","TILING_SCHEME=EPSG:4326,-180,180,360"]
 
-        ds = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
+        ds = driver.Create(
+            output,
+            0,
+            0,
+            0,
+            gdal.GDT_Unknown,
+            options=creation_options
+        )
 
         # Process each layer
         for lyr in self.layers:
@@ -350,7 +360,8 @@ class GDALTilesGenerator:
         max_zoom = int(lyr_name.split("i")[1][:2])
 
         # Open source layer
-        src_ds = ogr.Open(lyr.source())
+        source = lyr.source().split("|layername=")[0]
+        src_ds = ogr.Open(source)
 
         src_layer = src_ds.GetLayer(0)
 
@@ -424,7 +435,7 @@ class QGISTilesGenerator:
         result = self._write_tiles(writer)
         errors = writer.errorMessage()
         if errors:
-            print(f"Error during tiles generation: {errors}")
+            self.feedback.pushInfo(f"Error during tiles generation: {errors}")
         return uri
 
     def _get_layers(self) -> list:
@@ -592,7 +603,7 @@ class TilesFetcher:
 
         crs = self.matrix.crs()
         options = QgsVectorFileWriter.SaveVectorOptions()
-        options.driverName = "Parquet"
+        options.driverName = "FlatGeobuf"
 
         QgsVectorFileWriter.create(
             fileName=output_index,
@@ -676,12 +687,12 @@ class RulesExporter:
         flattened_rules: List[FlattenedRule],
         output_dir,
         extent,
-        include_all_fields: bool,
+        include_required_fields_only: int,
         crs_id,
     ):
         self.flattened_rules = flattened_rules
         self.extent = extent
-        self.include_all_fields = include_all_fields
+        self.include_required_fields_only = include_required_fields_only
         self.crs_id = crs_id
         self.temp_dir = self._generate_subdir(output_dir)
         self.processed_layers = []
@@ -702,43 +713,45 @@ class RulesExporter:
         """Export single rule as a layer with transformations."""
         layer = self._prepare_base_layer(flat_rule)
 
-        # Apply rule filter
-        filter_expr = flat_rule.rule.filterExpression()
-        if filter_expr:
+        if layer.featureCount() > 0:
+
+            # Apply rule filter
+            filter_expr = flat_rule.rule.filterExpression()
+            if filter_expr:
+                layer = self._run_processing(
+                    "extractbyexpression", INPUT=layer, EXPRESSION=filter_expr
+                )
+
+            # Add geometry attributes for data-driven properties
+            layer = self._add_geometry_attributes(layer, flat_rule)
+
+            # Add labeling expression as field if required
+            if flat_rule.get_attribute("t") == 1:
+                layer = self._calculate_label_expression(layer, flat_rule)
+
+            # Keep only required fields
+            if  self.include_required_fields_only == 1:
+                required_fields = list(self._get_required_fields(flat_rule))
+                required_fields.append(f"{self.FIELD_PREFIX}_fid")
+                layer = self._run_processing(
+                    "retainfields", INPUT=layer, FIELDS=required_fields
+                )
+
+            # # Extract features by extent
+            # layer = self._run_processing(
+            #     "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
+            # )
+
+            # Transform geometry if needed
+            layer = self._transform_geometry_if_needed(layer, flat_rule)
+            # Reproject to destination EPSG
+            rule_desc = flat_rule.rule.description()
+            output_dataset = join(self.temp_dir, f"{rule_desc}.fgb")
             layer = self._run_processing(
-                "extractbyexpression", INPUT=layer, EXPRESSION=filter_expr
+                "savefeatures", INPUT=layer, OUTPUT=output_dataset, LAYER_NAME=rule_desc
             )
-
-        # Add geometry attributes for data-driven properties
-        layer = self._add_geometry_attributes(layer, flat_rule)
-
-        # Add labeling expression as field if required
-        if flat_rule.get_attribute("t") == 1:
-           layer = self._calculate_label_expression(layer, flat_rule)
-
-        # Keep only required fields
-        if not self.include_all_fields:
-            required_fields = list(self._get_required_fields(flat_rule))
-            required_fields.append(f"{self.FIELD_PREFIX}_fid")
-            layer = self._run_processing(
-                "retainfields", INPUT=layer, FIELDS=required_fields
-            )
-
-        # # Extract features by extent
-        # layer = self._run_processing(
-        #     "extractbyextent", INPUT=layer, CLIP=True, EXTENT=self.extent
-        # )
-
-        # Transform geometry if needed
-        layer = self._transform_geometry_if_needed(layer, flat_rule)
-
-        # Reproject to destination EPSG
-        rule_desc = flat_rule.rule.description()
-        output_dataset = join(self.temp_dir, f"{rule_desc}.parquet")
-        layer = self._run_processing("savefeatures", INPUT=layer, OUTPUT=output_dataset)
-
-        layer.setName(rule_desc)
-        self.processed_layers.append(layer)
+            layer.setName(rule_desc)
+            self.processed_layers.append(layer)
 
     def _prepare_base_layer(self, flat_rule: FlattenedRule) -> QgsVectorLayer:
         """Prepare base layer with extent clipping and geometry fixes."""
@@ -765,7 +778,7 @@ class RulesExporter:
 
         # Extract by extent and fix geometries
         extracted = self._run_processing(
-            "extractbyextent", INPUT=with_id,CLIP=True, EXTENT=extent
+            "extractbyextent", INPUT=with_id, CLIP=True, EXTENT=extent
         )
         fixed_network = self._run_processing("fixgeometries", INPUT=extracted, METHOD=0)
         fixed_structure = self._run_processing(
@@ -793,19 +806,19 @@ class RulesExporter:
                     FIELD_TYPE=0,
                 )
         return layer
-    
+
     def _calculate_label_expression(
         self, layer: QgsVectorLayer, flat_rule: FlattenedRule
     ) -> QgsVectorLayer:
         """Add geometry attributes needed for data-driven properties."""
-        field_name = f'{self.FIELD_PREFIX}_label_expression'
+        field_name = f"{self.FIELD_PREFIX}_label_expression"
         expression = flat_rule.rule.settings().getLabelExpression().expression()
         layer = self._run_processing(
             "fieldcalculator",
             INPUT=layer,
             FIELD_NAME=field_name,
             FORMULA=expression,
-            FIELD_TYPE=2
+            FIELD_TYPE=2,
         )
         flat_rule.rule.settings().isExpression = False
         flat_rule.rule.settings().fieldName = field_name
@@ -974,23 +987,26 @@ class RuleFlattener:
             system = layer.renderer()
             if isinstance(system, QgsRuleBasedRenderer):
                 return system
-            rules_method = None
-            inactive_rules = []
+            items_fetch_method = None
+            inactive_items = []
             if isinstance(system, QgsGraduatedSymbolRenderer):
-                rules_method = 'ranges'
+                items_fetch_method = "ranges"
             elif isinstance(system, QgsCategorizedSymbolRenderer):
-                rules_method = 'categories'
-            if rules_method:
-                for index, rule in enumerate(getattr(system, rules_method)()):
-                    if not rule.renderState():
-                        inactive_rules.append(index)
-            rulebased_renderer = QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
-            if rulebased_renderer and inactive_rules:
-                for rule_index in sorted(inactive_rules, reverse=True):
+                items_fetch_method = "categories"
+            if items_fetch_method:
+                items = getattr(system, items_fetch_method)()
+                for index, item in enumerate(items):
+                    if not item.renderState():
+                        inactive_items.append(index)
+            rulebased_renderer = (
+                QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
+            )
+            if rulebased_renderer and inactive_items:
+                for rule_index in sorted(inactive_items, reverse=True):
                     rule = rulebased_renderer.rootRule().children()[rule_index]
                     rulebased_renderer.rootRule().removeChildAt(rule_index)
             return rulebased_renderer
-        
+
         else:  # Labeling
             system = layer.labeling()
             if not system or not layer.labelsEnabled():
@@ -1024,7 +1040,7 @@ class RuleFlattener:
     ) -> None:
         """Recursively flatten rule hierarchy with inheritance."""
         # Process current rule (skip root)
-        if rule.parent() :
+        if rule.parent():
             inherited_rule = self._inherit_rule_properties(rule, rule_type)
             if inherited_rule:
                 flat_rule = FlattenedRule(inherited_rule, layer)
@@ -1095,8 +1111,8 @@ class RuleFlattener:
         if sibling_filters:
             else_expression = f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)})'
         else:
-            else_expression = ''
-            else_rule.setFilterExpression(else_expression)
+            else_expression = ""
+        else_rule.setFilterExpression(else_expression)
 
     def _inherit_rule_properties(self, rule, rule_type: int):
         """Inherit all properties from parent hierarchy."""
@@ -1185,7 +1201,7 @@ class RuleFlattener:
         symbol_layer_count = symbol.symbolLayerCount()
         split_rules = []
 
-        for layer_idx in range(symbol_layer_count):
+        for layer_idx in range(symbol_layer_count)[::-1]:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
             # Determine target geometry type
@@ -1319,20 +1335,25 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 10,
+        max_zoom: int = 2,
         extent=None,
         output_dir: str = None,
-        include_all_fields: bool = False,
+        include_required_fields_only: bool = False,
         output_type="xyz",
-        tiles_conf=[3857, -20037508.3427892, 20037508.3427892, 40075016.6855784, 1, 1],
+        # tiles_conf=[4326, -180.0, 90.0, 180.0, 2, 1],
+        tiles_conf=[3857, -20037508.343, 20037508.343, 40075016.686, 1, 1],
+        cpu_percent=75,
+        feedback=None
     ):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
-        self.include_all_fields = include_all_fields
+        self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.tiles_conf = tiles_conf
+        self.cpu_percent = cpu_percent
+        self.feedback = feedback
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
         """
@@ -1346,54 +1367,54 @@ class QGISVectorTilesAdapter:
                 self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f")
             )
             mkdir(temp_dir)
-            print("Starting conversion process...")
+            self.feedback.pushInfo("Starting conversion process...")
             start_time = prf()
 
             # Step 1: Flatten all rules
-            print("Flattening rules...")
+            self.feedback.pushInfo("Flattening rules...")
             flattener = RuleFlattener(self.min_zoom, self.max_zoom)
             rules = flattener.flatten_all_rules()
 
             if not rules:
-                print("No visible vector layers found in project.")
+                self.feedback.pushInfo("No visible vector layers found in project.")
                 return None
 
-            print(f"Successfully extracted {len(rules)} rules.")
+            self.feedback.pushInfo(f"Successfully extracted {len(rules)} rules.")
 
             # Step 2: Export rules to datasets
-            print("Exporting rules to layers...")
+            self.feedback.pushInfo("Exporting rules to layers...")
             exporter = RulesExporter(
                 rules,
                 temp_dir,
                 self.extent,
-                self.include_all_fields,
+                self.include_required_fields_only,
                 self.tiles_conf[0],
             )
             layers = exporter.export()
-            print("Successfully exported rules.")
+            self.feedback.pushInfo(f"Successfully exported {len(layers)} rules.")
 
             # Step 3: Generate tiles from datasets
-            print("Generating tiles...")
-            # generator = GDALTilesGenerator(
+            self.feedback.pushInfo("Generating tiles...")
+            # generator = QGISTilesGenerator(
             #     layers, temp_dir, self.output_type, self.tiles_conf
             # )
-            generator = QGISTilesGenerator(
-                layers, temp_dir, self.output_type, self.tiles_conf
+            generator = GDALTilesGenerator(
+                layers, temp_dir, self.output_type, self.tiles_conf, self.cpu_percent
             )
             tiles = generator.generate()
-            print("Successfully generated tiles.")
+            self.feedback.pushInfo("Successfully generated tiles.")
 
             # Step 4: Load and style tiles
-            print("Loading and styling tiles...")
+            self.feedback.pushInfo("Loading and styling tiles...")
             styler = TilesStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
             process_time = prf() - start_time
-            print(f"Process completed successfully ({round(process_time,2)} seconds).")
+            self.feedback.pushInfo(f"Process completed successfully ({round(process_time,2)} seconds).")
 
             return tiles_layer
 
         except Exception as e:
-            print(f"Error during conversion: {e}")
+            self.feedback.pushInfo(f"Error during conversion: {e}")
             raise e
 
 

@@ -14,11 +14,8 @@ from qgis.core import (
     QgsProcessingParameterNumber,
     QgsProcessingParameterExtent,
     QgsProcessingParameterFolderDestination,
-    QgsProcessingParameterBoolean,
-    QgsProcessingParameterEnum,
-    QgsProcessingParameterCrs,
     QgsCoordinateReferenceSystem,
-    QgsProcessingParameterDefinition,
+    QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
 from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
@@ -35,15 +32,10 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
     MIN_ZOOM = "MIN_ZOOM"
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
+    CPU_PERCENT = "CPU_PERCENT"
     OUTPUT_DIR = "OUTPUT_DIR"
-    ALL_FIELDS = "ALL_FIELDS"
+    REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
-    CRS_ID = "CRS_ID"
-    TOP_LEFT_X = "TOP_LEFT_X"
-    TOP_LEFT_Y = "TOP_LEFT_Y"
-    ROOT_DIMENSION = "ROOT_DIMENSION"
-    RATIO_WIDTH = "RATIO_WIDTH"
-    RATIO_HEIGHT = "RATIO_HEIGHT"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -109,9 +101,9 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
             "• Output Type: Choose between MBTiles or XYZ format\n"
             "• Min/Max Zoom: Define the zoom level range (0-23)\n"
             "• Extent: Area to generate tiles for (default: current map canvas)\n"
+            "• CPU Percent: Maximum CPU usage percentage (0-100)\n"
             "• Output Directory: Where to save the tiles\n"
-            "• All Fields: Include all layer fields in tiles (affects file size)\n"
-            "• Tile Matrix: Advanced parameters for XYZ output (only available for XYZ format)"
+            "• All Fields: Include all layer fields in tiles (affects file size)"
         )
 
     def initAlgorithm(self, config=None):
@@ -134,7 +126,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MIN_ZOOM,
-                self.tr("Minimum Zoom Level"),
+                self.tr("Minimum Zoom"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=0,
                 minValue=0,
@@ -146,7 +138,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MAX_ZOOM,
-                self.tr("Maximum Zoom Level"),
+                self.tr("Maximum Zoom"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=5,
                 minValue=0,
@@ -156,12 +148,34 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
 
         # Extent parameter - defaults to current map canvas extent
         extent_param = QgsProcessingParameterExtent(
-            self.EXTENT, self.tr("Tile Generation Extent"), optional=False
+            self.EXTENT, self.tr("Tiles Extent"), optional=False
         )
         # Set default to current map canvas extent if available
         if iface and iface.mapCanvas():
             extent_param.setDefaultValue(iface.mapCanvas().extent())
         self.addParameter(extent_param)
+
+        # CPU Percent parameter
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.CPU_PERCENT,
+                self.tr("CPU Percent"),
+                type=QgsProcessingParameterNumber.Integer,
+                defaultValue=50,
+                minValue=0,
+                maxValue=100,
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.REQUIRED_FIELDS_ONLY,
+                self.tr("Included Fields"),
+                options=["All Fields", "Required Fields Only"],
+                defaultValue=1,  # Default to Required Fields Only
+                optional=False,
+            )
+        )
 
         # Output directory parameter
         self.addParameter(
@@ -172,85 +186,6 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=tempfile.gettempdir(),
             )
         )
-
-        # All fields boolean parameter
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.ALL_FIELDS, self.tr("Include All Layer Fields"), defaultValue=False
-            )
-        )
-
-        # Tile Matrix parameters (advanced/hideable)
-        crs_param = QgsProcessingParameterCrs(
-            self.CRS_ID,
-            self.tr("Coordinate Reference System"),
-            defaultValue=QgsCoordinateReferenceSystem("EPSG:4326"),  # WGS84
-            optional=False,
-        )
-        crs_param.setFlags(
-            crs_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(crs_param)
-
-        top_left_x_param = QgsProcessingParameterNumber(
-            self.TOP_LEFT_X,
-            self.tr("Top Left X"),
-            type=QgsProcessingParameterNumber.Double,
-            defaultValue=-180,
-            optional=False,
-        )
-        top_left_x_param.setFlags(
-            top_left_x_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(top_left_x_param)
-
-        top_left_y_param = QgsProcessingParameterNumber(
-            self.TOP_LEFT_Y,
-            self.tr("Top Left Y"),
-            type=QgsProcessingParameterNumber.Double,
-            defaultValue=90,
-            optional=False,
-        )
-        top_left_y_param.setFlags(
-            top_left_y_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(top_left_y_param)
-
-        root_dimension_param = QgsProcessingParameterNumber(
-            self.ROOT_DIMENSION,
-            self.tr("Root Dimension"),
-            type=QgsProcessingParameterNumber.Double,
-            defaultValue=180,
-            optional=False,
-        )
-        root_dimension_param.setFlags(
-            root_dimension_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(root_dimension_param)
-
-        ratio_width_param = QgsProcessingParameterNumber(
-            self.RATIO_WIDTH,
-            self.tr("Ratio Width"),
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=2,
-            optional=False,
-        )
-        ratio_width_param.setFlags(
-            ratio_width_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(ratio_width_param)
-
-        ratio_height_param = QgsProcessingParameterNumber(
-            self.RATIO_HEIGHT,
-            self.tr("Ratio Height"),
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=1,
-            optional=False,
-        )
-        ratio_height_param.setFlags(
-            ratio_height_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced
-        )
-        self.addParameter(ratio_height_param)
 
     def checkParameterValues(self, parameters, context):
         """
@@ -287,42 +222,26 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         output_type = ["XYZ", "MBTiles"][output_type_index]
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
-        extent = self.parameterAsExtent(parameters, self.EXTENT, context)
+        extent = self.parameterAsExtent(
+            parameters, self.EXTENT, context, QgsCoordinateReferenceSystem("EPSG:3857")
+        )
+        cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
-        include_all_fields = self.parameterAsBool(parameters, self.ALL_FIELDS, context)
+        include_required_fields_only = self.parameterAsBool(
+            parameters, self.REQUIRED_FIELDS_ONLY, context
+        )
 
-        # Tile Matrix parameters (only used for XYZ)
-        tile_matrix_params = {}
-        if output_type == "XYZ":
-            tile_matrix_params = {
-                "crs_id": self.parameterAsCrs(parameters, self.CRS_ID, context),
-                "top_left_x": self.parameterAsDouble(
-                    parameters, self.TOP_LEFT_X, context
-                ),
-                "top_left_y": self.parameterAsDouble(
-                    parameters, self.TOP_LEFT_Y, context
-                ),
-                "root_dimension": self.parameterAsDouble(
-                    parameters, self.ROOT_DIMENSION, context
-                ),
-                "ratio_width": self.parameterAsInt(
-                    parameters, self.RATIO_WIDTH, context
-                ),
-                "ratio_height": self.parameterAsInt(
-                    parameters, self.RATIO_HEIGHT, context
-                ),
-            }
-        tile_matrix_values = list(tile_matrix_params.values())
         try:
             # Your existing MBTiles generator class would be called here
             mbtiles_generator = QGISVectorTilesAdapter(
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 extent=extent,
+                cpu_percent=cpu_percent,
                 output_dir=output_dir,
-                include_all_fields=include_all_fields,
+                include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
-                tiles_conf=tile_matrix_values,
+                feedback=feedback
             )
 
             # Run the generation process
@@ -456,18 +375,13 @@ if __name__ == "__console__":
             result = processing.run(
                 "mbtiles_provider:generate_styled_mbtiles",
                 {
-                    "OUTPUT_TYPE": 1,  # MBTiles
+                    "OUTPUT_TYPE": 0,  # MBTiles
                     "MIN_ZOOM": 0,
                     "MAX_ZOOM": 3,
                     "EXTENT": iface.mapCanvas().extent(),
+                    "CPU_PERCENT": 50,
                     "OUTPUT_DIR": tempfile.gettempdir(),
-                    "ALL_FIELDS": False,
-                    "CRS_ID": QgsCoordinateReferenceSystem("EPSG:3857"),
-                    "TOP_LEFT_X": 1.2,
-                    "TOP_LEFT_Y": 2.3,
-                    "ROOT_DIMENSION": 256.0,
-                    "RATIO_WIDTH": 1,
-                    "RATIO_HEIGHT": 2,
+                    "FIELDS_INCLUDED": "Required Fields Only",
                 },
             )
             print("Algorithm test completed")
