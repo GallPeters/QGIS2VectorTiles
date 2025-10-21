@@ -105,8 +105,10 @@ class ZoomLevels:
         return cls.SCALES[-1]
 
     @classmethod
-    def scale_to_zoom(cls, scale: float) -> str:
+    def scale_to_zoom(cls, scale: float, edge: str) -> str:
         """Convert scale to zero-padded zoom level string."""
+        if scale in [0, 0.0]:
+            scale = cls.SCALES[0 if edge == 'o' else -1]
         zoom = cls.SCALES.index(scale)
         return f"{zoom:02d}"
 
@@ -1043,6 +1045,7 @@ class RuleFlattener:
         if rule.parent():
             inherited_rule = self._inherit_rule_properties(rule, rule_type)
             if inherited_rule:
+                inherited_rule.setDescription('')
                 flat_rule = FlattenedRule(inherited_rule, layer)
                 self._set_rule_attributes(
                     flat_rule, layer_idx, rule_type, rule_level, rule_idx
@@ -1096,7 +1099,7 @@ class RuleFlattener:
         """Extract rule maximum and minimum range using general range."""
         attr_name = f"{comparator.__name__}imumScale"
         rule_scale = getattr(flat_rule.rule, attr_name)()
-        rule_zoom = int(ZoomLevels.scale_to_zoom(rule_scale))
+        rule_zoom = int(ZoomLevels.scale_to_zoom(rule_scale, 'i' if comparator == max else 'o'))
         tiles_zoom = getattr(self, f"{comparator.__name__}_zoom")
         opposite = min if comparator == max else max
         return opposite(rule_zoom, tiles_zoom)
@@ -1277,10 +1280,10 @@ class RuleFlattener:
             # Adjust scale range to renderer's range
             if label_min > renderer_min:
                 clone_rule.setMinimumScale(renderer_min)
-                rule_clone.set_attribute("o", ZoomLevels.scale_to_zoom(renderer_min))
+                rule_clone.set_attribute("o", ZoomLevels.scale_to_zoom(renderer_min, 'o'))
             if label_max < renderer_max:
                 clone_rule.setMaximumScale(renderer_max)
-                rule_clone.set_attribute("i", ZoomLevels.scale_to_zoom(renderer_max))
+                rule_clone.set_attribute("i", ZoomLevels.scale_to_zoom(renderer_max, 'i'))
 
             rule_clone.set_attribute("f", renderer_idx)
             return rule_clone
@@ -1318,8 +1321,8 @@ class RuleFlattener:
             rule_clone.rule.setFilterExpression(scale_specific_filter)
 
             # Update zoom attributes
-            rule_clone.set_attribute("o", ZoomLevels.scale_to_zoom(scale))
-            rule_clone.set_attribute("i", ZoomLevels.scale_to_zoom(next_scale))
+            rule_clone.set_attribute("o", ZoomLevels.scale_to_zoom(scale, 'o'))
+            rule_clone.set_attribute("i", ZoomLevels.scale_to_zoom(next_scale, 'i'))
 
             split_rules.append(rule_clone)
 
