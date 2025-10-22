@@ -377,11 +377,11 @@ if __name__ == "__console__":
                 {
                     "OUTPUT_TYPE": 0,  # MBTiles
                     "MIN_ZOOM": 0,
-                    "MAX_ZOOM": 3,
+                    "MAX_ZOOM": 1,
                     "EXTENT": iface.mapCanvas().extent(),
                     "CPU_PERCENT": 50,
                     "OUTPUT_DIR": tempfile.gettempdir(),
-                    "FIELDS_INCLUDED": "Required Fields Only",
+                    "FIELDS_INCLUDED": 1,
                 },
             )
             print("Algorithm test completed")
