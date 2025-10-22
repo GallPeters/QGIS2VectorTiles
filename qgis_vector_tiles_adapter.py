@@ -58,7 +58,7 @@ from qgis.core import (
     QgsVectorFileWriter,
     QgsFeature,
     QgsFeatureRequest,
-    QgsProcessingFeedback
+    QgsProcessingFeedback,
 )
 
 
@@ -684,8 +684,7 @@ class RulesExporter:
 
     def export(self) -> list:
         """Export all rules to memory datasets."""
-        rules_count = len(self.flattened_rules)
-        for index, rule in enumerate(self.flattened_rules):
+        for rule in self.flattened_rules:
             self._export_single_rule(rule)
         return self.processed_layers
 
@@ -751,13 +750,14 @@ class RulesExporter:
 
             # Transform geometry if needed
             layer = self._transform_geometry_if_needed(layer, flat_rule)
-            
+
             rule_desc = flat_rule.rule.description()
             output_dataset = join(self.temp_dir, f"{rule_desc}.fgb")
-            layer = self._run_processing("multiparttosingleparts", INPUT=layer, OUTPUT=output_dataset)
+            layer = self._run_processing(
+                "multiparttosingleparts", INPUT=layer, OUTPUT=output_dataset
+            )
             layer.setName(rule_desc)
             self.processed_layers.append(layer)
-
 
     def _add_geometry_attributes(
         self, layer: QgsVectorLayer, flat_rule: FlattenedRule
