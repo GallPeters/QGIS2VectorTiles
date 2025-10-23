@@ -32,11 +32,13 @@ except ImportError:
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
+    QgsCoordinateTransform,
     QgsRuleBasedLabeling,
     QgsPalLayerSettings,
     QgsVectorLayer,
     QgsRenderContext,
     QgsVectorTileLayer,
+    QgsDataSourceUri,
     QgsCoordinateReferenceSystem,
     QgsGraduatedSymbolRenderer,
     QgsCategorizedSymbolRenderer,
@@ -113,7 +115,7 @@ class ZoomLevels:
         return f"{zoom:02d}"
 
     @classmethod
-    def zoom_to_scale(cls, zoom: int) -> Optional[float]:
+    def zoom_to_scale(cls, zoom: int):
         """Convert zoom level to scale."""
         if 0 <= zoom < len(cls.SCALES):
             return cls.SCALES[zoom]
@@ -274,12 +276,16 @@ class TilesStyler:
 class GDALTilesGenerator:
     """Generate mbtiles from GeoJSON layers using GDAL MVT driver."""
 
-    def __init__(self, layers, output_dir, output_type, tiles_conf, cpu_percent=75):
+    def __init__(
+        self, layers, output_dir, output_type, tiles_conf, cpu_percent, feedback
+    ):
         self.layers = layers
         self.output_dir = output_dir
         self.output_type = output_type
         self.tiles_conf = tiles_conf
         self.cpu_percent = cpu_percent
+        self.feedback = feedback
+        self.stdout = self.feedback.pushInfo if __name__ != "__console__" else print
 
     def generate(self):
         """Generate mbtiles file from configured layers."""
@@ -354,7 +360,6 @@ class GDALTilesGenerator:
         src_ds = ogr.Open(source)
 
         src_layer = src_ds.GetLayer(0)
-
         # Create output layer with zoom level options
         layer_options = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
         out_layer = ds.CreateLayer(
@@ -672,91 +677,157 @@ class RulesExporter:
         extent,
         include_required_fields_only: int,
         crs_id,
-        stdout,
+        feedback,
     ):
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
         self.crs_id = crs_id
-        self.temp_dir = self._generate_subdir(output_dir)
+        self.temp_dir, self.datasets_dir = self._generate_subdirs(output_dir)
         self.processed_layers = []
-        self.stdout = stdout
+        self.feedback = feedback
+        self.stdout = self.feedback.pushInfo if __name__ != "__console__" else print
 
     def export(self) -> list:
         """Export all rules to memory datasets."""
-        for rule in self.flattened_rules:
+        i = prf()
+        self.export_layers_to_flatgeobuf()
+        count = len(self.flattened_rules)
+        for index, rule in enumerate(self.flattened_rules):
             self._export_single_rule(rule)
+            self.stdout(f"...{index + 1}/{count}")
         return self.processed_layers
 
-    def _generate_subdir(self, output_dir):
+    def export_layers_to_flatgeobuf(self):
+        """Export multiple QgsVectorLayers to FlatGeobuf using a clipping extent,
+        leveraging GDAL/OGR only (fast, no PyQGIS feature iteration).
+        """
+        gdal.UseExceptions()
+        extent_crs = QgsProject.instance().crs()
+        layers = set(flatrule.layer for flatrule in self.flattened_rules)
+        for layer in layers:
+            provider = layer.dataProvider().name()
+            source = layer.source()
+            output_path = join(self.temp_dir, f"{layer.id()}.fgb")
+
+            # Transform extent to layer CRS
+            layer_crs = layer.crs()
+            if extent_crs != layer_crs:
+                transform = QgsCoordinateTransform(
+                    extent_crs, layer_crs, QgsProject.instance()
+                )
+                transformed_extent = transform.transformBoundingBox(self.extent)
+            else:
+                transformed_extent = self.extent
+
+            minx = transformed_extent.xMinimum()
+            maxx = transformed_extent.xMaximum()
+            miny = transformed_extent.yMinimum()
+            maxy = transformed_extent.yMaximum()
+
+            # Parse QGIS URI to GDAL format
+            if provider == "ogr":
+                parts = source.split("|")
+                gdal_source = parts[0]
+                layer_name = None
+                if len(parts) > 1 and "layername=" in parts[1]:
+                    layer_name = parts[1].split("layername=")[1]
+            elif provider == "postgres":
+                uri = QgsDataSourceUri(source)
+                gdal_source = f"PG:host={uri.host()} port={uri.port()} dbname={uri.database()} user={uri.username()} password={uri.password()}"
+                layer_name = (
+                    f"{uri.schema()}.{uri.table()}" if uri.schema() else uri.table()
+                )
+            else:
+                gdal_source = source.split("|")[0]
+                layer_name = None
+
+            subset_string = layer.subsetString()
+
+            options = gdal.VectorTranslateOptions(
+                format="FlatGeobuf",
+                spatFilter=[minx, miny, maxx, maxy],
+                where=subset_string if subset_string else None,
+                layerCreationOptions=["SPATIAL_INDEX=YES"],
+                layers=[layer_name] if layer_name else None,
+                skipFailures=True,
+                dstSRS=f"EPSG:{self.crs_id}",
+            )
+
+            gdal.VectorTranslate(output_path, gdal_source, options=options)
+
+    def export_layers(self):
+        """Export all rules layer into single clean and thin gpgk"""
+        lyrs = []
+        for rule in self.flattened_rules:
+            lyr = rule.layer
+            projected_extent = QgsCoordinateTransform(
+                QgsProject.instance().crs(),
+                lyr.crs(),
+                QgsProject.instance().transformContext(),
+            ).transform(self.extent)
+            lyr.selectByRect(projected_extent)
+            lyrs.append(lyr)
+        output_gpkg = join(self.temp_dir, "layers.gpkg")
+        return self._run_processing(
+            "package", LAYERS=lyrs, SELECTED_FEATURES_ONLY=True, OUTPUT=output_gpkg
+        )
+
+    def _generate_subdirs(self, output_dir):
         """Geneare temporary directory which will contains rule's datasets"""
-        subdir = join(output_dir, "datasets")
-        mkdir(subdir)
-        return subdir
+        temp_dir = join(output_dir, "temp")
+        datasets_dir = join(output_dir, "datasets")
+        mkdir(temp_dir)
+        mkdir(datasets_dir)
+        return temp_dir, datasets_dir
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
-        layer = flat_rule.layer
-        extent = self.extent or layer.extent()
-
-        # Reproject to destination EPSG
-        layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
-        layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=1)
-
-        layer = self._run_processing(
-            "reprojectlayer",
-            INPUT=layer,
-            TARGET_CRS=QgsCoordinateReferenceSystem(self.crs_id),
-            CONVERT_CURVED_GEOMETRIES=True,
-        )
-
-        # Extract by extent and fix geometries
-        layer = self._run_processing(
-            "extractbyextent", CLIP=True, INPUT=layer, EXTENT=extent
-        )
-
-        # Add unique ID field
-        layer = self._run_processing(
-            "fieldcalculator",
-            INPUT=layer,
-            FIELD_NAME=f"{self.FIELD_PREFIX}_fid",
-            FORMULA=f"@id",
-            FIELD_TYPE=2,
-        )
+        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.fgb"))
 
         if layer.featureCount() > 0:
 
             # Apply rule filter
             filter_expr = flat_rule.rule.filterExpression()
             if filter_expr:
-                layer = self._run_processing(
-                    "extractbyexpression", INPUT=layer, EXPRESSION=filter_expr
-                )
+                layer.selectByExpression(filter_expr)
 
             # Add geometry attributes for data-driven properties
             layer = self._add_geometry_attributes(layer, flat_rule)
+
+            if filter_expr:
+                layer.selectByExpression(filter_expr)
 
             # Add labeling expression as field if required
             if flat_rule.get_attribute("t") == 1:
                 layer = self._calculate_label_expression(layer, flat_rule)
 
-            # Keep only required fields
-            if self.include_required_fields_only == 1:
-                required_fields = list(self._get_required_fields(flat_rule))
-                required_fields.append(f"{self.FIELD_PREFIX}_fid")
-                layer = self._run_processing(
-                    "retainfields", INPUT=layer, FIELDS=required_fields
-                )
+            if filter_expr:
+                layer.selectByExpression(filter_expr)
 
-            # Transform geometry if needed
             layer = self._transform_geometry_if_needed(layer, flat_rule)
 
+            if filter_expr:
+                layer.selectByExpression(filter_expr)
+
             rule_desc = flat_rule.rule.description()
-            output_dataset = join(self.temp_dir, f"{rule_desc}.fgb")
+            output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
+
+            # Keep only required fields
+            if self.include_required_fields_only == 1:
+                required_fields = list(self._get_required_fields(flat_rule, layer))
+            else:
+                required_fields = [f.name() for f in layer.fields()]
             layer = self._run_processing(
-                "multiparttosingleparts", INPUT=layer, OUTPUT=output_dataset
+                "retainfields",
+                INPUT=layer,
+                FIELDS=required_fields,
+                SELECTED_FEATURES_ONLY=True,
+                OUTPUT=output_dataset,
             )
+
             layer.setName(rule_desc)
+
             self.processed_layers.append(layer)
 
     def _add_geometry_attributes(
@@ -776,6 +847,7 @@ class RulesExporter:
                     FIELD_NAME=field_name,
                     FORMULA=expression,
                     FIELD_TYPE=0,
+                    SELECTED_FEATURES_ONLY=True,
                 )
         return layer
 
@@ -869,14 +941,25 @@ class RulesExporter:
 
         return None, None
 
-    def _get_required_fields(self, flat_rule: FlattenedRule) -> set:
+    def _get_required_fields(self, flat_rule: FlattenedRule, layer) -> set:
         """Get fields required by rule for rendering/labeling."""
         rule_type = flat_rule.get_attribute("t")
 
         if rule_type == 0:  # Renderer
-            return flat_rule.rule.symbol().usedAttributes(QgsRenderContext())
+            required_fields = list(
+                flat_rule.rule.symbol().usedAttributes(QgsRenderContext())
+            )
         else:  # Labeling
-            return flat_rule.rule.settings().referencedFields(QgsRenderContext())
+            required_fields = list(
+                flat_rule.rule.settings().referencedFields(QgsRenderContext())
+            )
+        calculated_fields = [
+            f.name() for f in layer.fields() if self.FIELD_PREFIX in f.name()
+        ]
+        retain_fields = calculated_fields + required_fields
+        if retain_fields:
+            return list(set(retain_fields))
+        return [layer.dataProvider().geometryColumnName()]
 
     def _get_data_driven_properties(
         self, flat_rule: FlattenedRule, old_attr: str, new_attr: str = None
@@ -920,8 +1003,7 @@ class RuleFlattener:
     def __init__(self, min_zoom: int, max_zoom: int):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
-        self.project = QgsProject.instance()
-        self.layer_tree_root = self.project.layerTreeRoot()
+        self.layer_tree_root = QgsProject.instance().layerTreeRoot()
         self.flattened_rules = []
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
@@ -1019,7 +1101,9 @@ class RuleFlattener:
                 self._set_rule_attributes(
                     flat_rule, layer_idx, rule_type, rule_level, rule_idx
                 )
-
+                if not self.rule_inside_requested_zoom_range(flat_rule):
+                    return
+                    
                 # Split rule by different criteria
                 if rule_type == 0:  # Renderer
                     split_rules = self._split_by_symbol_layers(flat_rule)
@@ -1068,12 +1152,15 @@ class RuleFlattener:
         """Extract rule maximum and minimum range using general range."""
         attr_name = f"{comparator.__name__}imumScale"
         rule_scale = getattr(flat_rule.rule, attr_name)()
-        rule_zoom = int(
+        return int(
             ZoomLevels.scale_to_zoom(rule_scale, "i" if comparator == max else "o")
         )
-        tiles_zoom = getattr(self, f"{comparator.__name__}_zoom")
-        opposite = min if comparator == max else max
-        return opposite(rule_zoom, tiles_zoom)
+
+    def rule_inside_requested_zoom_range(self, flat_rule):
+        """Validate zoomr range which was set to the rule"""
+        minzoom = flat_rule.get_attribute("o")
+        maxzoom = flat_rule.get_attribute("i")
+        return self.ranges_overlap(minzoom, maxzoom, self.min_zoom, self.max_zoom)
 
     def _convert_else_filter(self, else_rule, parent_rule) -> None:
         """Convert ELSE filter to explicit exclusion of sibling conditions."""
@@ -1091,15 +1178,9 @@ class RuleFlattener:
     def _inherit_rule_properties(self, rule, rule_type: int):
         """Inherit all properties from parent hierarchy."""
         clone = rule.clone()
-
         # Inherit scale ranges
         self._inherit_scale_range(clone, rule, min)
         self._inherit_scale_range(clone, rule, max)
-
-        # Skip if outside zoom range
-        if self._is_outside_zoom_range(clone):
-            return None
-
         self._inherit_filter_expression(clone, rule)
 
         if rule_type == 0:  # Renderer
@@ -1111,21 +1192,25 @@ class RuleFlattener:
         """Inherit scale limits using min/max comparator."""
         attr_name = f"{comparator.__name__}imumScale"
         snap_up = comparator.__name__ == "min"
-
+        
         # Get scales with snapping
         rule_scale = ZoomLevels.snap_scale(getattr(rule, attr_name)(), snap_up)
-        parent_scale = ZoomLevels.snap_scale(
-            getattr(rule.parent(), attr_name)(), snap_up
-        )
-        inherited_scale = comparator(rule_scale, parent_scale)
-
+        parent_scale = ZoomLevels.snap_scale(getattr(rule.parent(), attr_name)(), snap_up)
+        if self._is_outside_parent_range(rule):
+            inherited_scale = rule_scale
+        else:
+            inherited_scale = comparator(rule_scale, parent_scale)
         # Set inherited scale
         setter_name = f"set{comparator.__name__.capitalize()}imumScale"
         getattr(clone, setter_name)(inherited_scale)
 
-    def _is_outside_zoom_range(self, clone) -> bool:
+    def _is_outside_parent_range(self, rule) -> bool:
         """Check if rule is outside the specified zoom range."""
-        return int(clone.minimumScale()) == int(clone.maximumScale()) == 0
+        rule_min = rule.minimumScale()
+        rule_max = rule.maximumScale()
+        parent_min = rule.parent().minimumScale()
+        parent_max = rule.parent().maximumScale()
+        return self.ranges_overlap(rule_min, rule_max, parent_min, parent_max)
 
     def _inherit_filter_expression(self, clone, rule) -> None:
         """Inherit and combine filter expressions from parent hierarchy."""
@@ -1223,6 +1308,13 @@ class RuleFlattener:
 
         return matching_rules if matching_rules else [label_rule]
 
+    @staticmethod
+    def ranges_overlap(r1_start, r1_end, r2_start, r2_end):
+        """Check of 2 ranges have overlaps"""
+        a_min, a_max = sorted((r1_start, r1_end))
+        b_min, b_max = sorted((r2_start, r2_end))
+        return a_min <= b_max and b_min <= a_max
+
     def _match_label_to_renderer(
         self, label_rule: FlattenedRule, renderer_rule: FlattenedRule, renderer_idx: int
     ) -> Optional[FlattenedRule]:
@@ -1233,7 +1325,7 @@ class RuleFlattener:
         renderer_max = renderer_rule.rule.maximumScale()
 
         # Check for scale overlap
-        if label_min <= renderer_min or label_max >= renderer_max:
+        if self.ranges_overlap(label_min,label_max,renderer_min,renderer_max):
             rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer)
             clone_rule = rule_clone.rule
 
@@ -1346,61 +1438,65 @@ class QGISVectorTilesAdapter:
                 self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f")
             )
             mkdir(temp_dir)
-            stdout("Starting conversion process...")
+            stdout(". Starting conversion process...")
             start_process_time = prf()
 
             # Step 1: Flatten all rules
-            stdout("Flattening rules...")
+            stdout(". Flattening rules...")
             flattener = RuleFlattener(self.min_zoom, self.max_zoom)
             rules = flattener.flatten_all_rules()
 
             if not rules:
-                stdout("No visible vector layers found in project.")
+                stdout(". No visible vector layers found in project.")
                 return None
             finish_extract_time = prf()
             stdout(
-                f"Successfully extracted {len(rules)} rules ({round((finish_extract_time - start_process_time)/60,2)} minutes).."
+                f". Successfully extracted {len(rules)} rules ({round((finish_extract_time - start_process_time)/60,2)} minutes)."
             )
 
             # Step 2: Export rules to datasets
-            stdout("Exporting rules to layers...")
+            stdout(". Exporting rules to layers...")
             exporter = RulesExporter(
                 rules,
                 temp_dir,
                 self.extent,
                 self.include_required_fields_only,
                 self.tiles_conf[0],
-                stdout,
+                self.feedback,
             )
             layers = exporter.export()
             finish_export_time = prf()
             stdout(
-                f"Successfully exported {len(layers)} rules ({round((finish_export_time - finish_extract_time)/60,2)}."
+                f". Successfully exported {len(layers)} rules ({round((finish_export_time - finish_extract_time)/60,2)} minutes)."
             )
-
             # Step 3: Generate tiles from datasets
-            stdout("Generating tiles...")
+            stdout(". Generating tiles...")
             generator = GDALTilesGenerator(
-                layers, temp_dir, self.output_type, self.tiles_conf, self.cpu_percent
+                layers,
+                temp_dir,
+                self.output_type,
+                self.tiles_conf,
+                self.cpu_percent,
+                self.feedback,
             )
             tiles = generator.generate()
             finish_tiles_time = prf()
             stdout(
-                f"Successfully generated tiles {len(layers)} rules ({round((finish_tiles_time - finish_export_time)/60,2)}."
+                f". Successfully generated tiles {len(layers)} rules ({round((finish_tiles_time - finish_export_time)/60,2)} minutes)."
             )
 
             # Step 4: Load and style tiles
-            stdout("Loading and styling tiles...")
+            stdout(". Loading and styling tiles...")
             styler = TilesStyler(rules, tiles)
             tiles_layer = styler.apply_styling()
             stdout(
-                f"Process completed successfully ({round((prf() - start_process_time)/60,2)} minutes)."
+                f". Process completed successfully ({round((prf() - start_process_time)/60,2)} minutes)."
             )
 
             return tiles_layer
 
         except Exception as e:
-            stdout(f"Error during conversion: {e}")
+            stdout(f". Error during conversion: {e}")
             raise e
 
 

@@ -370,21 +370,21 @@ if __name__ == "__console__":
         toolbar_button.initGui()
         print("Toolbar button added successfully")
 
-        # Test algorithm execution with default parameters
-        if iface and iface.mapCanvas():
-            result = processing.run(
-                "mbtiles_provider:generate_styled_mbtiles",
-                {
-                    "OUTPUT_TYPE": 0,  # MBTiles
-                    "MIN_ZOOM": 0,
-                    "MAX_ZOOM": 1,
-                    "EXTENT": iface.mapCanvas().extent(),
-                    "CPU_PERCENT": 50,
-                    "OUTPUT_DIR": tempfile.gettempdir(),
-                    "FIELDS_INCLUDED": 1,
-                },
-            )
-            print("Algorithm test completed")
+        # # Test algorithm execution with default parameters
+        # if iface and iface.mapCanvas():
+        #     result = processing.run(
+        #         "mbtiles_provider:generate_styled_mbtiles",
+        #         {
+        #             "OUTPUT_TYPE": 0,  # MBTiles
+        #             "MIN_ZOOM": 0,
+        #             "MAX_ZOOM": 1,
+        #             "EXTENT": iface.mapCanvas().extent(),
+        #             "CPU_PERCENT": 50,
+        #             "OUTPUT_DIR": tempfile.gettempdir(),
+        #             "FIELDS_INCLUDED": 1,
+        #         },
+        #     )
+        #     print("Algorithm test completed")
 
     except Exception as e:
         print(f"Registration or test failed: {e}")
