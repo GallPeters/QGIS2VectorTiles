@@ -727,7 +727,6 @@ class RulesExporter:
                 transformed_extent = transform.transformBoundingBox(self.extent)
             else:
                 transformed_extent = self.extent
-            transformed_extent = self.extent
 
             minx = transformed_extent.xMinimum()
             maxx = transformed_extent.xMaximum()
@@ -756,6 +755,7 @@ class RulesExporter:
                 format="FlatGeobuf",
                 where=subset_string if subset_string else None,
                 layerCreationOptions=["SPATIAL_INDEX=YES"],
+                spatFilter=[minx,miny,maxx,maxy],
                 layers=[layer_name] if layer_name else None,
                 dstSRS=f"EPSG:{self.crs_id}",
                 geometryType="PROMOTE_TO_MULTI",
@@ -799,7 +799,7 @@ class RulesExporter:
         if layer.featureCount() > 0:
 
             # Apply rule filter
-            filter_expr = flat_rule.rule.filterExpression()
+            filter_exp = flat_rule.rule.filterExpression()
 
             # Add geometry attributes for data-driven properties
             layer = self._add_geometry_attributes(layer, flat_rule)
@@ -1195,7 +1195,7 @@ class RuleFlattener:
         # Inherit scale ranges
         self._inherit_scale_range(clone, rule, min)
         self._inherit_scale_range(clone, rule, max)
-        self._inherit_filter_expression(clone, rule)
+        self._inherit_filter_expession(clone, rule)
 
         if rule_type == 0:  # Renderer
             self._inherit_symbol_layers(clone, rule)
@@ -1229,7 +1229,7 @@ class RuleFlattener:
         parent_max = rule.parent().maximumScale()
         return self.ranges_overlap(rule_min, rule_max, parent_min, parent_max)
 
-    def _inherit_filter_expression(self, clone, rule) -> None:
+    def _inherit_filter_expession(self, clone, rule) -> None:
         """Inherit and combine filter expressions from parent hierarchy."""
         parent_filter = rule.parent().filterExpression()
         rule_filter = rule.filterExpression()
@@ -1372,28 +1372,37 @@ class RuleFlattener:
         self, flat_rule: FlattenedRule
     ) -> List[FlattenedRule]:
         """Split rule by zoom levels if contains scale-dependent expressions."""
-        filter_expr = flat_rule.rule.filterExpression()
-        if "@map_scale" not in filter_expr:
+        filter_exp = flat_rule.rule.filterExpression()
+        if flat_rule.get_attribute("t") == 1:
+            label_exp = flat_rule.rule.settings().getLabelExpression().expression()
+        else:
+            label_exp = ''
+        if "@map_scale" not in f'{filter_exp} {label_exp}':
             return [flat_rule]
 
         # Get scale range and relevant zoom levels
         min_zoom = flat_rule.get_attribute("o")
         max_zoom = flat_rule.get_attribute("i")
-        relevant_zooms = list(range(min_zoom, max_zoom))
+        relevant_zooms = list(range(min_zoom, max_zoom + 1))
 
         split_rules = []
         for zoom in relevant_zooms:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
             # Set zoom range for this zoom level
-            curr_min = zoom
-            curr_max = zoom + 1
+            curr_min = zoom 
 
-            # Replace @map_scale with actual scale value
-            scale_specific_filter = filter_expr.replace(
-                "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min))
+            if "@map_scale" in filter_exp:
+                # Replace @map_scale with actual scale value
+                scale_specific_filter = filter_exp.replace(
+                    "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min + 1))
+                )
+                rule_clone.rule.setFilterExpression(scale_specific_filter)
+            if "@map_scale" in label_exp:
+                scale_specific_label = label_exp.replace(
+                "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min + 1))
             )
-            rule_clone.rule.setFilterExpression(scale_specific_filter)
+                rule_clone.rule.settings().fieldName = scale_specific_label
 
             # Update zoom attributes
             rule_clone.set_attribute("o", curr_min)
@@ -1413,7 +1422,7 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 16,
+        max_zoom: int = 18,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
