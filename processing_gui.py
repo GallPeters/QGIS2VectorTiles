@@ -140,7 +140,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 self.MAX_ZOOM,
                 self.tr("Maximum Zoom"),
                 type=QgsProcessingParameterNumber.Integer,
-                defaultValue=5,
+                defaultValue=10,
                 minValue=0,
                 maxValue=22,
             )
@@ -161,7 +161,7 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
                 self.CPU_PERCENT,
                 self.tr("CPU Percent"),
                 type=QgsProcessingParameterNumber.Integer,
-                defaultValue=50,
+                defaultValue=90,
                 minValue=0,
                 maxValue=100,
             )

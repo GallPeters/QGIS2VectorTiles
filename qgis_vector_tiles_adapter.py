@@ -88,9 +88,11 @@ class ZoomLevels:
         4514,
         2257,
         1128,
-        0.433333333333333,
-        0.2375,
-        0.139583333333333,
+        564,
+        282,
+        141,
+        70,
+        35
     ]
 
     @classmethod
@@ -327,12 +329,17 @@ class GDALTilesGenerator:
         else:
             creation_options = [
                 "COMPRESS=NO",
+                "EXTENT=32768",
+                "SIMPLIFICATION=0",
+                "SIMPLIFICATION_MAX_ZOOM=0",
+                "BUFFER=320"
                 f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}",
             ]
         ds = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
 
         # Process each layer
         for lyr in self.layers:
+
             self._process_layer(ds, lyr, sr)
 
         # Flush and close dataset
@@ -350,7 +357,6 @@ class GDALTilesGenerator:
     def _process_layer(self, ds, lyr, sr):
         """Process a single layer and add it to the dataset."""
         lyr_name = basename(lyr.source()).split(".")[0]
-
         # Extract zoom levels from layer name (format: ...oXXiYY...)
         min_zoom = int(lyr_name.split("o")[1][:2])
         max_zoom = int(lyr_name.split("i")[1][:2])
@@ -360,6 +366,7 @@ class GDALTilesGenerator:
         src_ds = ogr.Open(source)
 
         src_layer = src_ds.GetLayer(0)
+
         # Create output layer with zoom level options
         layer_options = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
         out_layer = ds.CreateLayer(
@@ -695,7 +702,7 @@ class RulesExporter:
         count = len(self.flattened_rules)
         for index, rule in enumerate(self.flattened_rules):
             self._export_single_rule(rule)
-            self.stdout(f"...{index + 1}/{count}")
+            # self.stdout(f"...{index + 1}/{count}")
         return self.processed_layers
 
     def export_layers_to_flatgeobuf(self):
@@ -719,6 +726,7 @@ class RulesExporter:
                 transformed_extent = transform.transformBoundingBox(self.extent)
             else:
                 transformed_extent = self.extent
+            transformed_extent = self.extent
 
             minx = transformed_extent.xMinimum()
             maxx = transformed_extent.xMaximum()
@@ -743,16 +751,18 @@ class RulesExporter:
                 layer_name = None
 
             subset_string = layer.subsetString()
-
             options = gdal.VectorTranslateOptions(
                 format="FlatGeobuf",
-                spatFilter=[minx, miny, maxx, maxy],
                 where=subset_string if subset_string else None,
                 layerCreationOptions=["SPATIAL_INDEX=YES"],
                 layers=[layer_name] if layer_name else None,
-                skipFailures=True,
                 dstSRS=f"EPSG:{self.crs_id}",
-            )
+                geometryType='PROMOTE_TO_MULTI',
+                clipDst=self.extent.asWktPolygon(),
+                skipFailures=False,
+                skipInvalid=False, 
+                makeValid=True,
+                )
 
             gdal.VectorTranslate(output_path, gdal_source, options=options)
 
@@ -789,30 +799,24 @@ class RulesExporter:
 
             # Apply rule filter
             filter_expr = flat_rule.rule.filterExpression()
-            if filter_expr:
-                layer.selectByExpression(filter_expr)
 
             # Add geometry attributes for data-driven properties
             layer = self._add_geometry_attributes(layer, flat_rule)
 
-            if filter_expr:
-                layer.selectByExpression(filter_expr)
 
             # Add labeling expression as field if required
             if flat_rule.get_attribute("t") == 1:
                 layer = self._calculate_label_expression(layer, flat_rule)
 
-            if filter_expr:
-                layer.selectByExpression(filter_expr)
-
             layer = self._transform_geometry_if_needed(layer, flat_rule)
 
-            if filter_expr:
-                layer.selectByExpression(filter_expr)
 
             rule_desc = flat_rule.rule.description()
             output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
 
+            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
+            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
+            layer = self._run_processing("multiparttosingleparts", INPUT=layer, METHOD=0)
             # Keep only required fields
             if self.include_required_fields_only == 1:
                 required_fields = list(self._get_required_fields(flat_rule, layer))
@@ -988,7 +992,6 @@ class RulesExporter:
         """Execute QGIS processing algorithm."""
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
-            # params["OUTPUT"] = join(r'C:\Users\P0026701\AppData\Local\Temp\06_08_2025_17_24_07_824669',  datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f.shp"))
         output = processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
         if isinstance(output, str):
             output = QgsVectorLayer(output)
@@ -1103,18 +1106,17 @@ class RuleFlattener:
                 )
                 if not self.rule_inside_requested_zoom_range(flat_rule):
                     return
-                    
+
                 # Split rule by different criteria
                 if rule_type == 0:  # Renderer
                     split_rules = self._split_by_symbol_layers(flat_rule)
                 else:  # Labeling
                     split_rules = self._split_by_matching_renderers(flat_rule)
-
+                self.clip_rules_range_to_zoom_range(split_rules)
                 # Further split by scale dependencies
                 for split_rule in split_rules:
-                    self.flattened_rules.extend(
-                        self._split_by_scale_expressions(split_rule)
-                    )
+                    final_rules = self._split_by_scale_expressions(split_rule)
+                    self.flattened_rules.extend(final_rules)
 
         # Process children recursively
         for child_idx, child in enumerate(rule.children()):
@@ -1155,12 +1157,21 @@ class RuleFlattener:
         return int(
             ZoomLevels.scale_to_zoom(rule_scale, "i" if comparator == max else "o")
         )
+    
 
     def rule_inside_requested_zoom_range(self, flat_rule):
         """Validate zoomr range which was set to the rule"""
         minzoom = flat_rule.get_attribute("o")
         maxzoom = flat_rule.get_attribute("i")
         return self.ranges_overlap(minzoom, maxzoom, self.min_zoom, self.max_zoom)
+    
+    def clip_rules_range_to_zoom_range(self, flat_rules):
+        """Clip rule zoome range to general zoom range"""
+        for flat_rule in flat_rules:
+            if flat_rule.get_attribute("o") < self.min_zoom:
+                flat_rule.set_attribute("o", self.min_zoom)
+            if flat_rule.get_attribute("i") > self.max_zoom:
+                flat_rule.set_attribute("i", self.max_zoom)
 
     def _convert_else_filter(self, else_rule, parent_rule) -> None:
         """Convert ELSE filter to explicit exclusion of sibling conditions."""
@@ -1192,10 +1203,12 @@ class RuleFlattener:
         """Inherit scale limits using min/max comparator."""
         attr_name = f"{comparator.__name__}imumScale"
         snap_up = comparator.__name__ == "min"
-        
+
         # Get scales with snapping
         rule_scale = ZoomLevels.snap_scale(getattr(rule, attr_name)(), snap_up)
-        parent_scale = ZoomLevels.snap_scale(getattr(rule.parent(), attr_name)(), snap_up)
+        parent_scale = ZoomLevels.snap_scale(
+            getattr(rule.parent(), attr_name)(), snap_up
+        )
         if self._is_outside_parent_range(rule):
             inherited_scale = rule_scale
         else:
@@ -1319,13 +1332,13 @@ class RuleFlattener:
         self, label_rule: FlattenedRule, renderer_rule: FlattenedRule, renderer_idx: int
     ) -> Optional[FlattenedRule]:
         """Create combined rule matching label to renderer with overlapping scales."""
-        label_min = label_rule.rule.minimumScale()
-        label_max = label_rule.rule.maximumScale()
-        renderer_min = renderer_rule.rule.minimumScale()
-        renderer_max = renderer_rule.rule.maximumScale()
+        label_min = label_rule.get_attribute('o')
+        label_max = label_rule.get_attribute('i')
+        renderer_min = renderer_rule.get_attribute('o')
+        renderer_max = renderer_rule.get_attribute('i')
 
         # Check for scale overlap
-        if self.ranges_overlap(label_min,label_max,renderer_min,renderer_max):
+        if self.ranges_overlap(label_min, label_max, renderer_min, renderer_max):
             rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer)
             clone_rule = rule_clone.rule
 
@@ -1339,19 +1352,13 @@ class RuleFlattener:
                 combined_filter = renderer_filter or label_filter or ""
 
             clone_rule.setFilterExpression(combined_filter)
-
+            
             # Adjust scale range to renderer's range
             if label_min > renderer_min:
-                clone_rule.setMinimumScale(renderer_min)
-                rule_clone.set_attribute(
-                    "o", ZoomLevels.scale_to_zoom(renderer_min, "o")
-                )
+                rule_clone.set_attribute("o", renderer_min)
             if label_max < renderer_max:
-                clone_rule.setMaximumScale(renderer_max)
-                rule_clone.set_attribute(
-                    "i", ZoomLevels.scale_to_zoom(renderer_max, "i")
-                )
-
+                rule_clone.set_attribute("i",renderer_max)
+           
             rule_clone.set_attribute("f", renderer_idx)
             return rule_clone
 
@@ -1366,30 +1373,25 @@ class RuleFlattener:
             return [flat_rule]
 
         # Get scale range and relevant zoom levels
-        min_scale = flat_rule.rule.minimumScale()
-        max_scale = flat_rule.rule.maximumScale()
-        relevant_scales = [
-            scale for scale in ZoomLevels.SCALES if max_scale <= scale <= min_scale
-        ]
+        min_zoom = flat_rule.get_attribute("o")
+        max_zoom = flat_rule.get_attribute("i")
+        relevant_zooms = list(range(min_zoom,max_zoom))
 
         split_rules = []
-        for i, scale in enumerate(relevant_scales):
+        for zoom in relevant_zooms:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
-            # Set scale range for this zoom level
-            rule_clone.rule.setMinimumScale(scale)
-            next_scale = (
-                relevant_scales[i + 1] if i + 1 < len(relevant_scales) else max_scale
-            )
-            rule_clone.rule.setMaximumScale(next_scale)
+            # Set zoom range for this zoom level
+            curr_min = zoom
+            curr_max = zoom + 1
 
             # Replace @map_scale with actual scale value
-            scale_specific_filter = filter_expr.replace("@map_scale", str(scale))
+            scale_specific_filter = filter_expr.replace("@map_scale", str(ZoomLevels.zoom_to_scale(curr_min)))
             rule_clone.rule.setFilterExpression(scale_specific_filter)
 
             # Update zoom attributes
-            rule_clone.set_attribute("o", ZoomLevels.scale_to_zoom(scale, "o"))
-            rule_clone.set_attribute("i", ZoomLevels.scale_to_zoom(next_scale, "i"))
+            rule_clone.set_attribute("o", curr_min)
+            rule_clone.set_attribute("i", curr_max)
 
             split_rules.append(rule_clone)
 
@@ -1405,14 +1407,14 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 10,
+        max_zoom: int = 11,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
         output_type="xyz",
         # tiles_conf=[4326, -180.0, 90.0, 180.0, 2, 1],
         tiles_conf=[3857, -20037508.343, 20037508.343, 40075016.686, 1, 1],
-        cpu_percent=75,
+        cpu_percent=100,
         feedback=QgsProcessingFeedback(),
     ):
         self.min_zoom = min_zoom
@@ -1453,7 +1455,6 @@ class QGISVectorTilesAdapter:
             stdout(
                 f". Successfully extracted {len(rules)} rules ({round((finish_extract_time - start_process_time)/60,2)} minutes)."
             )
-
             # Step 2: Export rules to datasets
             stdout(". Exporting rules to layers...")
             exporter = RulesExporter(
@@ -1479,6 +1480,7 @@ class QGISVectorTilesAdapter:
                 self.cpu_percent,
                 self.feedback,
             )
+
             tiles = generator.generate()
             finish_tiles_time = prf()
             stdout(
@@ -1494,7 +1496,6 @@ class QGISVectorTilesAdapter:
             )
 
             return tiles_layer
-
         except Exception as e:
             stdout(f". Error during conversion: {e}")
             raise e
