@@ -92,7 +92,7 @@ class ZoomLevels:
         282,
         141,
         70,
-        35
+        35,
     ]
 
     @classmethod
@@ -234,6 +234,7 @@ class TilesStyler:
         """Configure labeling style properties."""
         self._setup_base_style_properties(style, flat_rule)
         settings = QgsPalLayerSettings(flat_rule.rule.settings())
+        # settings.Placement = 6
         style.setLabelSettings(settings)
 
     def _setup_base_style_properties(self, style, flat_rule: FlattenedRule) -> None:
@@ -757,12 +758,12 @@ class RulesExporter:
                 layerCreationOptions=["SPATIAL_INDEX=YES"],
                 layers=[layer_name] if layer_name else None,
                 dstSRS=f"EPSG:{self.crs_id}",
-                geometryType='PROMOTE_TO_MULTI',
+                geometryType="PROMOTE_TO_MULTI",
                 clipDst=self.extent.asWktPolygon(),
-                skipFailures=False,
-                skipInvalid=False, 
+                skipFailures=True,
+                skipInvalid=True,
                 makeValid=True,
-                )
+            )
 
             gdal.VectorTranslate(output_path, gdal_source, options=options)
 
@@ -803,20 +804,24 @@ class RulesExporter:
             # Add geometry attributes for data-driven properties
             layer = self._add_geometry_attributes(layer, flat_rule)
 
-
             # Add labeling expression as field if required
             if flat_rule.get_attribute("t") == 1:
                 layer = self._calculate_label_expression(layer, flat_rule)
 
+            exp = flat_rule.rule.filterExpression()
+            if exp:
+                layer = self._run_processing(
+                    "extractbyexpression", INPUT=layer, EXPRESSION=exp
+                )
+            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
+            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
             layer = self._transform_geometry_if_needed(layer, flat_rule)
-
+            layer = self._run_processing(
+                "multiparttosingleparts", INPUT=layer, METHOD=0
+            )
 
             rule_desc = flat_rule.rule.description()
             output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
-
-            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
-            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
-            layer = self._run_processing("multiparttosingleparts", INPUT=layer, METHOD=0)
             # Keep only required fields
             if self.include_required_fields_only == 1:
                 required_fields = list(self._get_required_fields(flat_rule, layer))
@@ -829,7 +834,6 @@ class RulesExporter:
                 SELECTED_FEATURES_ONLY=True,
                 OUTPUT=output_dataset,
             )
-
             layer.setName(rule_desc)
 
             self.processed_layers.append(layer)
@@ -912,10 +916,11 @@ class RulesExporter:
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attribute("c", target_geom)
+            flat_rule.set_attribute("c", target_geom)  # Point target
             return target_geom, transform_expr
 
         # Polygon labels need centroid for tile-based rendering
-        if flat_rule.get_attribute("g") == 2:  # Polygon source
+        if flat_rule.get_attribute("g") == 2:
             flat_rule.set_attribute("c", 0)  # Point target
             return 0, "centroid(@geometry)"
 
@@ -1016,7 +1021,6 @@ class RuleFlattener:
         for layer_idx, layer in enumerate(layers):
             if self._is_valid_layer(layer):
                 self._process_layer_rules(layer.clone(), layer_idx)
-
         return self.flattened_rules
 
     def _is_valid_layer(self, layer) -> bool:
@@ -1157,14 +1161,13 @@ class RuleFlattener:
         return int(
             ZoomLevels.scale_to_zoom(rule_scale, "i" if comparator == max else "o")
         )
-    
 
     def rule_inside_requested_zoom_range(self, flat_rule):
         """Validate zoomr range which was set to the rule"""
         minzoom = flat_rule.get_attribute("o")
         maxzoom = flat_rule.get_attribute("i")
         return self.ranges_overlap(minzoom, maxzoom, self.min_zoom, self.max_zoom)
-    
+
     def clip_rules_range_to_zoom_range(self, flat_rules):
         """Clip rule zoome range to general zoom range"""
         for flat_rule in flat_rules:
@@ -1209,11 +1212,12 @@ class RuleFlattener:
         parent_scale = ZoomLevels.snap_scale(
             getattr(rule.parent(), attr_name)(), snap_up
         )
-        if self._is_outside_parent_range(rule):
-            inherited_scale = rule_scale
-        else:
-            inherited_scale = comparator(rule_scale, parent_scale)
+        # if self._is_outside_parent_range(rule):
+        #     inherited_scale = rule_scale
+        # else:
+        inherited_scale = comparator(rule_scale, parent_scale)
         # Set inherited scale
+        # print(f'p {parent_scale} r {rule_scale} i {inherited_scale} m {comparator.__name__}')
         setter_name = f"set{comparator.__name__.capitalize()}imumScale"
         getattr(clone, setter_name)(inherited_scale)
 
@@ -1332,10 +1336,10 @@ class RuleFlattener:
         self, label_rule: FlattenedRule, renderer_rule: FlattenedRule, renderer_idx: int
     ) -> Optional[FlattenedRule]:
         """Create combined rule matching label to renderer with overlapping scales."""
-        label_min = label_rule.get_attribute('o')
-        label_max = label_rule.get_attribute('i')
-        renderer_min = renderer_rule.get_attribute('o')
-        renderer_max = renderer_rule.get_attribute('i')
+        label_min = label_rule.get_attribute("o")
+        label_max = label_rule.get_attribute("i")
+        renderer_min = renderer_rule.get_attribute("o")
+        renderer_max = renderer_rule.get_attribute("i")
 
         # Check for scale overlap
         if self.ranges_overlap(label_min, label_max, renderer_min, renderer_max):
@@ -1352,13 +1356,13 @@ class RuleFlattener:
                 combined_filter = renderer_filter or label_filter or ""
 
             clone_rule.setFilterExpression(combined_filter)
-            
+
             # Adjust scale range to renderer's range
-            if label_min > renderer_min:
+            if label_min < renderer_min:
                 rule_clone.set_attribute("o", renderer_min)
-            if label_max < renderer_max:
-                rule_clone.set_attribute("i",renderer_max)
-           
+            if label_max > renderer_max:
+                rule_clone.set_attribute("i", renderer_max)
+
             rule_clone.set_attribute("f", renderer_idx)
             return rule_clone
 
@@ -1375,7 +1379,7 @@ class RuleFlattener:
         # Get scale range and relevant zoom levels
         min_zoom = flat_rule.get_attribute("o")
         max_zoom = flat_rule.get_attribute("i")
-        relevant_zooms = list(range(min_zoom,max_zoom))
+        relevant_zooms = list(range(min_zoom, max_zoom))
 
         split_rules = []
         for zoom in relevant_zooms:
@@ -1386,12 +1390,14 @@ class RuleFlattener:
             curr_max = zoom + 1
 
             # Replace @map_scale with actual scale value
-            scale_specific_filter = filter_expr.replace("@map_scale", str(ZoomLevels.zoom_to_scale(curr_min)))
+            scale_specific_filter = filter_expr.replace(
+                "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min))
+            )
             rule_clone.rule.setFilterExpression(scale_specific_filter)
 
             # Update zoom attributes
             rule_clone.set_attribute("o", curr_min)
-            rule_clone.set_attribute("i", curr_max)
+            rule_clone.set_attribute("i", curr_min)
 
             split_rules.append(rule_clone)
 
@@ -1407,7 +1413,7 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 11,
+        max_zoom: int = 16,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
