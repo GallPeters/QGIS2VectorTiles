@@ -587,7 +587,7 @@ class TilesFetcher:
     def _export_index(self):
         """Export index to a given gpk file."""
         # Create Index dataset
-        output_index = join(self.output_dir, f"index.fgb")
+        output_index = join(self.output_dir, f"index.parquet")
         fields = QgsFields(
             [
                 QgsField("fid", QVariant.Int),
@@ -599,7 +599,7 @@ class TilesFetcher:
 
         crs = self.matrix.crs()
         options = QgsVectorFileWriter.SaveVectorOptions()
-        options.driverName = "FlatGeobuf"
+        options.driverName = "Parquet"
 
         QgsVectorFileWriter.create(
             fileName=output_index,
@@ -699,14 +699,14 @@ class RulesExporter:
     def export(self) -> list:
         """Export all rules to memory datasets."""
         i = prf()
-        self.export_layers_to_flatgeobuf()
+        self.export_layers()
         count = len(self.flattened_rules)
         for index, rule in enumerate(self.flattened_rules):
             self._export_single_rule(rule)
             # self.stdout(f"...{index + 1}/{count}")
         return self.processed_layers
 
-    def export_layers_to_flatgeobuf(self):
+    def export_layers(self):
         """Export multiple QgsVectorLayers to FlatGeobuf using a clipping extent,
         leveraging GDAL/OGR only (fast, no PyQGIS feature iteration).
         """
@@ -716,7 +716,7 @@ class RulesExporter:
         for layer in layers:
             provider = layer.dataProvider().name()
             source = layer.source()
-            output_path = join(self.temp_dir, f"{layer.id()}.fgb")
+            output_path = join(self.temp_dir, f"{layer.id()}.parquet")
 
             # Transform extent to layer CRS
             layer_crs = layer.crs()
@@ -752,22 +752,22 @@ class RulesExporter:
 
             subset_string = layer.subsetString()
             options = gdal.VectorTranslateOptions(
-                format="FlatGeobuf",
+                format="Parquet",
                 where=subset_string if subset_string else None,
                 layerCreationOptions=["SPATIAL_INDEX=YES"],
-                spatFilter=[minx,miny,maxx,maxy],
+                spatFilter=[minx, miny, maxx, maxy],
                 layers=[layer_name] if layer_name else None,
                 dstSRS=f"EPSG:{self.crs_id}",
-                geometryType="PROMOTE_TO_MULTI",
+                explodeCollections=True,
                 clipDst=self.extent.asWktPolygon(),
-                skipFailures=True,
-                skipInvalid=True,
                 makeValid=True,
+                skipFailures=True,
+                dim='XY'
             )
 
             gdal.VectorTranslate(output_path, gdal_source, options=options)
 
-    def export_layers(self):
+    def export_layers_to_gpkg(self):
         """Export all rules layer into single clean and thin gpgk"""
         lyrs = []
         for rule in self.flattened_rules:
@@ -794,12 +794,9 @@ class RulesExporter:
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
-        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.fgb"))
+        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.parquet"))
 
         if layer.featureCount() > 0:
-
-            # Apply rule filter
-            filter_exp = flat_rule.rule.filterExpression()
 
             # Add geometry attributes for data-driven properties
             layer = self._add_geometry_attributes(layer, flat_rule)
@@ -813,27 +810,10 @@ class RulesExporter:
                 layer = self._run_processing(
                     "extractbyexpression", INPUT=layer, EXPRESSION=exp
                 )
-            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
-            layer = self._run_processing("fixgeometries", INPUT=layer, METHOD=0)
             layer = self._transform_geometry_if_needed(layer, flat_rule)
-            layer = self._run_processing(
-                "multiparttosingleparts", INPUT=layer, METHOD=0
-            )
-
             rule_desc = flat_rule.rule.description()
-            output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
-            # Keep only required fields
-            if self.include_required_fields_only == 1:
-                required_fields = list(self._get_required_fields(flat_rule, layer))
-            else:
-                required_fields = [f.name() for f in layer.fields()]
-            layer = self._run_processing(
-                "retainfields",
-                INPUT=layer,
-                FIELDS=required_fields,
-                SELECTED_FEATURES_ONLY=True,
-                OUTPUT=output_dataset,
-            )
+            output_dataset = join(self.datasets_dir, f"{rule_desc}.parquet")
+            layer = self._run_processing("reprojectlayer", INPUT=layer, TARGET_CRS=QgsCoordinateReferenceSystem(3857), OUTPUT=output_dataset)
             layer.setName(rule_desc)
 
             self.processed_layers.append(layer)
@@ -1376,8 +1356,8 @@ class RuleFlattener:
         if flat_rule.get_attribute("t") == 1:
             label_exp = flat_rule.rule.settings().getLabelExpression().expression()
         else:
-            label_exp = ''
-        if "@map_scale" not in f'{filter_exp} {label_exp}':
+            label_exp = ""
+        if "@map_scale" not in f"{filter_exp} {label_exp}":
             return [flat_rule]
 
         # Get scale range and relevant zoom levels
@@ -1390,7 +1370,7 @@ class RuleFlattener:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
             # Set zoom range for this zoom level
-            curr_min = zoom 
+            curr_min = zoom
 
             if "@map_scale" in filter_exp:
                 # Replace @map_scale with actual scale value
@@ -1400,8 +1380,8 @@ class RuleFlattener:
                 rule_clone.rule.setFilterExpression(scale_specific_filter)
             if "@map_scale" in label_exp:
                 scale_specific_label = label_exp.replace(
-                "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min + 1))
-            )
+                    "@map_scale", str(ZoomLevels.zoom_to_scale(curr_min + 1))
+                )
                 rule_clone.rule.settings().fieldName = scale_specific_label
 
             # Update zoom attributes
@@ -1422,7 +1402,7 @@ class QGISVectorTilesAdapter:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 18,
+        max_zoom: int = 16,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
