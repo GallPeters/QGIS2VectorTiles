@@ -747,7 +747,7 @@ class RulesExporter:
     def export(self) -> list:
         """Export all rules to memory datasets."""
         self.export_layers()
-        return self.processed_layers
+        # return self.processed_layers
         for rule in self.flattened_rules:
             self._export_single_rule(rule)
         return self.processed_layers
@@ -772,17 +772,27 @@ class RulesExporter:
         # options = []
         crs_src = QgsCoordinateReferenceSystem("EPSG:3857")
         for layer, fields in layers.items():
+            ln = layer.geometryType()
+            la = layer.name()
+            lyr_id = layer.id()
             fields = ','.join([f for f in fields if f != '#!allattributes!#'])
+            # sql = f'SELECT ROW_NUMBER() OVER () AS {self.FIELD_PREFIX}_fid, * FROM "{layer.name()}"'
             selection = f'-select {fields}' if fields else ''
-            options = f'-t_srs EPSG:3857 {selection} -dim XY -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=YES -explodecollections'
-            output_path = join(self.temp_dir, f'{layer.id()}.fgb')
+            # options = f'-t_srs EPSG:3857 {selection} -dim XY -explodecollections -sql "{sql}"'
+            options = f'-t_srs EPSG:3857 {selection} -dim XY'
+            output_path = join(self.temp_dir, f'{lyr_id}.parquet')
             crs_dest = layer.crs()
             layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
             
             # create coordinate transform
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
             dst_rect = transform.transformBoundingBox(self.extent)
+            # layer.addExpressionField('$id', QgsField(f'{self.FIELD_PREFIX}_fid',0))
             layer = self._run_processing("clipvectorbyextent", "gdal", INPUT=layer, EXTENT=dst_rect, OUTPUT=output_path, OPTIONS=options)
+            # output_path = join(self.temp_dir, f'{lyr_id}.gpkg')
+            # gpkg_layer = self._run_processing("clipvectorbyextent", "gdal", INPUT=layer, EXTENT=dst_rect, OUTPUT=output_path, OPTIONS=options)
+            # if gpkg_layer.featureCount() != fgb_layer.featureCount():
+            #     print(f'{la} - {ln} gpkg: {gpkg_layer.featureCount()} ~ fgb: {fgb_layer.featureCount()}')
             continue
             provider = layer.dataProvider().name()
             source = layer.source()
@@ -832,7 +842,7 @@ class RulesExporter:
 
     def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
         """Export single rule as a layer with transformations."""
-        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.fgb"))
+        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.parquet"))
         layer_id = layer.id()
         if layer.featureCount() > 0:
             # Add geometry attributes for data-driven properties
@@ -873,7 +883,7 @@ class RulesExporter:
                 fields = [
                     i
                     for i, f in enumerate(layer.fields())
-                    if self.FIELD_PREFIX in f.name()
+                    if self.FIELD_PREFIX in f.name() or f.name() == 'fid'
                 ]
                 if fields:
                     options.attributes = fields
@@ -1525,7 +1535,7 @@ f    """
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 16,
+        max_zoom: int = 10,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
@@ -1589,7 +1599,6 @@ f    """
                 f". Successfully exported {len(layers)} rules ({round((finish_export_time - finish_extract_time)/60,2)} minutes)."
             )
             output = None
-            return
             if [l for l in layers if l.featureCount() > 0]:
                 # Step 3: Generate tiles from datasets
                 stdout(". Generating tiles...")
