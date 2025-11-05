@@ -349,7 +349,7 @@ class GDALTilesGenerator:
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
             tiles_url = join(self.output_dir, "tiles")
             uri = f"{tiles_url}{template}"
-            uri = f"type=xyz&url=file:///{uri}"
+            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{uri}"
             output = tiles_url
             # output = join(self.output_dir, 'tiles')
             # template = pathname2url(r"/{z}/{x}/{y}.pbf")
@@ -368,12 +368,12 @@ class GDALTilesGenerator:
         else:
             # creation_options = [
             #     "COMPRESS=NO",
-            #     "EXTENT=32768",
-            #     "SIMPLIFICATION=0",
-            #     "SIMPLIFICATION_MAX_ZOOM=0",
-            #     "BUFFER=320"
+            #     "MAX_SIZE=100000000",
+            #     "MAX_FEATURES=100000000",
+            #     "SIMPLIFICATION=0.5",
+            #     "SIMPLIFICATION_MAX_ZOOM=14",
             #     f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}",
-            #
+            # ]
             crs_src = QgsCoordinateReferenceSystem("EPSG:3857")
             crs_dest = QgsCoordinateReferenceSystem("EPSG:4326")
 
@@ -747,6 +747,7 @@ class RulesExporter:
     def export(self) -> list:
         """Export all rules to memory datasets."""
         self.export_layers()
+        return self.processed_layers
         for rule in self.flattened_rules:
             self._export_single_rule(rule)
         return self.processed_layers
@@ -756,14 +757,27 @@ class RulesExporter:
         leveraging GDAL/OGR only (fast, no PyQGIS feature iteration).
         """
         # gdal.UseExceptions()
-        layers = set(flatrule.layer for flatrule in self.flattened_rules)
+        layers = {flatrule.layer :set() for flatrule in self.flattened_rules}
+        for flat_rule in self.flattened_rules: 
+            rule_type = flat_rule.get_attribute("t")
+            if rule_type == 0:  # Renderer
+                required_fields = set(
+                flat_rule.rule.symbol().usedAttributes(QgsRenderContext())
+            )
+            else:  # Labeling
+                required_fields = set(
+                flat_rule.rule.settings().referencedFields(QgsRenderContext())
+            )
+            layers[flat_rule.layer] = layers[flat_rule.layer].union(required_fields)
         # options = []
         crs_src = QgsCoordinateReferenceSystem("EPSG:3857")
-        for layer in layers:
-            options = f'-t_srs EPSG:3857 -dim XY -gt 65536 -skipinvalid -explodecollections -nlt CONVERT_TO_LINEAR'
+        for layer, fields in layers.items():
+            fields = ','.join([f for f in fields if f != '#!allattributes!#'])
+            selection = f'-select {fields}' if fields else ''
+            options = f'-t_srs EPSG:3857 {selection} -dim XY -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=YES -explodecollections'
             output_path = join(self.temp_dir, f'{layer.id()}.fgb')
             crs_dest = layer.crs()
-            layer = self._run_processing("buildvirtualvector", "gdal",INPUT=layer)
+            layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
             
             # create coordinate transform
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
@@ -826,7 +840,9 @@ class RulesExporter:
             # Add labeling expression as field if required
             if flat_rule.get_attribute("t") == 1:
                 layer = self._calculate_label_expression(layer, flat_rule)
-
+            # layer = self._run_processing('addautoincrementalfield', INPUT=layer, FIELD_NAME=f'{self.FIELD_PREFIX}_id')
+            selected_ids = None
+            
             selected_ids = []
             exp = flat_rule.rule.filterExpression()
             if exp:
@@ -846,9 +862,12 @@ class RulesExporter:
                     EXPRESSION=transformation[1],
                 )
             options = QgsVectorFileWriter.SaveVectorOptions()
-            if selected_ids:
-                layer.selectByIds(selected_ids)
-                options.onlySelectedFeatures = True
+            if exp:
+                if selected_ids:
+                    layer.selectByIds(selected_ids)
+                    options.onlySelectedFeatures = True
+                else:
+                    return
             options.driverName = "FlatGeobuf"
             if self.include_required_fields_only:
                 fields = [
@@ -858,8 +877,6 @@ class RulesExporter:
                 ]
                 if fields:
                     options.attributes = fields
-                else:
-                    options.skipAttributeCreation = True
 
             rule_desc = flat_rule.rule.description()
             output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
@@ -882,7 +899,7 @@ class RulesExporter:
             "fieldcalculator",
             INPUT=layer,
             FIELD_NAME=field_name,
-            FORMULA=f"{expression}",
+            FORMULA=f'{str(expression)}',
             FIELD_TYPE=2,
         )
         # layer.addExpressionField(expression, QgsField(field_name,2))
@@ -1024,22 +1041,23 @@ class RulesExporter:
                 if prop:
                     propdef = obj.propertyDefinitions()[prop_key]
                     name = propdef.description()
-                    exp = prop.expressionString().replace(
+                    expression = prop.expressionString().replace(
                         "@map_scale",
                         str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))),
                     )
-                    if exp and prop.isActive():
+                    if expression and prop.isActive():
                         suffix = ""
                         sl = flat_rule.get_attribute("s")
                         if sl:
                             suffix = f'_s{"0" if sl < 10 else ""}{sl}'
                         field_name = f"{self.FIELD_PREFIX}_{name.lower().replace(' ','_')}{suffix}"
+                        expression = f"array_to_string(array({expression}))"
                         layer = self._run_processing(
                             "fieldcalculator",
                             INPUT=layer,
                             FIELD_NAME=field_name,
-                            FORMULA=f"{exp}",
-                            FIELD_TYPE=2,
+                            FORMULA=expression,
+                            FIELD_TYPE=2
                         )
                         # layer.addExpressionField(exp, QgsField(field_name, 2))
                         prop.setExpressionString(f'eval("{field_name}")')
@@ -1571,7 +1589,8 @@ f    """
                 f". Successfully exported {len(layers)} rules ({round((finish_export_time - finish_extract_time)/60,2)} minutes)."
             )
             output = None
-            if layers:
+            return
+            if [l for l in layers if l.featureCount() > 0]:
                 # Step 3: Generate tiles from datasets
                 stdout(". Generating tiles...")
                 generator = GDALTilesGenerator(
