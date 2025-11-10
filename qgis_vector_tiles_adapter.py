@@ -14,6 +14,7 @@ scale-dependent styling, nested filters, and ensures proper tile-based rendering
 
 import gc
 from os import mkdir, remove, makedirs
+from os import *
 from pathlib import Path
 from collections.abc import Iterable
 from shutil import rmtree
@@ -210,7 +211,9 @@ class TilesStyler:
             "&http-header:referer=" if tiles_path.split(".")[-1] != "mbtiles" else ""
         )
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
-        return QgsProject.instance().addMapLayer(layer)
+        layer = QgsProject.instance().addMapLayer(layer, False)
+        QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
+        return layer
 
     def _create_style_from_rule(self, flat_rule: FlattenedRule) -> None:
         """Create appropriate style from flattened rule."""
@@ -380,14 +383,13 @@ class GDALTilesGenerator:
             # create coordinate transform
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
 
+
             # transform the rectangle
             geo_rec = transform.transformBoundingBox(self.extent)
             creation_options = [
+                f"MINZOOM={self._get_global_min_zoom()}",
+                f"MAXZOOM={self._get_global_max_zoom()}",
                 "COMPRESS=NO",
-                "MAX_SIZE=100000000",
-                "MAX_FEATURES=100000000",
-                "SIMPLIFICATION=0.5",
-                "SIMPLIFICATION_MAX_ZOOM=14",
                 f"TILING_SCHEME=EPSG:{crs_id},{top_left_x},{top_left_y},{root_dimension},{ratio_width},{ratio_height}",
             ]
         # f"BOUNDS={geo_rec.xMinimum},{geo_rec.yMinimum},{geo_rec.xMaximum},{geo_rec.yMaximum}",
@@ -654,7 +656,7 @@ class TilesFetcher:
 
         crs = self.matrix.crs()
         options = QgsVectorFileWriter.SaveVectorOptions()
-        options.driverName = "FlatGeobuf"
+        options.driverName = "fgb"
         QgsVectorFileWriter.create(fileName=output_index)
         index_layer = QgsVectorLayer(output_index, "Tiles Index")
 
@@ -740,20 +742,23 @@ class RulesExporter:
         self.crs_id = crs_id
         self.temp_dir, self.datasets_dir = self._generate_subdirs(output_dir)
         self.processed_layers = []
-        self.temp_layers = []
+        self.temp_layers = {}
         self.feedback = feedback
         self.stdout = self.feedback.pushInfo if __name__ != "__console__" else print
 
     def export(self) -> list:
         """Export all rules to memory datasets."""
         self.export_layers()
-        # return self.processed_layers
-        for rule in self.flattened_rules:
-            self._export_single_rule(rule)
+        #return self.processed_layers
+        ruleds = {fr.ruleds :[] for fr in self.flattened_rules}
+        for fr in self.flattened_rules:
+            ruleds[fr.ruleds].append(fr) 
+        for ruleds, rules in ruleds.items():
+            self._export_single_rule(ruleds, rules)
         return self.processed_layers
 
     def export_layers(self):
-        """Export multiple QgsVectorLayers to FlatGeobuf using a clipping extent,
+        """Export mu`ltiple QgsVectorLayers to FlatGeobuf using a clipping extent,
         leveraging GDAL/OGR only (fast, no PyQGIS feature iteration).
         """
         # gdal.UseExceptions()
@@ -768,10 +773,14 @@ class RulesExporter:
                 required_fields = set(
                 flat_rule.rule.settings().referencedFields(QgsRenderContext())
             )
+            calculated_fields = set([
+            f.name() for f in flat_rule.layer.fields() if f.name() in flat_rule.rule.filterExpression()])
+            required_fields = required_fields.union(calculated_fields)
             layers[flat_rule.layer] = layers[flat_rule.layer].union(required_fields)
         # options = []
         crs_src = QgsCoordinateReferenceSystem("EPSG:3857")
         for layer, fields in layers.items():
+            subsetstring = layer.subsetString()
             ln = layer.geometryType()
             la = layer.name()
             lyr_id = layer.id()
@@ -779,20 +788,29 @@ class RulesExporter:
             # sql = f'SELECT ROW_NUMBER() OVER () AS {self.FIELD_PREFIX}_fid, * FROM "{layer.name()}"'
             selection = f'-select {fields}' if fields else ''
             # options = f'-t_srs EPSG:3857 {selection} -dim XY -explodecollections -sql "{sql}"'
-            options = f'-t_srs EPSG:3857 {selection} -dim XY'
-            output_path = join(self.temp_dir, f'{lyr_id}.parquet')
+            #options = f'-t_srs EPSG:3857 {selection} -dim XY -skipInvalid -skipfailures'
+            extent_coords = f'{self.extent.xMinimum()} {self.extent.yMinimum()} {self.extent.xMaximum()} {self.extent.yMaximum()}'
+            output_path = join(self.temp_dir, f'{lyr_id}.fgb')
             crs_dest = layer.crs()
-            layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
+            layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer.source())
             
             # create coordinate transform
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
             dst_rect = transform.transformBoundingBox(self.extent)
             # layer.addExpressionField('$id', QgsField(f'{self.FIELD_PREFIX}_fid',0))
-            layer = self._run_processing("clipvectorbyextent", "gdal", INPUT=layer, EXTENT=dst_rect, OUTPUT=output_path, OPTIONS=options)
+            #spat= -spat_srs EPSG:3857 -spat {extent_coords} {selection}
+            where = f' -where "{subsetstring}"'if subsetstring else ''
+            options = f'-clipdst "{self.extent.asWktPolygon()}" -t_srs  EPSG:3857 -dim XY{where} -skipinvalid -nlt PROMOTE_TO_MULTI {selection}'
+            #layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
+            # options = f'-skipinvalid -nlt CONVERT_TO_LINEAR'
+            layer = self._run_processing("convertformat", "gdal", INPUT=layer.source(), OPTIONS=options, OUTPUT=output_path)
+            #layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
+            #options = f'-skipinvalid -explodecollections'
             # output_path = join(self.temp_dir, f'{lyr_id}.gpkg')
             # gpkg_layer = self._run_processing("clipvectorbyextent", "gdal", INPUT=layer, EXTENT=dst_rect, OUTPUT=output_path, OPTIONS=options)
             # if gpkg_layer.featureCount() != fgb_layer.featureCount():
             #     print(f'{la} - {ln} gpkg: {gpkg_layer.featureCount()} ~ fgb: {fgb_layer.featureCount()}')
+            #self.temp_layers[lyr_id] = layer
             continue
             provider = layer.dataProvider().name()
             source = layer.source()
@@ -820,7 +838,7 @@ class RulesExporter:
 
             subset_string = layer.subsetString()
             options = gdal.VectorTranslateOptions(
-                format="Parquet",
+                format="FlatGeobuf",
                 dstSRS=f"EPSG:{self.crs_id}",
                 where=subset_string if subset_string else None,
                 layers=[layer_name] if layer_name else None,
@@ -840,18 +858,20 @@ class RulesExporter:
         mkdir(datasets_dir)
         return temp_dir, datasets_dir
 
-    def _export_single_rule(self, flat_rule: FlattenedRule) -> None:
+    def _export_single_rule(self, ruleds, rules) -> None:
         """Export single rule as a layer with transformations."""
-        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.parquet"))
+        flat_rule = rules[0]
+        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.fgb"))
+        # layer = self.temp_layers[flat_rule.layer.id()]
         layer_id = layer.id()
         if layer.featureCount() > 0:
             # Add geometry attributes for data-driven properties
-            layer = self._add_expressions_fields(flat_rule, layer)
+            fields = self._add_expressions_fields(rules)
             # Add labeling expression as field if required
             if flat_rule.get_attribute("t") == 1:
-                layer = self._calculate_label_expression(layer, flat_rule)
+                fields = self._calculate_label_expression(flat_rule, fields)
             # layer = self._run_processing('addautoincrementalfield', INPUT=layer, FIELD_NAME=f'{self.FIELD_PREFIX}_id')
-            selected_ids = None
+            # selected_ids = None
             
             selected_ids = []
             exp = flat_rule.rule.filterExpression()
@@ -859,63 +879,94 @@ class RulesExporter:
                 layer.selectByExpression(exp)
                 if layer.selectedFeatureCount() > 0:
                     selected_ids = layer.selectedFeatureIds()
-            transformation = self._get_geometry_transformation(flat_rule)
-
-            if isinstance(transformation, str):
-                layer = self._run_processing(transformation, INPUT=layer)
-            elif isinstance(transformation, tuple):
-                output_geometry = abs(transformation[0] - 2)
-                layer = self._run_processing(
-                    "geometrybyexpression",
-                    INPUT=layer,
-                    OUTPUT_GEOMETRY=output_geometry,
-                    EXPRESSION=transformation[1],
-                )
-            options = QgsVectorFileWriter.SaveVectorOptions()
+            transformation = [self._get_geometry_transformation(r) for r in rules]
+            transformation = transformation[0] if transformation else None
+            ruleds_name = flat_rule.ruleds
+            output_dataset = join(self.datasets_dir, f"{ruleds_name}.fgb")
+            lyrid = None
+            if not isinstance(transformation, str) and not isinstance(transformation, tuple):
+                output = output_dataset
+            else:
+                output = 'TEMPORARY_OUTPUT'
             if exp:
                 if selected_ids:
-                    layer.selectByIds(selected_ids)
-                    options.onlySelectedFeatures = True
+                    layer = QgsProject.instance().addMapLayer(layer, False)
+                    lyrid = layer.id()
+                    fsd = QgsProcessingFeatureSourceDefinition(layer.source(), selectedFeaturesOnly=True, featureLimit=-1, geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid)
                 else:
                     return
-            options.driverName = "FlatGeobuf"
-            if self.include_required_fields_only:
-                fields = [
-                    i
-                    for i, f in enumerate(layer.fields())
-                    if self.FIELD_PREFIX in f.name() or f.name() == 'fid'
-                ]
-                if fields:
-                    options.attributes = fields
-
-            rule_desc = flat_rule.rule.description()
-            output_dataset = join(self.datasets_dir, f"{rule_desc}.fgb")
-            QgsVectorFileWriter.writeAsVectorFormatV3(
-                layer, output_dataset, QgsProject.instance().transformContext(), options
-            )
+            else:
+                fsd = layer
+            # options = f'-skipinvalid {selection} -dim XY -skipfailures -nlt PROMOTE_TO_MULTI'
+            #layer = self._run_processing("convertformat", "gdal", INPUT=fsd, OUTPUT=output_dataset, OPTIONS=options)
+            fm = [{'type': 4, 'expression': '"fid"', 'name':'fid'}]
+            fm.extend([{'type': 10, 'expression': exp, 'name':name} for name, exp in fields.items()])
+            layer = self._run_processing("refactorfields",INPUT=fsd,FIELDS_MAPPING=fm, OUTPUT=output)
+            if isinstance(transformation, str) or isinstance(transformation, tuple):
+                output = output_dataset
+                if isinstance(transformation, str):
+                    layer = self._run_processing(transformation, INPUT=layer, OUTPUT=output)
+                else:
+                    output_geometry = abs(transformation[0] - 2)
+                    layer = self._run_processing(
+                        "geometrybyexpression",
+                        INPUT=layer,
+                        OUTPUT_GEOMETRY=output_geometry,
+                        EXPRESSION=transformation[1],
+                        OUTPUT=output
+                    )
+                # options = QgsVectorFileWriter.SaveVectorOptions()
+                # if exp:
+                #     if selected_ids:
+                #         layer.selectByIds(selected_ids)
+                #         options.onlySelectedFeatures = True
+                #     else:
+                #         return
+                # # options.driverName = "FlatGeobuf"
+                # selection = ''
+                # if self.include_required_fields_only:
+                #     fields = [
+                #         f.name()
+                #         for f in layer.fields()
+                #         if self.FIELD_PREFIX in f.name() or f.name() == 'fid'
+                #     ]
+                #     if fields:
+                #         selection = f'-select {','.join(fields)}'
+            if lyrid:
+                QgsProject.instance().removeMapLayer(lyrid)
+            if layer.featureCount() == 0:
+                return
+            # QgsVectorFileWriter.writeAsVectorFormatV3(
+            #     layer, output_dataset, QgsProject.instance().transformContext(), options
+            # )
             # layer = self._transform_geometry_if_needed(layer, flat_rule)
-            layer = QgsVectorLayer(output_dataset)
-            layer.setName(rule_desc)
+            # layer = QgsVectorLayer(output_dataset)
+            layer.setName(ruleds_name)
             self.processed_layers.append(layer)
             QgsProject.instance().removeMapLayer(layer_id)
 
     def _calculate_label_expression(
-        self, layer: QgsVectorLayer, flat_rule: FlattenedRule
+        self, flat_rule: FlattenedRule, fields
     ) -> QgsVectorLayer:
         """Add geometry attributes needed for data-driven properties."""
+        fields = {}
         field_name = f"{self.FIELD_PREFIX}_label"
         expression = flat_rule.rule.settings().getLabelExpression().expression()
-        layer = self._run_processing(
-            "fieldcalculator",
-            INPUT=layer,
-            FIELD_NAME=field_name,
-            FORMULA=f'{str(expression)}',
-            FIELD_TYPE=2,
-        )
-        # layer.addExpressionField(expression, QgsField(field_name,2))
+        # layer = self._run_processing(
+        #     "fieldcalculator",
+        #     INPUT=layer,
+        #     FIELD_NAME=field_name,
+        #     FORMULA=f'{str(expression)}',
+        #     FIELD_TYPE=2,
+        # )
+        # layer.addExpressionField(f'{str(expression)}', QgsField(field_name,2))
+        if not flat_rule.rule.settings().isExpression:
+            fields[field_name] = f'"{str(expression)}"'
+        else:
+            fields[field_name] = f'{str(expression)}'
         flat_rule.rule.settings().isExpression = False
         flat_rule.rule.settings().fieldName = field_name
-        return layer
+        return fields 
 
     def _transform_geometry_if_needed(
         self, layer: QgsVectorLayer, flat_rule: FlattenedRule
@@ -972,7 +1023,6 @@ class RulesExporter:
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attribute("c", target_geom)
-            flat_rule.set_attribute("c", target_geom)  # Point target
             return target_geom, transform_expr
 
         # Polygon labels need centroid for tile-based rendering
@@ -1035,44 +1085,46 @@ class RulesExporter:
             return list(set(retain_fields))
         return [layer.dataProvider().geometryColumnName()]
 
-    def _add_expressions_fields(self, flat_rule: FlattenedRule, layer: QgsVectorLayer):
+    def _add_expressions_fields(self, flat_rules: FlattenedRule):
         """Get and optionally update data-driven properties containing attribute."""
-        rule_type = flat_rule.get_attribute("t")
+        fields = {}
+        for flat_rule in flat_rules:
+            rule_type = flat_rule.get_attribute("t")
+            if rule_type == 0:  # Renderer
+                objects = [flat_rule.rule.symbol()] + flat_rule.rule.symbol().symbolLayers()
+            else:  # Labeling
+                objects = [flat_rule.rule.settings()]
 
-        if rule_type == 0:  # Renderer
-            objects = [flat_rule.rule.symbol()] + flat_rule.rule.symbol().symbolLayers()
-        else:  # Labeling
-            objects = [flat_rule.rule.settings()]
-
-        for obj in objects:
-            dd_props = obj.dataDefinedProperties()
-            for prop_key in dd_props.propertyKeys():
-                prop = dd_props.property(prop_key)
-                if prop:
-                    propdef = obj.propertyDefinitions()[prop_key]
-                    name = propdef.description()
-                    expression = prop.expressionString().replace(
-                        "@map_scale",
-                        str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))),
-                    )
-                    if expression and prop.isActive():
-                        suffix = ""
-                        sl = flat_rule.get_attribute("s")
-                        if sl:
-                            suffix = f'_s{"0" if sl < 10 else ""}{sl}'
-                        field_name = f"{self.FIELD_PREFIX}_{name.lower().replace(' ','_')}{suffix}"
-                        expression = f"array_to_string(array({expression}))"
-                        layer = self._run_processing(
-                            "fieldcalculator",
-                            INPUT=layer,
-                            FIELD_NAME=field_name,
-                            FORMULA=expression,
-                            FIELD_TYPE=2
+            for obj in objects:
+                dd_props = obj.dataDefinedProperties()
+                for prop_key in dd_props.propertyKeys():
+                    prop = dd_props.property(prop_key)
+                    if prop:
+                        propdef = obj.propertyDefinitions()[prop_key]
+                        name = propdef.description()
+                        expression = prop.expressionString().replace(
+                            "@map_scale",
+                            str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o") + 1)),
                         )
-                        # layer.addExpressionField(exp, QgsField(field_name, 2))
-                        prop.setExpressionString(f'eval("{field_name}")')
+                        if expression and prop.isActive():
+                            suffix = ""
+                            sl = flat_rule.get_attribute("s")
+                            if sl and sl >= 0:
+                                suffix = f'_s{"0" if sl < 10 else ""}{sl}'
+                            field_name = f"{self.FIELD_PREFIX}_{name.lower().replace(' ','_')}{suffix}"
+                            expression = f"array_to_string(array({expression}))"
+                            # layer = self._run_processing(
+                            #     "fieldcalculator",
+                            #     INPUT=layer,
+                            #     FIELD_NAME=field_name,
+                            #     FORMULA=expression,
+                            #     FIELD_TYPE=2
+                            # )
+                            # layer.addExpressionField(expression, QgsField(expression, 2))
+                            fields[field_name] = expression
+                            prop.setExpressionString(f'eval("{field_name}")')
 
-        return layer
+        return fields
 
     def _run_processing(self, algorithm: str, algorithm_type: str = "native", **params):
         """Execute QGIS processing algorithm."""
@@ -1467,7 +1519,7 @@ class RuleFlattener:
     ) -> List[FlattenedRule]:
         """Split rule by zoom levels if contains scale-dependent expressions."""
         exps = []
-        # ddp exp
+        # # ddp exp
         rule_type = flat_rule.get_attribute("t")
         if rule_type == 0:  # Renderer
             objects = [flat_rule.rule.symbol()] + flat_rule.rule.symbol().symbolLayers()
@@ -1490,7 +1542,7 @@ class RuleFlattener:
         else:
             label_exp = ""
         exps.append(filter_exp)
-        if "@map_scale" not in " ".join(exps):
+        if "@map_scale" not in ', '.join(exps):
             return [flat_rule]
 
         # Get scale range and relevant zoom levels
@@ -1535,7 +1587,7 @@ f    """
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 10,
+        max_zoom: int = 18,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
@@ -1549,6 +1601,7 @@ f    """
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
+        #self.output_dir = r'C:\temp'
         self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.tiles_conf = tiles_conf
