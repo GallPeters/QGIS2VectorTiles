@@ -733,6 +733,7 @@ class RulesExporter:
         output_dir,
         extent,
         include_required_fields_only: int,
+        smooth_tolerance,
         crs_id,
         feedback,
     ):
@@ -742,6 +743,7 @@ class RulesExporter:
         self.crs_id = crs_id
         self.temp_dir, self.datasets_dir = self._generate_subdirs(output_dir)
         self.processed_layers = []
+        self.smooth_tolerance = smooth_tolerance
         self.temp_layers = {}
         self.feedback = feedback
         self.stdout = self.feedback.pushInfo if __name__ != "__console__" else print
@@ -786,13 +788,13 @@ class RulesExporter:
             lyr_id = layer.id()
             fields = ','.join([f for f in fields if f != '#!allattributes!#'])
             # sql = f'SELECT ROW_NUMBER() OVER () AS {self.FIELD_PREFIX}_fid, * FROM "{layer.name()}"'
-            selection = f'-select {fields}' if fields else ''
+            selection = f' -select {fields}' if fields else ''
             # options = f'-t_srs EPSG:3857 {selection} -dim XY -explodecollections -sql "{sql}"'
             #options = f'-t_srs EPSG:3857 {selection} -dim XY -skipInvalid -skipfailures'
             extent_coords = f'{self.extent.xMinimum()} {self.extent.yMinimum()} {self.extent.xMaximum()} {self.extent.yMaximum()}'
             output_path = join(self.temp_dir, f'{lyr_id}.fgb')
             crs_dest = layer.crs()
-            layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer.source())
+            layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
             
             # create coordinate transform
             transform = QgsCoordinateTransform(crs_src, crs_dest, QgsProject.instance())
@@ -800,10 +802,15 @@ class RulesExporter:
             # layer.addExpressionField('$id', QgsField(f'{self.FIELD_PREFIX}_fid',0))
             #spat= -spat_srs EPSG:3857 -spat {extent_coords} {selection}
             where = f' -where "{subsetstring}"'if subsetstring else ''
-            options = f'-clipdst "{self.extent.asWktPolygon()}" -t_srs  EPSG:3857 -dim XY{where} -skipinvalid -nlt PROMOTE_TO_MULTI {selection}'
+            options = f'-clipdst "{self.extent.asWktPolygon()}" -t_srs EPSG:3857 -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
+
             #layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
             # options = f'-skipinvalid -nlt CONVERT_TO_LINEAR'
-            layer = self._run_processing("convertformat", "gdal", INPUT=layer.source(), OPTIONS=options, OUTPUT=output_path)
+            layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
+            layer = self._run_processing("multiparttosingleparts", INPUT=layer)
+            layer = self._run_processing("simplifygeometries", INPUT=layer, METHOD=0, TOLERANCE=self.smooth_tolerance)
+            layer = self._run_processing("fixgeometries", INPUT=layer, MTHOD=1)
+            layer = self._run_processing("extractbyexpression", INPUT=layer, EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)", OUTPUT=output_path)
             #layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
             #options = f'-skipinvalid -explodecollections'
             # output_path = join(self.temp_dir, f'{lyr_id}.gpkg')
@@ -1587,7 +1594,7 @@ f    """
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 18,
+        max_zoom: int = 16,
         extent=None,
         output_dir: str = None,
         include_required_fields_only: int = 1,
@@ -1595,6 +1602,7 @@ f    """
         # tiles_conf=[4326, -180.0, 90.0, 180.0, 2, 1],
         tiles_conf=[3857, -20037508.343, 20037508.343, 40075016.686, 1, 1],
         cpu_percent=100,
+        smooth_tolerance=10,
         feedback=QgsProcessingFeedback(),
     ):
         self.min_zoom = min_zoom
@@ -1606,6 +1614,7 @@ f    """
         self.output_type = output_type.lower()
         self.tiles_conf = tiles_conf
         self.cpu_percent = cpu_percent
+        self.smooth_tolerance = smooth_tolerance
         self.feedback = feedback
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1643,6 +1652,7 @@ f    """
                 temp_dir,
                 self.extent,
                 self.include_required_fields_only,
+                self.smooth_tolerance,
                 self.tiles_conf[0],
                 self.feedback,
             )
