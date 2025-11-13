@@ -21,7 +21,7 @@ from qgis.utils import iface
 from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
 
 
-class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
+class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
     """
     QGIS Processing Algorithm for generating styled MBTiles from project layers.
     This wrapper provides a user interface for the MBTiles generation process
@@ -52,21 +52,21 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Returns a new instance of the algorithm. Required by QGIS Processing framework.
         """
-        return GenerateStyledMBTilesAlgorithm()
+        return QGISVectorTilesAdapterAlgorithm()
 
     def name(self):
         """
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "generate_styled_mbtiles"
+        return "qgis_vector_tiles_adapter_action"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("Generate Styled MBTiles From Project Layers")
+        return self.tr("QGIS Vector Tiles Adapter")
 
     def group(self):
         """
@@ -170,9 +170,9 @@ class GenerateStyledMBTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.SMOOTH_TOLERANCE,
-                self.tr("Smooth Tolerance"),
+                self.tr("Smooth Tolerance (Meters)"),
                 type=QgsProcessingParameterNumber.Integer,
-                defaultValue=100,
+                defaultValue=10,
                 minValue=0,
                 maxValue=100,
             )
@@ -286,13 +286,13 @@ class MBTilesToolbarButton:
         icon_path = os.path.join(os.path.dirname(__file__), "icon.svg")
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
 
-        self.action = QAction(icon, "Generate Styled Tiles", iface.mainWindow())
-        self.action.setObjectName("generate_styled_tiles_action")
+        self.action = QAction(icon, "QGIS Vector Tiles Adapter", iface.mainWindow())
+        self.action.setObjectName("qgis_vector_tiles_adapter_action")
         self.action.setWhatsThis(
-            "Generate styled MBTiles or XYZ tiles from project layers"
+            "QGIS Vector Tiles Adapter"
         )
         self.action.setStatusTip(
-            "Generate styled MBTiles or XYZ tiles from project layers"
+            "QGIS Vector Tiles Adapter"
         )
         self.action.triggered.connect(self.run)
 
@@ -320,7 +320,7 @@ class MBTilesToolbarButton:
                 processing_dock.raise_()
 
             # Run the algorithm
-            processing.execAlgorithmDialog("mbtiles_provider:generate_styled_mbtiles")
+            processing.execAlgorithmDialog("vector_tiles_provider:qgis_vector_tiles_adapter_action")
 
         except Exception as e:
             if iface:
@@ -352,10 +352,10 @@ if __name__ == "__console__":
             super().__init__()
 
         def id(self):
-            return "mbtiles_provider"
+            return "vector_tiles_provider"
 
         def name(self):
-            return "MBTiles Provider"
+            return "Vector Tiles Provider"
 
         def icon(self):
             """Provider icon"""
@@ -366,10 +366,10 @@ if __name__ == "__console__":
             return super().icon()
 
         def loadAlgorithms(self):
-            self.addAlgorithm(GenerateStyledMBTilesAlgorithm())
+            self.addAlgorithm(QGISVectorTilesAdapterAlgorithm())
 
     # Create algorithm instance for testing
-    alg = GenerateStyledMBTilesAlgorithm()
+    alg = QGISVectorTilesAdapterAlgorithm()
 
     # Register the provider for processing
     try:
@@ -385,7 +385,7 @@ if __name__ == "__console__":
         # # Test algorithm execution with default parameters
         # if iface and iface.mapCanvas():
         #     result = processing.run(
-        #         "mbtiles_provider:generate_styled_mbtiles",
+        #         "vector_tiles_provider:generate_styled_mbtiles",
         #         {
         #             "OUTPUT_TYPE": 0,  # MBTiles
         #             "MIN_ZOOM": 0,
