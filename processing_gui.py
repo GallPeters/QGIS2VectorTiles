@@ -33,7 +33,6 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
     CPU_PERCENT = "CPU_PERCENT"
-    SMOOTH_TOLERANCE = "SMOOTH_TOLERANCE"
     OUTPUT_DIR = "OUTPUT_DIR"
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
@@ -168,16 +167,6 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
             )
         )
         self.addParameter(
-            QgsProcessingParameterNumber(
-                self.SMOOTH_TOLERANCE,
-                self.tr("Smooth Tolerance (Meters)"),
-                type=QgsProcessingParameterNumber.Integer,
-                defaultValue=10,
-                minValue=0,
-                maxValue=100,
-            )
-        )
-        self.addParameter(
             QgsProcessingParameterEnum(
                 self.REQUIRED_FIELDS_ONLY,
                 self.tr("Included Fields"),
@@ -236,7 +225,6 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
             parameters, self.EXTENT, context, QgsCoordinateReferenceSystem("EPSG:3857")
         )
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
-        smooth_tolerance = self.parameterAsInt(parameters, self.SMOOTH_TOLERANCE, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
         include_required_fields_only = self.parameterAsBool(
             parameters, self.REQUIRED_FIELDS_ONLY, context
@@ -249,7 +237,6 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
                 max_zoom=max_zoom,
                 extent=extent,
                 cpu_percent=cpu_percent,
-                smooth_tolerance = smooth_tolerance,
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
