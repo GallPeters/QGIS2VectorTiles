@@ -45,7 +45,7 @@ if not QgsCoordinateReferenceSystem(_TILING_SCHEME['CRS']).isValid():
 
 class ZoomLevels:
     """Manages zoom level scales and conversions for web mapping standards."""
-    SCALES = [_TILING_SCHEME['SCALE'].scale() / (2 ** zoom) for zoom in range(23)]
+    SCALES = [_TILING_SCHEME['SCALE'] / (2 ** zoom) for zoom in range(23)]
 
     @classmethod
     def snap_scale(cls, scale: float, snap_up: bool = True) -> float:
@@ -135,7 +135,7 @@ class TilesStyler:
         """Create and add vector tiles layer to project."""
         suffix = "&http-header:referer=" if tiles_path.split(".")[-1] != "mbtiles" else ""
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
-        layer = QgsProject.instance().addMapLayer(layer)
+        layer = QgsProject.instance().addMapLayer(layer, False)
         QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
         return layer
 
@@ -300,8 +300,9 @@ class GDALTilesGenerator:
         range_options = [f"MINZOOM={self._get_global_min_zoom()}", f"MAXZOOM={self._get_global_max_zoom()}"]
         if self.output_type == "mbtiles":
             return range_options
-        scheme_options = [f"TILING_SCHEME=EPSG{','.join(list(_TILING_SCHEME.values())[:-1])}"]
-        additional_options = [f'{key}={value}' for key, value in _TILES_CONF['GDAL_OPTIONS']]
+        scheme_conf = list(_TILING_SCHEME.values())[:-1]
+        scheme_options = [f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"]
+        additional_options = [f'{key}={value}' for key, value in _TILES_CONF['GDAL_OPTIONS'].items()]
         return range_options + scheme_options + additional_options
 
     def _process_layer(self, dataset, layer: QgsVectorLayer, spatial_ref) -> None:
@@ -368,11 +369,12 @@ class RulesExporter:
 
     FIELD_PREFIX = "qvta"
 
-    def __init__(self, flattened_rules: List[FlattenedRule], output_dir: str,
-                 extent, feedback: QgsProcessingFeedback):
+    def __init__(self, flattened_rules: List[FlattenedRule],
+                 extent, include_required_fields_only, feedback: QgsProcessingFeedback):
         self.flattened_rules = flattened_rules
         self.extent = extent
-        self.temp_dir = self._create_temp_dir(output_dir)
+        self.include_required_fields_only = include_required_fields_only
+        self.temp_dir = self._create_temp_dir()
         self.processed_layers = []
         self.feedback = feedback
 
@@ -390,7 +392,7 @@ class RulesExporter:
 
         return self.processed_layers
 
-    def _create_temp_dirs(self) -> Tuple[str, str]:
+    def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
         temp_dir = join(_PLUGIN_DIR, '_temp')
         if exists(temp_dir):
@@ -398,6 +400,8 @@ class RulesExporter:
                 rmtree(temp_dir)
             except PermissionError:
                 QgsProcessingException(f"Plugin's temporary directory ({temp_dir}) is locked and can not be overwritten. Please release the contained files.")
+            except Exception as e:
+                QgsProcessingException(e) 
         makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
@@ -460,7 +464,7 @@ class RulesExporter:
     def _export_rule_group(self, rules: List[FlattenedRule]) -> None:
         """Export group of rules sharing the same dataset."""
         flat_rule = rules[0]
-        layer = QgsVectorLayer(join(self.temp_dir, f"{flat_rule.layer.id()}.fgb"))
+        layer = QgsVectorLayer(join(self.temp_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
         if layer.featureCount() == 0:
             return
 
@@ -505,6 +509,9 @@ class RulesExporter:
             {'type': 10, 'expression': exp, 'name': name} 
             for name, exp in fields.items()
         ])
+        if not self.include_required_fields_only:
+            field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
+            for field in layer.fields()])
 
         if selected_ids:
             layer = QgsProject.instance().addMapLayer(layer, False)
@@ -518,6 +525,7 @@ class RulesExporter:
             feature_source = layer
 
         output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
+        
         layer = self._run_processing("refactorfields", INPUT=feature_source,
                                     FIELDS_MAPPING=field_mapping, OUTPUT=output)
 
@@ -1062,12 +1070,13 @@ class QGISVectorTilesAdapter:
     """
 
     def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
-                 output_dir: str = None, output_type: str = "xyz", cpu_percent: int = 100,
+                 output_dir: str = None, include_required_fields_only=1, output_type: str = "xyz", cpu_percent: int = 100,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
+        self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
         self.feedback = feedback or QgsProcessingFeedback()
@@ -1097,7 +1106,7 @@ class QGISVectorTilesAdapter:
 
             # Step 2: Export rules to datasets
             self._log(". Exporting rules to layers...")
-            layers = self._export_rules(rules, temp_dir)
+            layers = self._export_rules(rules)
             
             export_time = perf_counter()
             self._log(f". Successfully exported {len(layers)} layers "
@@ -1129,10 +1138,10 @@ class QGISVectorTilesAdapter:
         flattener = RuleFlattener(self.min_zoom, self.max_zoom)
         return flattener.flatten_all_rules()
 
-    def _export_rules(self, rules: List[FlattenedRule], temp_dir: str) -> List[QgsVectorLayer]:
+    def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
         """Export rules to vector layers."""
         exporter = RulesExporter(
-            rules, temp_dir, self.extent, self.feedback)
+            rules, self.extent, self.include_required_fields_only, self.feedback)
         return exporter.export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
