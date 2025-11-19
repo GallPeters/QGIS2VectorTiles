@@ -19,6 +19,7 @@ from time import perf_counter
 from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
 from shutil import rmtree
+from gc import collect
 
 import processing
 from osgeo import gdal, ogr, osr
@@ -30,7 +31,7 @@ from qgis.core import (
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
     QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol,
-    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsProcessingException
+    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication
 )
 
 
@@ -39,8 +40,6 @@ _PLUGIN_DIR = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\Projects\qgis_v
 _CONF_FILE = join(_PLUGIN_DIR, r'tiles_conf.toml')
 _TILES_CONF = load(open(_CONF_FILE, "rb"))
 _TILING_SCHEME = _TILES_CONF['TILING_SCHEME']
-if not QgsCoordinateReferenceSystem(_TILING_SCHEME['CRS']).isValid():
-    QgsProcessingException(f"Plugin's confoguration file ({_CONF_FILE}) contains a crs id which is not part of the EPSG registry (e.g EPSG:3857, EPSG:4326). Please choose a valid EPSG crs.")
 
 
 class ZoomLevels:
@@ -259,7 +258,7 @@ class GDALTilesGenerator:
         self._configure_gdal_threading()
 
         spatial_ref = osr.SpatialReference()
-        crs_id = _TILING_SCHEME['CRS']
+        crs_id = _TILING_SCHEME['EPSG_CRS']
         spatial_ref.ImportFromEPSG(crs_id)
 
         output, uri = self._prepare_output_paths()
@@ -395,13 +394,12 @@ class RulesExporter:
     def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
         temp_dir = join(_PLUGIN_DIR, '_temp')
+        rmtree(temp_dir)
         if exists(temp_dir):
-            try:
-                rmtree(temp_dir)
-            except PermissionError:
-                QgsProcessingException(f"Plugin's temporary directory ({temp_dir}) is locked and can not be overwritten. Please release the contained files.")
-            except Exception as e:
-                QgsProcessingException(e) 
+            collect()
+            iface.mapCanvas().refresh()
+            iface.mapCanvas().clearCache()
+            rmtree(temp_dir)
         makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
@@ -449,23 +447,23 @@ class RulesExporter:
         output_path = join(self.temp_dir, f'map_layer_{layer_id}.fgb')
         
         # Build processing pipeline
-        options = f'-clipdst "{extent_wkt}" -t_srs EPSG:{_TILING_SCHEME['CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
-        
+        options = f'-clipdst "{extent_wkt}" -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
         layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
         layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
-        layer = self._run_processing("multiparttosingleparts", INPUT=layer)
-        layer = self._run_processing("simplifygeometries", INPUT=layer, 
-                                    METHOD=0, TOLERANCE=_TILES_CONF['GENERAL_CONF']['DATA_SIMPLIFICATION_TOLERANCE'])
-        layer = self._run_processing("fixgeometries", INPUT=layer, MTHOD=1)
-        layer = self._run_processing("extractbyexpression", INPUT=layer,
-                                    EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)",
-                                    OUTPUT=output_path)
+        if layer.featureCount() > 0:
+            layer = self._run_processing("multiparttosingleparts", INPUT=layer)
+            layer = self._run_processing("simplifygeometries", INPUT=layer, 
+                                        METHOD=0, TOLERANCE=_TILES_CONF['GENERAL_CONF']['DATA_SIMPLIFICATION_TOLERANCE'])
+            layer = self._run_processing("fixgeometries", INPUT=layer, MTHOD=1)
+            layer = self._run_processing("extractbyexpression", INPUT=layer,
+                                        EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)",
+                                        OUTPUT=output_path)
 
     def _export_rule_group(self, rules: List[FlattenedRule]) -> None:
         """Export group of rules sharing the same dataset."""
         flat_rule = rules[0]
         layer = QgsVectorLayer(join(self.temp_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
-        if layer.featureCount() == 0:
+        if not layer.featureCount() > 0:
             return
 
         fields = self._create_expression_fields(rules)
@@ -486,8 +484,6 @@ class RulesExporter:
             layer.setName(output_dataset)
             self.processed_layers.append(layer)
         
-        QgsProject.instance().removeMapLayer(layer.id())
-
     def _select_features_by_expression(self, layer: QgsVectorLayer, 
                                       flat_rule: FlattenedRule) -> Optional[List]:
         """Select features matching rule's filter expression."""
@@ -513,21 +509,20 @@ class RulesExporter:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
             for field in layer.fields()])
 
-        if selected_ids:
-            layer = QgsProject.instance().addMapLayer(layer, False)
-            feature_source = QgsProcessingFeatureSourceDefinition(
-                layer.source(), 
-                selectedFeaturesOnly=True, 
-                featureLimit=-1,
-                geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
-            )
-        else:
-            feature_source = layer
-
+        layer = QgsProject.instance().addMapLayer(layer, False)
+        layer_id = layer.id()
+        feature_source = QgsProcessingFeatureSourceDefinition(
+            layer.source(), 
+            selectedFeaturesOnly=False if not selected_ids else True, 
+            featureLimit=-1,
+            geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
+        )
         output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
         
         layer = self._run_processing("refactorfields", INPUT=feature_source,
                                     FIELDS_MAPPING=field_mapping, OUTPUT=output)
+
+        QgsProject.instance().removeMapLayer(layer_id)
 
         if transformation:
             layer = self._apply_transformation(layer, transformation, output_dataset)
@@ -657,7 +652,6 @@ class RulesExporter:
         """Execute QGIS processing algorithm."""
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
-        
         output = processing.run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
         
         if isinstance(output, str):
@@ -679,7 +673,7 @@ class RuleFlattener:
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
         """Extract and flatten all rules from visible vector layers."""
-        layers = [layer.layer() for layer in self.layer_tree_root.findLayers()]
+        layers = [layer.layer() for layer in self.layer_tree_root.findLayers() if layer.layer()]
 
         for layer_idx, layer in enumerate(layers):
             if self._is_valid_layer(layer):
@@ -784,7 +778,7 @@ class RuleFlattener:
                     self.flattened_rules.extend(final_rules)
 
         for child_idx, child in enumerate(rule.children()):
-            if child.active():
+            if child.active() or rule_type == 1:
                 if child.filterExpression() == "ELSE":
                     self._convert_else_filter(child, rule)
 
@@ -1125,7 +1119,6 @@ class QGISVectorTilesAdapter:
 
         except Exception as e:
             self._log(f". Error during conversion: {e}")
-            raise e
 
     def _create_temp_directory(self) -> str:
         """Create temporary directory for processing."""
