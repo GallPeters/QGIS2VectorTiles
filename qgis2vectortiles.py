@@ -16,7 +16,7 @@ from os import makedirs, cpu_count
 from os.path import join, basename, exists
 from tempfile import gettempdir
 from time import perf_counter
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Optional
 from urllib.request import pathname2url
 from shutil import rmtree
 from gc import collect
@@ -79,7 +79,20 @@ class FlattenedRule:
 
     rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     layer: QgsVectorLayer
+    name: Optional[str]= ""
     output_dataset_name: str = ""
+
+    def __post_init__(self):
+        """Construct rule's name"""
+        if not self.name:
+            lyr_name = self.layer.name() or self.layer.id()  
+            rule_type = 'symbology' if isinstance(self.rule,  QgsRuleBasedRenderer.Rule) else 'labeling'
+            if rule_type == 'symbology':
+                rule_name = self.rule.label()
+            else:
+                rule_name = self.rule.description()
+            rule_name = rule_name or self.rule.ruleKey()
+            self.name = f'{lyr_name} > {rule_type} > {rule_name}'
 
     def get_attribute(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""
@@ -130,9 +143,9 @@ class TilesStyler:
         self._save_style()
         return self.tiles_layer
 
-    def _create_tiles_layer(self, tiles_path: str) -> QgsVectorTileLayer:
+    def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        suffix = "&http-header:referer=" if tiles_path.split(".")[-1] != "mbtiles" else ""
+        suffix = "&http-header:referer=" if tiles_path and tiles_path.split(".")[-1] != "mbtiles" else ""
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
         layer = QgsProject.instance().addMapLayer(layer, False)
         QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
@@ -234,9 +247,8 @@ class TilesStyler:
 
     def _save_style(self) -> None:
         """Save layer style to QLR file."""
-        subdir = join(self.output_dir, "style")
-        makedirs(subdir, exist_ok=True)
-        qlr_path = join(subdir, "tiles.qlr")
+        makedirs(self.output_dir, exist_ok=True)
+        qlr_path = join(self.output_dir, "tiles.qlr")
         layer = QgsProject.instance().layerTreeRoot().findLayer(self.tiles_layer.id())
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [layer])
 
@@ -284,9 +296,8 @@ class GDALTilesGenerator:
         """Prepare output paths based on output type."""
         if self.output_type == "xyz":
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
-            tiles_url = join(self.output_dir, "tiles")
-            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{tiles_url}{template}"
-            return tiles_url, uri
+            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{self.output_dir}{template}"
+            return self.output_dir, uri
         else:
             subdir = join(self.output_dir, "tiles")
             makedirs(subdir, exist_ok=True)
@@ -366,7 +377,7 @@ class GDALTilesGenerator:
 class RulesExporter:
     """Export all rules to datasets with geometry transformations."""
 
-    FIELD_PREFIX = "qvta"
+    FIELD_PREFIX = "q2vt"
 
     def __init__(self, flattened_rules: List[FlattenedRule],
                  extent, include_required_fields_only, feedback: QgsProcessingFeedback):
@@ -480,7 +491,7 @@ class RulesExporter:
         transformation = self._get_geometry_transformation(rules[0])
         output_dataset = flat_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
-        layer = self._apply_field_mapping(layer, fields, selected_ids, output_dataset, transformation)
+        layer = self._apply_field_mapping(layer, fields, selected_ids, output_dataset, transformation, flat_rule)
         
         if layer.featureCount() > 0:
             layer.setName(output_dataset)
@@ -500,14 +511,15 @@ class RulesExporter:
 
     def _apply_field_mapping(self, layer: QgsVectorLayer, fields: dict, 
                             selected_ids: Optional[List], output_dataset: str,
-                            transformation) -> QgsVectorLayer:
+                            transformation, flat_rule: FlattenedRule) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
         field_mapping = [{'type': 4, 'expression': '"fid"', 'name': 'fid'}]
         field_mapping.extend([
             {'type': 10, 'expression': exp, 'name': name} 
             for name, exp in fields.items()
         ])
-        if not self.include_required_fields_only:
+        field_mapping.append({'type': 10, 'expression': f"'{flat_rule.name}'", 'name':  f"{self.FIELD_PREFIX}_description"})
+        if self.include_required_fields_only != 0:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
             for field in layer.fields()])
 
@@ -765,8 +777,8 @@ class RuleFlattener:
         if rule.parent():
             inherited_rule = self._inherit_rule_properties(rule, rule_type)
             if inherited_rule:
-                inherited_rule.setDescription("")
                 flat_rule = FlattenedRule(inherited_rule, layer)
+                flat_rule.rule.setDescription("")
                 self._set_rule_attributes(flat_rule, layer_idx, rule_type, rule_level, rule_idx)
                 
                 if not self._is_within_zoom_range(flat_rule):
@@ -915,7 +927,7 @@ class RuleFlattener:
         split_rules = []
 
         for layer_idx in reversed(range(symbol_layer_count)):
-            rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
+            rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
 
             symbol_layer = symbol.symbolLayer(layer_idx)
             sub_symbol = symbol_layer.subSymbol()
@@ -966,7 +978,7 @@ class RuleFlattener:
         if not self._ranges_overlap(label_min, label_max, renderer_min, renderer_max):
             return None
 
-        rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer)
+        rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer, label_rule.name)
         clone_rule = rule_clone.rule
 
         label_filter = clone_rule.filterExpression()
@@ -1038,7 +1050,7 @@ class RuleFlattener:
     def _create_scale_specific_rule(self, flat_rule: FlattenedRule, 
                                     zoom: int) -> FlattenedRule:
         """Create rule with scale-specific values."""
-        rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
+        rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
         scale = str(ZoomLevels.zoom_to_scale(zoom + 1))
 
         filter_exp = flat_rule.rule.filterExpression()
@@ -1059,14 +1071,14 @@ class RuleFlattener:
         return rule_clone
 
 
-class QGISVectorTilesAdapter:
+class QGIS2VectorTiles:
     """
     Main adapter class that orchestrates the conversion process from QGIS
     vector layer styling to vector tiles format.
     """
 
     def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
-                 output_dir: str = None, include_required_fields_only=1, output_type: str = "xyz", cpu_percent: int = 100,
+                 output_dir: str = None, include_required_fields_only=1, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
@@ -1075,6 +1087,7 @@ class QGISVectorTilesAdapter:
         self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
+        self.output_content = output_content
         self.feedback = feedback or QgsProcessingFeedback()
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1099,20 +1112,27 @@ class QGISVectorTilesAdapter:
             flatten_time = perf_counter()
             self._log(f". Successfully extracted {len(rules)} rules "
                      f"({self._elapsed_minutes(start_time, flatten_time)} minutes).")
-
-            # Step 2: Export rules to datasets
-            self._log(". Exporting rules to layers...")
-            layers = self._export_rules(rules)
+            output = tiles_uri = layers = None
+            if self.output_content == 0:
+                # Step 2: Export rules to datasets
+                self._log(". Exporting rules to layers...")
+                layers = self._export_rules(rules)
+                
+                export_time = perf_counter()
+                self._log(f". Successfully exported {len(layers)} layers "
+                        f"({self._elapsed_minutes(flatten_time, export_time)} minutes).")
+                
+                # Step 3: Generate and style tiles
+                if self._has_features(layers):
+                    self._log(". Generating tiles...")
+                    tiles_uri = self._generate_tiles(layers, temp_dir)
+                    tiles_time = perf_counter()
+                    self._log(f". Successfully generated tiles "
+                    f"({self._elapsed_minutes(export_time, tiles_time)} minutes).")
             
-            export_time = perf_counter()
-            self._log(f". Successfully exported {len(layers)} layers "
-                     f"({self._elapsed_minutes(flatten_time, export_time)} minutes).")
-
-            # Step 3: Generate and style tiles
-            output = None
-            if self._has_features(layers):
-                output = self._generate_and_style_tiles(rules, layers, temp_dir, export_time)
-
+            self._log(". Loading and styling tiles...")
+            self._sytle_tiles(rules, temp_dir, tiles_uri)
+            
             total_time = perf_counter()
             self._log(f". Process completed successfully "
                      f"({self._elapsed_minutes(start_time, total_time)} minutes).")
@@ -1143,23 +1163,18 @@ class QGISVectorTilesAdapter:
         """Check if any layer has features."""
         return any(layer.featureCount() > 0 for layer in layers)
 
-    def _generate_and_style_tiles(self, rules: List[FlattenedRule], 
-                                  layers: List[QgsVectorLayer], temp_dir: str,
-                                  start_time: float) -> QgsVectorTileLayer:
-        """Generate vector tiles and apply styling."""
-        self._log(". Generating tiles...")
+    def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str) -> str:
+        """Generate vector tiles."""
         generator = GDALTilesGenerator(
             layers, temp_dir, self.output_type, self.extent, self.cpu_percent, self.feedback
         )
         tiles_uri = generator.generate()
-        
-        tiles_time = perf_counter()
-        self._log(f". Successfully generated tiles "
-                 f"({self._elapsed_minutes(start_time, tiles_time)} minutes).")
+        return tiles_uri
 
-        self._log(". Loading and styling tiles...")
+    def _sytle_tiles(self, rules, temp_dir, tiles_uri):
+        """Style tiles."""
         styler = TilesStyler(rules, temp_dir, tiles_uri)
-        return styler.apply_styling()
+        styler.apply_styling()
 
     def _log(self, message: str) -> None:
         """Log message to feedback or console."""
@@ -1176,5 +1191,5 @@ class QGISVectorTilesAdapter:
 
 # Main execution for QGIS console
 if __name__ == "__console__":
-    adapter = QGISVectorTilesAdapter()
+    adapter = QGIS2VectorTiles()
     adapter.convert_project_to_vector_tiles()

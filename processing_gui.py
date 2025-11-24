@@ -18,10 +18,10 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from qgis_vector_tiles_adapter import QGISVectorTilesAdapter
+from qgis2vectortiles import QGIS2VectorTiles
 
 
-class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
+class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     """
     QGIS Processing Algorithm for generating styled MBTiles from project layers.
     This wrapper provides a user interface for the MBTiles generation process
@@ -29,6 +29,7 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
     """
 
     # Parameter names (constants for consistency)
+    OUTPUT_CONTENT = 'OUTPUT_CONTENT'
     MIN_ZOOM = "MIN_ZOOM"
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
@@ -51,14 +52,14 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
         """
         Returns a new instance of the algorithm. Required by QGIS Processing framework.
         """
-        return QGISVectorTilesAdapterAlgorithm()
+        return QGIS2VectorTilesAlgorithm()
 
     def name(self):
         """
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "qgis_vector_tiles_adapter_action"
+        return "qgis_2_vector_tiles_action"
 
     def displayName(self):
         """
@@ -110,6 +111,16 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
         """
         Define the inputs and outputs of the algorithm.
         """
+
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.OUTPUT_CONTENT,
+                self.tr("Output Content"),
+                options=["Style and Tiles", "Style Only"],
+                defaultValue=0,  # Default to XYZ
+                optional=False,
+            )
+        )
 
         # Output type parameter
         self.addParameter(
@@ -170,8 +181,8 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterEnum(
                 self.REQUIRED_FIELDS_ONLY,
                 self.tr("Included Fields"),
-                options=["All Fields", "Required Fields Only"],
-                defaultValue=1,  # Default to Required Fields Only
+                options=["Required Fields Only", "All Fields"],
+                defaultValue=0,  # Default to Required Fields Only
                 optional=False,
             )
         )
@@ -217,6 +228,7 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
         """
 
         # Extract parameter values
+        output_content_index =  self.parameterAsInt(parameters, self.OUTPUT_CONTENT, context)
         output_type_index = self.parameterAsInt(parameters, self.OUTPUT_TYPE, context)
         output_type = ["XYZ", "MBTiles"][output_type_index]
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
@@ -232,7 +244,7 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
 
         try:
             # Your existing MBTiles generator class would be called here
-            mbtiles_generator = QGISVectorTilesAdapter(
+            mbtiles_generator = QGIS2VectorTiles(
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 extent=extent,
@@ -240,6 +252,7 @@ class QGISVectorTilesAdapterAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
+                output_content = output_content_index,
                 feedback=feedback
             )
 
@@ -274,7 +287,7 @@ class MBTilesToolbarButton:
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
 
         self.action = QAction(icon, "QGIS Vector Tiles Adapter", iface.mainWindow())
-        self.action.setObjectName("qgis_vector_tiles_adapter_action")
+        self.action.setObjectName("qgis_2_vector_tiles_action")
         self.action.setWhatsThis(
             "QGIS Vector Tiles Adapter"
         )
@@ -307,7 +320,7 @@ class MBTilesToolbarButton:
                 processing_dock.raise_()
 
             # Run the algorithm
-            processing.execAlgorithmDialog("vector_tiles_provider:qgis_vector_tiles_adapter_action")
+            processing.execAlgorithmDialog("vector_tiles_provider:qgis_2_vector_tiles_action")
 
         except Exception as e:
             if iface:
@@ -353,10 +366,10 @@ if __name__ == "__console__":
             return super().icon()
 
         def loadAlgorithms(self):
-            self.addAlgorithm(QGISVectorTilesAdapterAlgorithm())
+            self.addAlgorithm(QGIS2VectorTilesAlgorithm())
 
     # Create algorithm instance for testing
-    alg = QGISVectorTilesAdapterAlgorithm()
+    alg = QGIS2VectorTilesAlgorithm()
 
     # Register the provider for processing
     try:
