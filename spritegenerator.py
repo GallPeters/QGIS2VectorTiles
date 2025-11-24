@@ -147,7 +147,7 @@ class SpriteImage:
             left_x += img.width + horizontal_space
             row_imgs_coords[img.name] = (left_x, img_upper_y, img.width, img.height) # type: ignore
         return row_imgs_coords
-
+``
     def generate_lowerimg(self):
         """_summary_"""
         multiple_dimentions = (int(dim * self.lowerfactor) for dim in self.img.size)

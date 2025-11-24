@@ -394,13 +394,15 @@ class RulesExporter:
     def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
         temp_dir = join(_PLUGIN_DIR, '_temp')
-        rmtree(temp_dir)
         if exists(temp_dir):
-            collect()
-            iface.mapCanvas().refresh()
-            iface.mapCanvas().clearCache()
-            rmtree(temp_dir)
-        makedirs(temp_dir, exist_ok=True)
+            try:
+                collect()
+                rmtree(temp_dir)
+                makedirs(temp_dir, exist_ok=True)
+            except PermissionError:
+                pass
+        else:
+            makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
     def _export_base_layers(self) -> None:
