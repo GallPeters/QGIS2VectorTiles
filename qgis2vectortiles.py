@@ -15,7 +15,7 @@ from datetime import datetime
 from os import makedirs, cpu_count
 from os.path import join, basename, exists
 from tempfile import gettempdir
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union, Optional
 from urllib.request import pathname2url
 from shutil import rmtree
@@ -25,9 +25,8 @@ import processing
 from osgeo import gdal, ogr, osr
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
-    QgsVectorLayer, QgsRenderContext, QgsLayerDefinition, QgsVectorTileLayer,
-    QgsCoordinateReferenceSystem, QgsGraduatedSymbolRenderer,
-    QgsCategorizedSymbolRenderer, QgsWkbTypes, QgsVectorTileBasicRenderer,
+    QgsVectorLayer, QgsRenderContext, QgsLayerDefinition, QgsVectorTileLayer, 
+    QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer, QgsWkbTypes, QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
     QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol,
@@ -36,7 +35,7 @@ from qgis.core import (
 
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), r'python/plugins')
-_PLUGIN_DIR = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\Projects\qgis_vectortiles_adapter\qgis_vectortiles_adapter'
+_PLUGIN_DIR = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\Projects\QGIS2VectorTiles\QGIS2VectorTiles'
 _CONF_FILE = join(_PLUGIN_DIR, r'tiles_conf.toml')
 _TILES_CONF = load(open(_CONF_FILE, "rb"))
 _TILING_SCHEME = _TILES_CONF['TILING_SCHEME']
@@ -296,12 +295,11 @@ class GDALTilesGenerator:
         """Prepare output paths based on output type."""
         if self.output_type == "xyz":
             template = pathname2url(r"/{z}/{x}/{y}.pbf")
-            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{self.output_dir}{template}"
-            return self.output_dir, uri
+            output = join(self.output_dir, "tiles")
+            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{output}{template}"
+            return output, uri
         else:
-            subdir = join(self.output_dir, "tiles")
-            makedirs(subdir, exist_ok=True)
-            output = join(subdir, "tiles.mbtiles")
+            output = join(self.output_dir, "tiles.mbtiles")
             uri = f"type=mbtiles&url={output}"
             return output, uri
 
@@ -433,12 +431,13 @@ class RulesExporter:
 
     def _get_required_fields(self, flat_rule: FlattenedRule) -> set:
         """Get fields required by rule for rendering/labeling."""
+        if self.include_required_fields_only != 0:
+            return set(f.name() for f in flat_rule.layer.fields())
+        
         rule_type = flat_rule.get_attribute("t")
-
         if rule_type == 0:  # Renderer
-            return set(flat_rule.rule.symbol().usedAttributes(QgsRenderContext()))
-        else:  # Labeling
-            return set(flat_rule.rule.settings().referencedFields(QgsRenderContext()))
+            return set(flat_rule.rule.symbol().usedAttributes(QgsRenderContext()))    
+        return set(flat_rule.rule.settings().referencedFields(QgsRenderContext()))
 
     def _get_calculated_fields(self, flat_rule: FlattenedRule) -> set:
         """Get calculated fields from filter expression."""
@@ -472,12 +471,12 @@ class RulesExporter:
                                         EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)",
                                         OUTPUT=output_path)
 
-    def _export_rule_group(self, rules: List[FlattenedRule]) -> None:
+    def _export_rule_group(self, rules: List[FlattenedRule]) -> Optional[QgsVectorLayer]:
         """Export group of rules sharing the same dataset."""
         flat_rule = rules[0]
         layer = QgsVectorLayer(join(self.temp_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
         if not layer.featureCount() > 0:
-            return
+            return 
 
         fields = self._create_expression_fields(rules)
         
@@ -487,16 +486,17 @@ class RulesExporter:
         selected_ids = self._select_features_by_expression(layer, flat_rule)
         if selected_ids is None:
             return
-
         transformation = self._get_geometry_transformation(rules[0])
         output_dataset = flat_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         layer = self._apply_field_mapping(layer, fields, selected_ids, output_dataset, transformation, flat_rule)
+        if not layer.featureCount() > 0:
+            return
+        layer.setName(output_dataset)
+        self.processed_layers.append(layer)
         
-        if layer.featureCount() > 0:
-            layer.setName(output_dataset)
-            self.processed_layers.append(layer)
-        
+        return layer
+    
     def _select_features_by_expression(self, layer: QgsVectorLayer, 
                                       flat_rule: FlattenedRule) -> Optional[List]:
         """Select features matching rule's filter expression."""
@@ -513,7 +513,7 @@ class RulesExporter:
                             selected_ids: Optional[List], output_dataset: str,
                             transformation, flat_rule: FlattenedRule) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
-        field_mapping = [{'type': 4, 'expression': '"fid"', 'name': 'fid'}]
+        field_mapping = [{'type': 4, 'expression': '"fid"', 'name': f"{self.FIELD_PREFIX}_fid"}]
         field_mapping.extend([
             {'type': 10, 'expression': exp, 'name': name} 
             for name, exp in fields.items()
@@ -532,14 +532,13 @@ class RulesExporter:
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
         output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
-        
+        sleep(0.5) # Avoid project crashing
         layer = self._run_processing("refactorfields", INPUT=feature_source,
                                     FIELDS_MAPPING=field_mapping, OUTPUT=output)
-
-        QgsProject.instance().removeMapLayer(layer_id)
-
         if transformation:
             layer = self._apply_transformation(layer, transformation, output_dataset)
+        
+        QgsProject.instance().removeMapLayer(layer_id)
 
         return layer
 
@@ -687,7 +686,7 @@ class RuleFlattener:
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
         """Extract and flatten all rules from visible vector layers."""
-        layers = [layer.layer() for layer in self.layer_tree_root.findLayers() if layer.layer()]
+        layers = [layer.layer() for layer in self.layer_tree_root.findLayers() if layer.layer() and layer.layer().isValid()]
 
         for layer_idx, layer in enumerate(layers):
             if self._is_valid_layer(layer):
@@ -1078,7 +1077,7 @@ class QGIS2VectorTiles:
     """
 
     def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
-                 output_dir: str = None, include_required_fields_only=1, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
+                 output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
