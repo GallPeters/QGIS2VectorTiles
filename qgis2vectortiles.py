@@ -16,7 +16,7 @@ from os import makedirs, cpu_count
 from os.path import join, basename, exists
 from tempfile import gettempdir
 from time import perf_counter, sleep
-from typing import List, Optional, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
 from shutil import rmtree
 from gc import collect
@@ -25,7 +25,7 @@ import processing
 from osgeo import gdal, ogr, osr
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
-    QgsVectorLayer, QgsRenderContext, QgsLayerDefinition, QgsVectorTileLayer, 
+    QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
     QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer, QgsWkbTypes, QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
@@ -46,23 +46,14 @@ class ZoomLevels:
     SCALES = [_TILING_SCHEME['SCALE'] / (2 ** zoom) for zoom in range(23)]
 
     @classmethod
-    def snap_scale(cls, scale: float, snap_up: bool = True) -> float:
-        """Snap scale to nearest zoom level."""
-        if scale <= 0:
-            return cls.SCALES[0] if snap_up else cls.SCALES[-1]
-
-        for i, level in enumerate(cls.SCALES):
-            if scale >= level:
-                return level if (i == 0 or not snap_up) else cls.SCALES[i - 1]
-        return cls.SCALES[-1]
-
-    @classmethod
     def scale_to_zoom(cls, scale: float, edge: str) -> str:
         """Convert scale to zero-padded zoom level string."""
         if scale in [0, 0.0]:
             scale = cls.SCALES[0 if edge == "o" else -1]
-        zoom = cls.SCALES.index(scale)
-        return f"{zoom:02d}"
+        for zoom, zoom_scale in enumerate(cls.SCALES):
+            if scale >= zoom_scale:
+               return zoom
+        return
 
     @classmethod
     def zoom_to_scale(cls, zoom: int) -> Optional[float]:
@@ -212,8 +203,6 @@ class TilesStyler:
         style.setEnabled(True)
         style.setLayerName(flat_rule.output_dataset_name)
         style.setStyleName(flat_rule.rule.description())
-        style.setMinZoomLevel(flat_rule.get_attribute("o"))
-        style.setMaxZoomLevel(flat_rule.get_attribute("i"))
 
         geom_types = {
             0: QgsWkbTypes.PointGeometry,
@@ -226,13 +215,13 @@ class TilesStyler:
     def _copy_data_driven_properties(self, source_obj, target_obj) -> None:
         """Copy data-driven properties between objects."""
         source_props = source_obj.dataDefinedProperties()
-        target_props = target_obj.dataDefinedProperties()
+        target_props = target_obj.dataDefinedProperties()   
 
         for prop_key in source_obj.propertyDefinitions():
             prop = source_props.property(prop_key)
             target_props.setProperty(prop_key, prop)
             target_props.property(prop_key).setActive(True)
-
+        
     def _apply_styles_to_layer(self) -> None:
         """Apply collected styles to the tiles layer."""
         renderer = QgsVectorTileBasicRenderer()
@@ -400,6 +389,15 @@ class RulesExporter:
 
         return self.processed_layers
 
+    def _match_zoom_levels_to_qgis_tiling_scheme(self, rules: list[FlattenedRule]):
+        """The tiling scheme zoom levels need to be updated because QGIS treats zoom level 0 differently than GDAL.
+        For some reason, this only affects the rendering rules of the vector tiling layer while the labeling rules
+        are displayed at the correct zoom level."""
+        for rule in rules:
+            for attr in ['i', 'o']:
+                attr_val = rule.get_attribute(attr) - 1
+                rule.set_attribute(attr, max(attr_val, 0))
+    
     def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
         temp_dir = join(_PLUGIN_DIR, '_temp')
@@ -431,13 +429,13 @@ class RulesExporter:
 
     def _get_required_fields(self, flat_rule: FlattenedRule) -> set:
         """Get fields required by rule for rendering/labeling."""
-        if self.include_required_fields_only != 0:
-            return set(f.name() for f in flat_rule.layer.fields())
-        
-        rule_type = flat_rule.get_attribute("t")
-        if rule_type == 0:  # Renderer
-            return set(flat_rule.rule.symbol().usedAttributes(QgsRenderContext()))    
-        return set(flat_rule.rule.settings().referencedFields(QgsRenderContext()))
+        return set(f.name() for f in flat_rule.layer.fields())
+        # if self.include_required_fields_only != 0:
+        #     return set(f.name() for f in flat_rule.layer.fields())
+        # rule_type = flat_rule.get_attribute("t")
+        # if rule_type == 0:  # Renderer
+        #     return set(flat_rule.rule.symbol().usedAttributes(QgsRenderContext()))    
+        # return set(flat_rule.rule.settings().referencedFields(QgsRenderContext()))
 
     def _get_calculated_fields(self, flat_rule: FlattenedRule) -> set:
         """Get calculated fields from filter expression."""
@@ -449,7 +447,7 @@ class RulesExporter:
     def _export_single_base_layer(self, layer: QgsVectorLayer, fields: set) -> None:
         """Export single base layer with field selection and transformations."""
         layer_id = layer.id()
-        fields_str = ','.join([f for f in fields if f != '#!allattributes!#'])
+        fields_str = ','.join([f for f in fields if f not in ('#!allattributes!#', 'fid')])
         selection = f' -select {fields_str}' if fields_str else ''
         
         extent_wkt = self.extent.asWktPolygon()
@@ -462,6 +460,7 @@ class RulesExporter:
         options = f'-clipdst "{extent_wkt}" -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
         layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
         layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
+        
         if layer.featureCount() > 0:
             layer = self._run_processing("multiparttosingleparts", INPUT=layer)
             layer = self._run_processing("simplifygeometries", INPUT=layer, 
@@ -476,23 +475,22 @@ class RulesExporter:
         flat_rule = rules[0]
         layer = QgsVectorLayer(join(self.temp_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
         if not layer.featureCount() > 0:
-            return 
+            return
 
         fields = self._create_expression_fields(rules)
         
         if flat_rule.get_attribute("t") == 1:  # Labeling
             fields = self._add_label_expression_field(flat_rule, fields)
-
+            
         selected_ids = self._select_features_by_expression(layer, flat_rule)
         if selected_ids is None:
             return
+        
         transformation = self._get_geometry_transformation(rules[0])
-        output_dataset = flat_rule.output_dataset_name
-        output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
-        layer = self._apply_field_mapping(layer, fields, selected_ids, output_dataset, transformation, flat_rule)
+        layer = self._apply_field_mapping(layer, fields, selected_ids, transformation, rules)
         if not layer.featureCount() > 0:
             return
-        layer.setName(output_dataset)
+        layer.setName(flat_rule.output_dataset_name)
         self.processed_layers.append(layer)
         
         return layer
@@ -510,15 +508,15 @@ class RulesExporter:
         return None
 
     def _apply_field_mapping(self, layer: QgsVectorLayer, fields: dict, 
-                            selected_ids: Optional[List], output_dataset: str,
-                            transformation, flat_rule: FlattenedRule) -> QgsVectorLayer:
+                            selected_ids: Optional[List], transformation, rules: list[FlattenedRule]) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
+        single_rule = rules[0]
         field_mapping = [{'type': 4, 'expression': '"fid"', 'name': f"{self.FIELD_PREFIX}_fid"}]
         field_mapping.extend([
             {'type': 10, 'expression': exp, 'name': name} 
             for name, exp in fields.items()
         ])
-        field_mapping.append({'type': 10, 'expression': f"'{flat_rule.name}'", 'name':  f"{self.FIELD_PREFIX}_description"})
+        field_mapping.append({'type': 10, 'expression': f"'{single_rule.name}'", 'name':  f"{self.FIELD_PREFIX}_description"})
         if self.include_required_fields_only != 0:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
             for field in layer.fields()])
@@ -531,8 +529,12 @@ class RulesExporter:
             featureLimit=-1,
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
+        if single_rule.get_attribute('t') == 0:
+            self._match_zoom_levels_to_qgis_tiling_scheme(rules)
+        output_dataset = single_rule.output_dataset_name
+        output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
-        sleep(0.5) # Avoid project crashing
+        sleep(1) # Avoid project crashing
         layer = self._run_processing("refactorfields", INPUT=feature_source,
                                     FIELDS_MAPPING=field_mapping, OUTPUT=output)
         if transformation:
@@ -774,6 +776,8 @@ class RuleFlattener:
                                 rule_type: int, rule_level: int, rule_idx: int) -> None:
         """Recursively flatten rule hierarchy with inheritance."""
         if rule.parent():
+            if rule_type == 1:
+                self._fix_labeling_rule_scale_range(rule)
             inherited_rule = self._inherit_rule_properties(rule, rule_type)
             if inherited_rule:
                 flat_rule = FlattenedRule(inherited_rule, layer)
@@ -797,6 +801,14 @@ class RuleFlattener:
 
                 self._flatten_rule_hierarchy(layer, layer_idx, child, rule_type, 
                                             rule_level + 1, child_idx)
+    def _fix_labeling_rule_scale_range(self, rule):
+        """Copy labeling rule's settings visiblity scale to rule's visblity scales if they are not activated"""
+        if rule.minimumScale() == 0 and rule.maximumScale() == 0:
+            settings = rule.settings()
+            if settings.scaleVisibility:
+                rule.setMinimumScale(settings.minimumScale()) 
+                rule.setMaximumScale(settings.maximumScale())
+                settings.scaleVisibility = False
 
     def _set_rule_attributes(self, flat_rule: FlattenedRule, layer_idx: int, 
                             rule_type: int, rule_level: int, rule_idx: int) -> None:
@@ -868,14 +880,14 @@ class RuleFlattener:
         return clone
 
     def _inherit_scale_range(self, clone, rule, comparator) -> None:
-        """Inherit scale limits using min/max comparator."""
+        """Inherit scale limits using min/max comparator."""        
         attr_name = f"{comparator.__name__}imumScale"
-        snap_up = comparator.__name__ == "min"
-
-        rule_scale = ZoomLevels.snap_scale(getattr(rule, attr_name)(), snap_up)
-        parent_scale = ZoomLevels.snap_scale(getattr(rule.parent(), attr_name)(), snap_up)
+        rule_scale = getattr(rule, attr_name)()
+        if rule_scale == 0:
+            opposite = min if comparator == max else max
+            rule_scale = opposite(ZoomLevels.SCALES)
+        parent_scale = getattr(rule.parent(), attr_name)()
         inherited_scale = comparator(rule_scale, parent_scale)
-
         setter_name = f"set{comparator.__name__.capitalize()}imumScale"
         getattr(clone, setter_name)(inherited_scale)
 
@@ -1076,11 +1088,11 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 8, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom
+        self.max_zoom = max_zoom + 1
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
