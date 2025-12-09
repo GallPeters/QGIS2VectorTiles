@@ -30,7 +30,7 @@ from qgis.core import (
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
     QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol,
-    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication
+    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis
 )
 
 
@@ -196,7 +196,17 @@ class TilesStyler:
         """Configure labeling style properties."""
         self._setup_base_style_properties(style, flat_rule)
         settings = QgsPalLayerSettings(flat_rule.rule.settings())
+        self._remove_duplicates_labels(settings)
         style.setLabelSettings(settings)
+
+    def _remove_duplicates_labels(self, settings):
+        """Remove duplicate labels to avoid labels appears in each tile"""
+        thin = QgsLabelThinningSettings(settings.thinningSettings())
+        thin.setAllowDuplicateRemoval(True)
+        remove_distance = _TILES_CONF['GENERAL_CONF']['REMOVE_DUPLICATES_DISTANCE']
+        thin.setMinimumDistanceToDuplicate(remove_distance)
+        thin.setMinimumDistanceToDuplicateUnit(Qgis.RenderUnit.Points)
+        settings.setThinningSettings(thin)
 
     def _setup_base_style_properties(self, style, flat_rule: FlattenedRule) -> None:
         """Setup common style properties."""
@@ -367,10 +377,11 @@ class RulesExporter:
     FIELD_PREFIX = "q2vt"
 
     def __init__(self, flattened_rules: List[FlattenedRule],
-                 extent, include_required_fields_only, feedback: QgsProcessingFeedback):
+                 extent, include_required_fields_only, max_zoom, feedback: QgsProcessingFeedback):
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
+        self.max_zoom = max_zoom
         self.temp_dir = self._create_temp_dir()
         self.processed_layers = []
         self.feedback = feedback
@@ -395,8 +406,12 @@ class RulesExporter:
         are displayed at the correct zoom level."""
         for rule in rules:
             for attr in ['i', 'o']:
-                attr_val = rule.get_attribute(attr) - 1
-                rule.set_attribute(attr, max(attr_val, 0))
+                attr_val = rule.get_attribute(attr)
+                if attr_val >= self.max_zoom:
+                    fitted = self.max_zoom
+                else:
+                    fitted = max(attr_val - 1, 0)
+                rule.set_attribute(attr, fitted)
     
     def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
@@ -530,7 +545,7 @@ class RulesExporter:
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
         if single_rule.get_attribute('t') == 0:
-            self._match_zoom_levels_to_qgis_tiling_scheme(rules)
+           self._match_zoom_levels_to_qgis_tiling_scheme(rules)
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
@@ -1092,7 +1107,7 @@ class QGIS2VectorTiles:
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom + 1
+        self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
@@ -1167,7 +1182,7 @@ class QGIS2VectorTiles:
     def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
         """Export rules to vector layers."""
         exporter = RulesExporter(
-            rules, self.extent, self.include_required_fields_only, self.feedback)
+            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.feedback)
         return exporter.export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
