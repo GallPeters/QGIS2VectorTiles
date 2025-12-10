@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
 qgisMaximumVersion=3.98
-description=Pack a QGIS project into a single vector tiles layer (.qlr) and source (.mbtiles or XYZ directory).
-about= 
+description=Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr)
+about=Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr)
 version=1.0
 author=Jossef Kanter
 email=jossefkan@gmail.com
@@ -14,7 +14,7 @@ repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
 tags=cartography,label,labels,labeling,style,styles
 changelog=
-	** v1.0 (11.12.25):
+	** v1.0 (10.12.25):
 		- Initial.
 icon=icon.png
 hasProcessingProvider=yes
