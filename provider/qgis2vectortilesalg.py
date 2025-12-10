@@ -1,14 +1,8 @@
-"""
-QGIS Processing Plugin Wrapper for MBTiles Generation
-Generates styled MBTiles from project layers with identical styling
-"""
-
 import os
 import inspect
 import tempfile
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
 from qgis.core import (
     QgsProcessingAlgorithm,
     QgsProcessingParameterNumber,
@@ -18,7 +12,7 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from qgis2vectortiles import QGIS2VectorTiles
+from .qgis2vectortilescore import QGIS2VectorTiles
 
 
 class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
@@ -267,151 +261,3 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         # Return empty results dictionary (modify as needed for your use case)
         return {}
 
-
-class MBTilesToolbarButton:
-    """
-    Class to handle the toolbar button functionality
-    """
-
-    def __init__(self):
-        self.action = None
-        self.toolbar = None
-
-    def initGui(self):
-        """Initialize the toolbar button"""
-        if not iface:
-            return
-
-        # Create the action
-        icon_path = os.path.join(os.path.dirname(__file__), "icon.svg")
-        icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
-
-        self.action = QAction(icon, "QGIS Vector Tiles Adapter", iface.mainWindow())
-        self.action.setObjectName("qgis_2_vector_tiles_action")
-        self.action.setWhatsThis(
-            "QGIS Vector Tiles Adapter"
-        )
-        self.action.setStatusTip(
-            "QGIS Vector Tiles Adapter"
-        )
-        self.action.triggered.connect(self.run)
-
-        # Add to plugins toolbar
-        self.toolbar = iface.pluginToolBar()
-        self.toolbar.addAction(self.action)
-
-    def unload(self):
-        """Remove the toolbar button"""
-        if self.action and self.toolbar:
-            self.toolbar.removeAction(self.action)
-
-    def run(self):
-        """Run the processing algorithm"""
-        try:
-            import processing
-            from qgis.PyQt.QtWidgets import QDockWidget
-
-            # Open processing toolbox if not already open
-            processing_dock = iface.mainWindow().findChild(
-                QDockWidget, "ProcessingToolbox"
-            )
-            if processing_dock:
-                processing_dock.show()
-                processing_dock.raise_()
-
-            # Run the algorithm
-            processing.execAlgorithmDialog("vector_tiles_provider:qgis_2_vector_tiles_action")
-
-        except Exception as e:
-            if iface:
-                iface.messageBar().pushMessage(
-                    "Error", f"Failed to open processing tool: {str(e)}", level=2
-                )
-
-
-# Global toolbar button instance
-toolbar_button = MBTilesToolbarButton()
-
-
-# Test block for running from QGIS Python console
-if __name__ == "__console__":
-    """
-    Test block for running the algorithm from QGIS Python console.
-    Usage in QGIS Python Console:
-
-    exec(open('/path/to/this/file.py').read())
-
-    Or copy-paste this entire file into the console.
-    """
-    import processing
-    from qgis.core import QgsApplication, QgsProcessingProvider
-
-    # Create a proper temporary provider class
-    class MBTilesProvider(QgsProcessingProvider):
-        def __init__(self):
-            super().__init__()
-
-        def id(self):
-            return "vector_tiles_provider"
-
-        def name(self):
-            return "Vector Tiles Provider"
-
-        def icon(self):
-            """Provider icon"""
-            cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
-            icon_path = os.path.join(os.path.join(cmd_folder, "icon.svg"))
-            if os.path.exists(icon_path):
-                return QIcon(icon_path)
-            return super().icon()
-
-        def loadAlgorithms(self):
-            self.addAlgorithm(QGIS2VectorTilesAlgorithm())
-
-    # Create algorithm instance for testing
-    alg = QGIS2VectorTilesAlgorithm()
-
-    # Register the provider for processing
-    try:
-        provider = MBTilesProvider()
-        QgsApplication.processingRegistry().addProvider(provider)
-
-        print("Algorithm registered successfully in Processing Toolbox")
-
-        # Initialize toolbar button
-        toolbar_button.initGui()
-        print("Toolbar button added successfully")
-
-        # # Test algorithm execution with default parameters
-        # if iface and iface.mapCanvas():
-        #     result = processing.run(
-        #         "vector_tiles_provider:generate_styled_mbtiles",
-        #         {
-        #             "OUTPUT_TYPE": 0,  # MBTiles
-        #             "MIN_ZOOM": 0,
-        #             "MAX_ZOOM": 1,
-        #             "EXTENT": iface.mapCanvas().extent(),
-        #             "CPU_PERCENT": 50,
-        #             "OUTPUT_DIR": tempfile.gettempdir(),
-        #             "FIELDS_INCLUDED": 1,
-        #         },
-        #     )
-        #     print("Algorithm test completed")
-
-    except Exception as e:
-        print(f"Registration or test failed: {e}")
-        print("You can still manually test the algorithm by creating an instance")
-
-
-# Cleanup function for when script is reloaded
-def cleanup():
-    """Clean up resources when script is reloaded"""
-    global toolbar_button
-    if toolbar_button:
-        toolbar_button.unload()
-
-
-# Register cleanup
-import atexit
-
-atexit.register(cleanup)

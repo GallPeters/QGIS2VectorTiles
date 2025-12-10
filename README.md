@@ -1,120 +1,46 @@
-# QGIS Vector Tile Generator Plugin
 
-### 🧭 Overview
-**QGIS Vector Tile Generator** is a QGIS plugin that automatically exports your **entire QGIS project** — including **all symbology, labeling, and data formats** — into a **single vector tile dataset** (`.mbtiles` or XYZ directory).
+ # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
+ 
+ 
+Pack complex QGIS projects into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr).
 
-Unlike raster tile caches, this plugin produces **lightweight, dynamic, and fully cartographic vector tiles**, ready to be served as **fast map layers** in QGIS, web maps, or MapLibre.
+## Demo
 
----
+*Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA area) to vector tiles in zoom levels 0-8 (sped up from 8 minutes)*
 
-### ⚙️ Key Features
-- 🧩 **Full Symbology Support**
-  - Single, categorized, graduated, rule-based & nested rules  
-  - Geometry generators  
-  - Labeling placement, priorities & rules
+https://github.com/user-attachments/assets/1b5bbb76-af27-4765-b509-d9ade428d433
 
-- 🗂️ **Supports All QGIS Layer Formats**
-  - Shapefile, GeoPackage, FlatGeobuf, Parquet, PostgreSQL/PostGIS, ESRI GDB, etc.
+## Use Cases
 
-- ⚡ **High Performance**
-  - Vector tiles generated directly from your QGIS project  
-  - Faster than raster tiles, smaller storage footprint  
-  - Can be served as a **fast WMS-like service**
+### 1. Efficient WMS/WMTS Serving
+Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Leverage QGIS's full cartographic capabilities (multiple renderer types, polygons labels and outlines,complex expressions based properties, geometry generators) which are not available in client-side vector tile specs.
 
-- 🌍 **Output Formats**
-  - `.mbtiles` (single file)
-  - XYZ tiles directory structure
+### 2. Easy Project Sharing
+Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with:
+- 1 layer file (.qlr)
+- 1 data source (.mbtiles)
 
----
+### 3. Client-Side Rendering (In Development)
+Generate client-side (MapLibre) compatible style:
+- style
+- sprites
+- glyphs
 
-### 🧩 Workflow
+## How It Works
 
-```text
-        ┌────────────────────┐
-        │  QGIS Project (.qgz)│
-        └────────┬───────────┘
-                 │
-                 ▼
-        ┌────────────────────┐
-        │ Symbology + Layers │
-        │  (all data formats)│
-        └────────┬───────────┘
-                 │
-                 ▼
-        ┌────────────────────┐
-        │  QGIS Vector Tile  │
-        │    Generator       │
-        └────────┬───────────┘
-                 │
-     ┌───────────┴─────────────┐
-     ▼                         ▼
- .mbtiles file            XYZ directory
- (single dataset)        (tile pyramid)
-```
+1. Converts renderers and labelings to a rule-based type
+2. Flattens nested rules with property inheritance
+3. Splits rules by zoom levels, symbol layers and match renderer rules 
+4. Exports each rule as separate dataset with the required geometry transformations
+5. Generates vector tiles using GDAL MVT driver
+6. Loads styled tiles back into QGIS
 
----
+## License
 
-### 🚀 Example Usage
+This project is licensed under the GNU General Public License v3.0.
 
-1. Open your QGIS project with styled layers.  
-2. Launch **Vector Tile Generator** from the QGIS Plugins menu.  
-3. Choose:
-   - **Output type:** `.mbtiles` or XYZ directory  
-   - **Tile extent** and **zoom levels**
-4. Click **Generate** ✅  
-5. Output:
-   - `myproject.mbtiles` or `xyz_tiles/{z}/{x}/{y}.pbf`
+See the [LICENSE](https://www.gnu.org/licenses/gpl-3.0-standalone.html) file for details.
 
-You can preview the generated vector tiles:
-- In QGIS (`Layer → Add Vector Tile Layer → ...`)
-- Or serve them on the web using **MapLibre GL**, **MapTiler**, or **Tileserver GL**
+## Contributing
 
----
-
-### 🌟 Advantages
-
-| Feature | Description |
-|----------|-------------|
-| 🗺️ **Full Cartography** | Preserves QGIS symbology and labels (unlike MapLibre default styling) |
-| ⚡ **Speed** | Vector tile creation and rendering are much faster than raster caching |
-| 💾 **Lightweight** | Output size is smaller and scales better for large datasets |
-| 🔗 **All Data Sources** | Works with mixed layer types (local files + databases) |
-| 🔍 **WMS Alternative** | Can serve as a fast WMS/WMTS replacement with full styling |
-
----
-
-### 🛠️ Installation
-
-1. Copy the plugin folder into your QGIS plugins directory:
-   ```
-   C:\Users\<you>\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\
-   ```
-2. Restart QGIS and enable the plugin under:
-   `Plugins → Manage and Install Plugins`
-
----
-
-### 📈 Roadmap
-- [ ] Add CLI mode for headless tile generation  
-- [ ] Support symbol scaling per zoom  
-- [ ] Integrate with Tileserver GL for direct serving  
-- [ ] Optional compression optimization
-
----
-
-### 📸 Visualization Example
-
-```mermaid
-graph LR
-A[QGIS Layers & Symbology] --> B[Vector Tile Generator Plugin]
-B --> C[.mbtiles Dataset]
-B --> D[XYZ Directory]
-C --> E[Serve in MapLibre / QGIS]
-D --> E
-```
-
----
-
-### 🧑‍💻 Author
-Developed by [Your Name or Org]  
-Built with ❤️ using QGIS + GDAL + Python.
+Contributions welcome! Please open an issue or submit a pull request.
