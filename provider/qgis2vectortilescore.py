@@ -23,6 +23,7 @@ from gc import collect
 
 import processing
 from osgeo import gdal, ogr, osr
+from getpass impotr getuser
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
     QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
@@ -35,7 +36,8 @@ from qgis.core import (
 
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), r'python/plugins')
-_PLUGIN_DIR = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\Projects\QGIS2VectorTiles\QGIS2VectorTiles'
+if __name__ == "__console__":
+    _PLUGIN_DIR = r'C:\tests\tiles_conf.toml'
 _CONF_FILE = join(_PLUGIN_DIR, r'tiles_conf.toml')
 _TILES_CONF = load(open(_CONF_FILE, "rb"))
 _TILING_SCHEME = _TILES_CONF['TILING_SCHEME']
@@ -196,7 +198,8 @@ class TilesStyler:
         """Configure labeling style properties."""
         self._setup_base_style_properties(style, flat_rule)
         settings = QgsPalLayerSettings(flat_rule.rule.settings())
-        self._remove_duplicates_labels(settings)
+        if Qgis.versionInt() >= 34400:
+            self._remove_duplicates_labels(settings)
         style.setLabelSettings(settings)
 
     def _remove_duplicates_labels(self, settings):
@@ -1105,7 +1108,7 @@ class QGIS2VectorTiles:
 
     def __init__(self, min_zoom: int = 0, max_zoom: int = 8, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
-                 feedback: QgsProcessingFeedback = None, iface=None):
+                 feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
@@ -1217,5 +1220,6 @@ class QGIS2VectorTiles:
 
 # Main execution for QGIS console
 if __name__ == "__console__":
+    from qgis.utils import iface
     adapter = QGIS2VectorTiles()
     adapter.convert_project_to_vector_tiles()

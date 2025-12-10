@@ -91,14 +91,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         return self.tr(
             "Generates MBTiles or XYZ tiles from all visible project layers while preserving "
             "their original styling. The generated tiles are automatically loaded "
-            "back into the project with identical appearance to the source layers.\n\n"
-            "Parameters:\n"
-            "• Output Type: Choose between MBTiles or XYZ format\n"
-            "• Min/Max Zoom: Define the zoom level range (0-23)\n"
-            "• Extent: Area to generate tiles for (default: current map canvas)\n"
-            "• CPU Percent: Maximum CPU usage percentage (0-100)\n"
-            "• Output Directory: Where to save the tiles\n"
-            "• All Fields: Include all layer fields in tiles (affects file size)"
+            "back into the project with identical appearance to the source layers."
         )
 
     def initAlgorithm(self, config=None):
