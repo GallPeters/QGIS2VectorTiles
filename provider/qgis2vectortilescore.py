@@ -23,7 +23,6 @@ from gc import collect
 
 import processing
 from osgeo import gdal, ogr, osr
-from getpass impotr getuser
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
     QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
@@ -35,9 +34,9 @@ from qgis.core import (
 )
 
 
-_PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), r'python/plugins')
+_PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), r'python/plugins/QGIS2VectorTiles')
 if __name__ == "__console__":
-    _PLUGIN_DIR = r'C:\tests\tiles_conf.toml'
+    _PLUGIN_DIR = r'C:\tests'
 _CONF_FILE = join(_PLUGIN_DIR, r'tiles_conf.toml')
 _TILES_CONF = load(open(_CONF_FILE, "rb"))
 _TILING_SCHEME = _TILES_CONF['TILING_SCHEME']
