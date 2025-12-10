@@ -1,14 +1,14 @@
-
- # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
+# <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
  
- 
-Pack complex QGIS projects into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr).
+Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr).
 
 ## Demo
 
 *Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA area) to vector tiles in zoom levels 0-8 (sped up from 8 minutes)*
 
-https://github.com/user-attachments/assets/1b5bbb76-af27-4765-b509-d9ade428d433
+
+https://github.com/user-attachments/assets/13d54e68-f5ca-46a1-866f-c93a2a9c5d88
+
 
 ## Use Cases
 
@@ -17,8 +17,8 @@ Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Le
 
 ### 2. Easy Project Sharing
 Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with:
-- 1 layer file (.qlr)
-- 1 data source (.mbtiles)
+- 1 layer file
+- 1 data source
 
 ### 3. Client-Side Rendering (In Development)
 Generate client-side (MapLibre) compatible style:
