@@ -12,7 +12,7 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from .qgis2vectortilescore import QGIS2VectorTiles
+from .core import QGIS2VectorTiles
 
 
 class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):

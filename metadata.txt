@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
 qgisMaximumVersion=3.98
-description=Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr)
-about=Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr)
+description=Turn a QGIS project into a lightweight vector tiles package for WMS/WMTS serving or easy sharing while preserve original style.
+about=Pack a QGIS project's visible vector layers into a single vector tiles source (.mbtiles or XYZ directory) and a single vector tiles layer (.qlr) while preserve original style which can include a variety of renders, labeling, geometry generators, complex expressions and more.
 version=1.0
 author=Jossef Kanter
 email=jossefkan@gmail.com
@@ -12,9 +12,9 @@ deprecated=False
 homepage=https://github.com/GallPeters/QGIS2VectorTiles
 repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
-tags=cartography,label,labels,labeling,style,styles
+tags=cartography,style,styles,tile,tiles,web,webmappings,wms,wmts,"vector tiles","vector tile"
+icon=icon.png
+hasProcessingProvider=yes
 changelog=
 	** v1.0 (10.12.25):
 		- Initial.
-icon=icon.png
-hasProcessingProvider=yes

@@ -3,7 +3,7 @@ import os
 import inspect
 from qgis.core import QgsApplication, QgsProcessingProvider
 from qgis.PyQt.QtGui import QIcon
-from .qgis2vectortilesalg import QGIS2VectorTilesAlgorithm
+from .alg import QGIS2VectorTilesAlgorithm
 
 
 

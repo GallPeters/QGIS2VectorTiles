@@ -1,5 +1,5 @@
 from qgis.core import QgsApplication
-from .provider.qgis2vectortilesprovider import QGIS2VectorTilesPorvider
+from .provider.provider import QGIS2VectorTilesPorvider
 
 class QGIS2VectorTiles:
 

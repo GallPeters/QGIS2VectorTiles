@@ -29,7 +29,7 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer, QgsWkbTypes, QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
-    QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol,
+    QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol, QgsTextFormat,
     QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis
 )
 
@@ -54,7 +54,7 @@ class ZoomLevels:
         for zoom, zoom_scale in enumerate(cls.SCALES):
             if scale >= zoom_scale:
                return zoom
-        return
+        return len(cls.SCALES) - 1
 
     @classmethod
     def zoom_to_scale(cls, zoom: int) -> Optional[float]:
@@ -505,7 +505,7 @@ class RulesExporter:
         
         transformation = self._get_geometry_transformation(rules[0])
         layer = self._apply_field_mapping(layer, fields, selected_ids, transformation, rules)
-        if not layer.featureCount() > 0:
+        if not layer or not layer.featureCount() > 0:
             return
         layer.setName(flat_rule.output_dataset_name)
         self.processed_layers.append(layer)
@@ -550,13 +550,16 @@ class RulesExporter:
            self._match_zoom_levels_to_qgis_tiling_scheme(rules)
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
-        output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
         sleep(1) # Avoid project crashing
-        layer = self._run_processing("refactorfields", INPUT=feature_source,
-                                    FIELDS_MAPPING=field_mapping, OUTPUT=output)
-        if transformation:
-            layer = self._apply_transformation(layer, transformation, output_dataset)
-        
+        if not exists(output_dataset):
+            output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
+            layer = self._run_processing("refactorfields", INPUT=feature_source,
+                                        FIELDS_MAPPING=field_mapping, OUTPUT=output)
+            if transformation:
+                layer = self._apply_transformation(layer, transformation, output_dataset)
+        else:
+            layer = None
+
         QgsProject.instance().removeMapLayer(layer_id)
 
         return layer
@@ -643,10 +646,30 @@ class RulesExporter:
         fields = {}
         
         for flat_rule in flat_rules:
+            # Extract rules objects which may contain data defined properties
             rule_type = flat_rule.get_attribute("t")
-            objects = ([flat_rule.rule.symbol()] + flat_rule.rule.symbol().symbolLayers() 
-                      if rule_type == 0 else [flat_rule.rule.settings()])
+            if rule_type == 0:
+                settings = []
+                symbol = [flat_rule.rule.symbol()]
+                if symbol:
+                    # Duplicate object to avoid script modify original instance
+                    clone = symbol[0].clone()
+                    flat_rule.rule.setSymbol(clone)
+                    symbol = [flat_rule.rule.symbol()]
+            else:
+                # Duplicate object to avoid script modify original instance
+                format_clone = QgsTextFormat(flat_rule.rule.settings().format())
+                symbol_clone = flat_rule.rule.settings().format().background().markerSymbol().clone()
+                format_clone.background().setMarkerSymbol(symbol_clone)
+                flat_rule.rule.settings().setFormat(format_clone)
+                settings = [flat_rule.rule.settings()]
+                symbol = [flat_rule.rule.settings().format().background().markerSymbol()]
 
+            objects = settings + symbol
+            if symbol[0]:
+                objects += symbol[0].symbolLayers()
+
+            # Extract ddp from each object and replace it by a future field
             for obj in objects:
                 dd_props = obj.dataDefinedProperties()
                 for prop_key in dd_props.propertyKeys():
@@ -1105,7 +1128,7 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 8, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 14, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
@@ -1125,7 +1148,8 @@ class QGIS2VectorTiles:
         Returns:
             QgsVectorTileLayer: The created vector tiles layer, or None if failed
         """
-        try:
+        if True:
+        # try:
             temp_dir = self._create_temp_directory()
             self._log(". Starting conversion process...")
             start_time = perf_counter()
@@ -1167,8 +1191,8 @@ class QGIS2VectorTiles:
             
             return output
 
-        except Exception as e:
-            self._log(f". Error during conversion: {e}")
+        # except Exception as e:
+        #     self._log(f". Error during conversion: {e}")
 
     def _create_temp_directory(self) -> str:
         """Create temporary directory for processing."""
