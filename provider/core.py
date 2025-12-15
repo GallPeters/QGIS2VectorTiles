@@ -53,7 +53,7 @@ class ZoomLevels:
             scale = cls.SCALES[0 if edge == "o" else -1]
         for zoom, zoom_scale in enumerate(cls.SCALES):
             if scale >= zoom_scale:
-               return zoom
+               return zoom - 1
         return len(cls.SCALES) - 1
 
     @classmethod
@@ -654,16 +654,17 @@ class RulesExporter:
 
         return None
 
-    def _get_ddp(self, current_object, ddp):
+
+    def _get_ddp(self, current_object, ddp, depth = 0, index=0):
         """Get data defined properties objects"""
         if hasattr(current_object, 'dataDefinedProperties'):
-            ddp.append(current_object)
+            ddp.append((current_object, depth, index))
         for attr in dir(current_object):
             try:
                 if any(char in attr.lower() for char in ['_',  'node', 'class', 'clone', 'create', 'copy', 'paste', 'clear', 'remove']):
                     continue
                 obj = getattr(current_object, attr)
-                if len(attr) > 4 and attr[3].isupper():
+                if attr != 'subSymbol' and len(attr) > 4 and attr[3].isupper():
                     continue
                 if any(word in type(obj).__name__.lower() for word in ['qgis', 'enum']):
                     continue
@@ -673,10 +674,12 @@ class RulesExporter:
                 if attr != 'symbolLayers' and type(call_obj).__module__  != 'qgis._core':
                     continue
                 iterable_object = [call_obj] if not hasattr(call_obj, '__iter__') else call_obj
-                for subobj in iterable_object:
+                for index, subobj in enumerate(iterable_object):
                     try:
                         if not isinstance(subobj, type(current_object)):
-                            self._get_ddp(subobj, ddp)
+                            subdepth = depth + 1
+                            subindex = index + 1
+                            self._get_ddp(subobj, ddp, subdepth, subindex)
                     except (NameError, ValueError, AttributeError, TypeError):
                         break
             except (NameError, ValueError, AttributeError, TypeError):
@@ -705,38 +708,31 @@ class RulesExporter:
             # Extract rules objects which may contain data defined properties
             ddp_objects = []
             self._get_ddp(root_object, ddp_objects)
-            for obj in ddp_objects:
+            for obj, depth, index in ddp_objects:
                 dd_props = obj.dataDefinedProperties()
                 for prop_key in dd_props.propertyKeys():
                     prop = dd_props.property(prop_key)
                     if prop and prop.isActive():
+                        attr = 's' if flat_rule.get_attribute("t") == 0 else 't'
+                        extra_val = f'{attr}{int(flat_rule.get_attribute(attr)):02d}'
+                        prop_id = f'property_{prop_key}d{int(depth):02d}i{int(index):02d}{extra_val}'
                         field_name, expression = self._create_field_from_property(
-                            obj, prop_key, prop, flat_rule
+                            prop_id, prop, flat_rule
                         )
                         fields[field_name] = expression
                         prop.setExpressionString(f'eval("{field_name}")')
 
         return fields
 
-    def _create_field_from_property(self, obj, prop_key: int, prop, 
+    def _create_field_from_property(self, prop_id: str, prop, 
                                     flat_rule: FlattenedRule) -> Tuple[str, str]:
         """Create field name and expression from data-driven property."""
-        if hasattr(obj, 'propertyDefinitions'):
-            prop_def = obj.propertyDefinitions()[prop_key]
-            name = prop_def.description()
-        else:
-            name = f'property_{prop_key}'
         expression = prop.expressionString().replace(
             "@map_scale",
-            str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o") + 1))
+            str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o")))
         )
 
-        suffix = ""
-        symbol_layer = flat_rule.get_attribute("s")
-        if symbol_layer and symbol_layer >= 0:
-            suffix = f'_s{"0" if symbol_layer < 10 else ""}{symbol_layer}'
-
-        field_name = f"{self.FIELD_PREFIX}_{name.lower().replace(' ', '_')}{suffix}"
+        field_name = f"{self.FIELD_PREFIX}_{prop_id}"
         expression = f"array_to_string(array({expression}))"
 
         return field_name, expression
@@ -1108,7 +1104,7 @@ class RuleFlattener:
 
         min_zoom = flat_rule.get_attribute("o")
         max_zoom = flat_rule.get_attribute("i")
-        relevant_zooms = list(range(min_zoom, max_zoom + 1))
+        relevant_zooms = list(range(min_zoom, max_zoom))
 
         split_rules = []
         for zoom in relevant_zooms:
@@ -1146,7 +1142,7 @@ class RuleFlattener:
                                     zoom: int) -> FlattenedRule:
         """Create rule with scale-specific values."""
         rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
-        scale = str(ZoomLevels.zoom_to_scale(zoom + 1))
+        scale = str(ZoomLevels.zoom_to_scale(zoom))
 
         filter_exp = flat_rule.rule.filterExpression()
         if "@map_scale" in filter_exp:
@@ -1172,7 +1168,7 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 8, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
