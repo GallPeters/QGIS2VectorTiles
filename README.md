@@ -16,14 +16,12 @@ https://github.com/user-attachments/assets/13d54e68-f5ca-46a1-866f-c93a2a9c5d88
 Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Leverage QGIS's full cartographic capabilities (multiple renderer types, polygons labels and outlines,complex expressions based properties, geometry generators) which are not available in client-side vector tile specs.
 
 ### 2. Easy Project Sharing
-Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with:
-- 1 layer file
-- 1 data source
+Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source (.mbtiles or XYZ) and a single layer file (.qlr).
 
 ### 3. Client-Side Rendering (In Development)
-Generate client-side (MapLibre) compatible style:
+Generate a client-side (MapLibre) compatible style:
+- sprites (In Development)
 - style
-- sprites
 - glyphs
 
 ## How It Works

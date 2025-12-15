@@ -30,7 +30,7 @@ from qgis.core import (
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
     QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol, QgsTextFormat,
-    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis
+    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis, QgsExpression
 )
 
 
@@ -406,14 +406,23 @@ class RulesExporter:
         """The tiling scheme zoom levels need to be updated because QGIS treats zoom level 0 differently than GDAL.
         For some reason, this only affects the rendering rules of the vector tiling layer while the labeling rules
         are displayed at the correct zoom level."""
-        for rule in rules:
-            for attr in ['i', 'o']:
-                attr_val = rule.get_attribute(attr)
-                if attr_val >= self.max_zoom:
-                    fitted = self.max_zoom
-                else:
+        single_rule = rules[0]
+        if single_rule.get_attribute('t') == 0:
+            for rule in rules:
+                for attr in ['i', 'o']:
+                    attr_val = rule.get_attribute(attr)
                     fitted = max(attr_val - 1, 0)
-                rule.set_attribute(attr, fitted)
+                    rule.set_attribute(attr, fitted)
+        # else:
+        #     real_maxzoom = self.max_zoom - 1
+        #     for rule in rules:
+        #         for attr in ['i', 'o']:
+        #             attr_val = rule.get_attribute(attr)
+        #             if attr == 'o' and attr_val > real_maxzoom:
+        #                 return
+        #             if attr == 'i' and attr_val > real_maxzoom:
+        #                 rule.set_attribute(attr, real_maxzoom)
+        # return rules
     
     def _create_temp_dir(self) -> Tuple[str, str]:
         """Create temporary and datasets directories."""
@@ -498,7 +507,9 @@ class RulesExporter:
         
         if flat_rule.get_attribute("t") == 1:  # Labeling
             fields = self._add_label_expression_field(flat_rule, fields)
-            
+        
+        if layer.featureCount() <= 0:
+            return 
         selected_ids = self._select_features_by_expression(layer, flat_rule)
         if selected_ids is None:
             return
@@ -519,9 +530,11 @@ class RulesExporter:
         if not expression:
             return []
 
-        layer.selectByExpression(expression)
-        if layer.selectedFeatureCount() > 0:
-            return layer.selectedFeatureIds()
+        if QgsExpression(expression).isValid():
+            layer.selectByExpression(expression)
+            if layer.selectedFeatureCount() > 0:
+                return layer.selectedFeatureIds()
+            
         return None
 
     def _apply_field_mapping(self, layer: QgsVectorLayer, fields: dict, 
@@ -546,8 +559,8 @@ class RulesExporter:
             featureLimit=-1,
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
-        if single_rule.get_attribute('t') == 0:
-           self._match_zoom_levels_to_qgis_tiling_scheme(rules)
+        # if not self._match_zoom_levels_to_qgis_tiling_scheme(rules):
+        #    return
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         sleep(1) # Avoid project crashing
@@ -641,36 +654,58 @@ class RulesExporter:
 
         return None
 
+    def _get_ddp(self, current_object, ddp):
+        """Get data defined properties objects"""
+        if hasattr(current_object, 'dataDefinedProperties'):
+            ddp.append(current_object)
+        for attr in dir(current_object):
+            try:
+                if any(char in attr.lower() for char in ['_',  'node', 'class', 'clone', 'create', 'copy', 'paste', 'clear', 'remove']):
+                    continue
+                obj = getattr(current_object, attr)
+                if len(attr) > 4 and attr[3].isupper():
+                    continue
+                if any(word in type(obj).__name__.lower() for word in ['qgis', 'enum']):
+                    continue
+                call_obj = obj()
+                if isinstance(call_obj, type(current_object)):
+                    continue
+                if attr != 'symbolLayers' and type(call_obj).__module__  != 'qgis._core':
+                    continue
+                iterable_object = [call_obj] if not hasattr(call_obj, '__iter__') else call_obj
+                for subobj in iterable_object:
+                    try:
+                        if not isinstance(subobj, type(current_object)):
+                            self._get_ddp(subobj, ddp)
+                    except (NameError, ValueError, AttributeError, TypeError):
+                        break
+            except (NameError, ValueError, AttributeError, TypeError):
+                continue
+
     def _create_expression_fields(self, flat_rules: List[FlattenedRule]) -> dict:
         """Create calculated fields from data-driven properties."""
         fields = {}
         
         for flat_rule in flat_rules:
-            # Extract rules objects which may contain data defined properties
+            # Duplicate object to avoid script modify original instance
             rule_type = flat_rule.get_attribute("t")
             if rule_type == 0:
-                settings = []
-                symbol = [flat_rule.rule.symbol()]
-                if symbol:
-                    # Duplicate object to avoid script modify original instance
-                    clone = symbol[0].clone()
-                    flat_rule.rule.setSymbol(clone)
-                    symbol = [flat_rule.rule.symbol()]
+                clone = flat_rule.rule.symbol().clone()
+                flat_rule.rule.setSymbol(clone)
+                root_object = flat_rule.rule.symbol()  
             else:
-                # Duplicate object to avoid script modify original instance
+                
                 format_clone = QgsTextFormat(flat_rule.rule.settings().format())
-                symbol_clone = flat_rule.rule.settings().format().background().markerSymbol().clone()
-                format_clone.background().setMarkerSymbol(symbol_clone)
+                if flat_rule.rule.settings().format().background().markerSymbol():
+                    symbol_clone = flat_rule.rule.settings().format().background().markerSymbol().clone()
+                    format_clone.background().setMarkerSymbol(symbol_clone)
                 flat_rule.rule.settings().setFormat(format_clone)
-                settings = [flat_rule.rule.settings()]
-                symbol = [flat_rule.rule.settings().format().background().markerSymbol()]
+                root_object = flat_rule.rule.settings()
 
-            objects = settings + symbol
-            if symbol[0]:
-                objects += symbol[0].symbolLayers()
-
-            # Extract ddp from each object and replace it by a future field
-            for obj in objects:
+            # Extract rules objects which may contain data defined properties
+            ddp_objects = []
+            self._get_ddp(root_object, ddp_objects)
+            for obj in ddp_objects:
                 dd_props = obj.dataDefinedProperties()
                 for prop_key in dd_props.propertyKeys():
                     prop = dd_props.property(prop_key)
@@ -686,8 +721,11 @@ class RulesExporter:
     def _create_field_from_property(self, obj, prop_key: int, prop, 
                                     flat_rule: FlattenedRule) -> Tuple[str, str]:
         """Create field name and expression from data-driven property."""
-        prop_def = obj.propertyDefinitions()[prop_key]
-        name = prop_def.description()
+        if hasattr(obj, 'propertyDefinitions'):
+            prop_def = obj.propertyDefinitions()[prop_key]
+            name = prop_def.description()
+        else:
+            name = f'property_{prop_key}'
         expression = prop.expressionString().replace(
             "@map_scale",
             str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o") + 1))
@@ -762,9 +800,14 @@ class RuleFlattener:
     def _convert_renderer_to_rules(self, layer: QgsVectorLayer):
         """Convert renderer to rule-based system."""
         system = layer.renderer()
+
+        if not system:
+            return
+        
+        system = system.clone()
         if isinstance(system, QgsRuleBasedRenderer):
             return system
-
+        
         inactive_items = self._get_inactive_items(system)
         rulebased_renderer = QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
         
@@ -796,9 +839,10 @@ class RuleFlattener:
         if not system or not layer.labelsEnabled():
             return None
 
+        system = system.clone()
         if isinstance(system, QgsRuleBasedLabeling):
             return system
-
+        
         rule = QgsRuleBasedLabeling.Rule(system.settings())
         root = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
         root.appendChild(rule)
@@ -1128,7 +1172,7 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 14, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 8, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom

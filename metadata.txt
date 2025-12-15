@@ -18,3 +18,5 @@ hasProcessingProvider=yes
 changelog=
 	** v1.0 (10.12.25):
 		- Initial.
+	** v1.0 (10.12.25):
+		- Initial.
