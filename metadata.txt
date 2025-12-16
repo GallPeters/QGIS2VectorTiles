@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40
 qgisMaximumVersion=3.98
 description=Turn a QGIS project into a lightweight vector tiles package for WMS/WMTS serving or easy sharing while preserve original style.
 about=Pack a QGIS project's visible vector layers into a single vector tiles source (.mbtiles or XYZ directory) and a single vector tiles layer (.qlr) while preserve original style which can include a variety of renders, labeling, geometry generators, complex expressions and more.
-version=1.0
+version=1.1
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
@@ -12,11 +12,12 @@ deprecated=False
 homepage=https://github.com/GallPeters/QGIS2VectorTiles
 repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
-tags=cartography,style,styles,tile,tiles,web,webmappings,wms,wmts,"vector tiles","vector tile"
+tags=cartography,style,styles,tile,tiles,web, webmappings, wms, wmts,"vector tiles","vector tile", sharing 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
 	** v1.0 (10.12.25):
-		- Initial.
-	** v1.0 (10.12.25):
-		- Initial.
+		- Initial
+	** v1.1 (16.12.25):
+		- Fix bugs
+		- Support all expressions based properties (ddp)
