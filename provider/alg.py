@@ -60,7 +60,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("QGIS Vector Tiles Adapter")
+        return self.tr("QGIS2VectorTiles")
 
     def group(self):
         """
@@ -89,9 +89,10 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         Returns a localised short helper string for the algorithm.
         """
         return self.tr(
-            "Generates MBTiles or XYZ tiles from all visible project layers while preserving "
+            "Generates MBTiles or XYZ Directory which contains vector tiles from all visible project layers while preserving "
             "their original styling. The generated tiles are automatically loaded "
-            "back into the project with identical appearance to the source layers."
+            "back into the project with identical appearance to the source layers." 
+            "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
         )
 
     def initAlgorithm(self, config=None):

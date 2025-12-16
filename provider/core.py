@@ -411,13 +411,11 @@ class RulesExporter:
         """The tiling scheme zoom levels need to be updated because QGIS treats zoom level 0 differently than GDAL.
         For some reason, this only affects the rendering rules of the vector tiling layer while the labeling rules
         are displayed at the correct zoom level."""
-        single_rule = rules[0]
-        if single_rule.get_attribute('t') == 0:
-            for rule in rules:
-                for attr in ['i', 'o']:
-                    attr_val = rule.get_attribute(attr)
-                    fitted = max(attr_val - 1, 0)
-                    rule.set_attribute(attr, fitted)
+        for rule in rules:
+            for attr in ['i', 'o']:
+                attr_val = rule.get_attribute(attr)
+                fitted = max(attr_val - 1, 0)
+                rule.set_attribute(attr, fitted)
         # else:
         #     real_maxzoom = self.max_zoom - 1
         #     for rule in rules:
@@ -563,8 +561,7 @@ class RulesExporter:
             featureLimit=-1,
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
-        # if not self._match_zoom_levels_to_qgis_tiling_scheme(rules):
-        #    return
+        self._match_zoom_levels_to_qgis_tiling_scheme(rules)
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         sleep(1) # Avoid project crashing
