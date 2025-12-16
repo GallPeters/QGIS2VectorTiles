@@ -51,9 +51,14 @@ class ZoomLevels:
         """Convert scale to zero-padded zoom level string."""
         if scale in [0, 0.0]:
             scale = cls.SCALES[0 if edge == "o" else -1]
-        for zoom, zoom_scale in enumerate(cls.SCALES):
-            if scale >= zoom_scale:
-               return zoom - 1
+        if edge == 'o':
+            for zoom, zoom_scale in enumerate(cls.SCALES):
+                if scale >= zoom_scale:
+                    return zoom
+        else:
+             for zoom, zoom_scale in sorted(enumerate(cls.SCALES), reverse=True):
+                if scale <= zoom_scale:
+                    return zoom
         return len(cls.SCALES) - 1
 
     @classmethod
@@ -513,7 +518,6 @@ class RulesExporter:
         selected_ids = self._select_features_by_expression(layer, flat_rule)
         if selected_ids is None:
             return
-        
         transformation = self._get_geometry_transformation(rules[0])
         layer = self._apply_field_mapping(layer, fields, selected_ids, transformation, rules)
         if not layer or not layer.featureCount() > 0:
@@ -713,7 +717,7 @@ class RulesExporter:
                 for prop_key in dd_props.propertyKeys():
                     prop = dd_props.property(prop_key)
                     if prop and prop.isActive():
-                        attr = 's' if flat_rule.get_attribute("t") == 0 else 't'
+                        attr = 's' if flat_rule.get_attribute("t") == 0 else 'f'
                         extra_val = f'{attr}{int(flat_rule.get_attribute(attr)):02d}'
                         prop_id = f'property_{prop_key}d{int(depth):02d}i{int(index):02d}{extra_val}'
                         field_name, expression = self._create_field_from_property(
@@ -869,7 +873,6 @@ class RuleFlattener:
 
                 split_rules = self._split_rule(flat_rule, rule_type)
                 self._clip_rules_to_zoom_range(split_rules)
-                
                 for split_rule in split_rules:
                     final_rules = self._split_by_scale_expressions(split_rule)
                     self.flattened_rules.extend(final_rules)
@@ -1104,8 +1107,9 @@ class RuleFlattener:
 
         min_zoom = flat_rule.get_attribute("o")
         max_zoom = flat_rule.get_attribute("i")
+        # min_zoom = max(self.min_zoom, min_zoom - 1)
+        max_zoom = min(self.max_zoom, max_zoom + 1)
         relevant_zooms = list(range(min_zoom, max_zoom))
-
         split_rules = []
         for zoom in relevant_zooms:
             rule_clone = self._create_scale_specific_rule(flat_rule, zoom)
@@ -1168,11 +1172,11 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
+    def __init__(self, min_zoom: int = 4, max_zoom: int = 5, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom
+        self.max_zoom = max_zoom + 1
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
@@ -1188,8 +1192,7 @@ class QGIS2VectorTiles:
         Returns:
             QgsVectorTileLayer: The created vector tiles layer, or None if failed
         """
-        if True:
-        # try:
+        try:
             temp_dir = self._create_temp_directory()
             self._log(". Starting conversion process...")
             start_time = perf_counter()
@@ -1231,8 +1234,8 @@ class QGIS2VectorTiles:
             
             return output
 
-        # except Exception as e:
-        #     self._log(f". Error during conversion: {e}")
+        except Exception as e:
+            self._log(f". Error during conversion: {e}")
 
     def _create_temp_directory(self) -> str:
         """Create temporary directory for processing."""
