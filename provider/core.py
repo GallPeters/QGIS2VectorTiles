@@ -1172,8 +1172,8 @@ class QGIS2VectorTiles:
     def __init__(self, min_zoom: int = 4, max_zoom: int = 5, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  feedback: QgsProcessingFeedback = None):
-        self.min_zoom = min_zoom
-        self.max_zoom = max_zoom + 1
+        self.min_zoom = min_zoom + 1
+        self.max_zoom = max_zoom + 2
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
