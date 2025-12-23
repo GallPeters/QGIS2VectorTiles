@@ -220,7 +220,8 @@ class TilesStyler:
         style.setEnabled(True)
         style.setLayerName(flat_rule.output_dataset_name)
         style.setStyleName(flat_rule.rule.description())
-
+        style.setMinZoomLevel(flat_rule.get_attribute('o'))
+        style.setMaxZoomLevel(flat_rule.get_attribute('i'))
         geom_types = {
             0: QgsWkbTypes.PointGeometry,
             1: QgsWkbTypes.LineGeometry,
@@ -384,11 +385,12 @@ class RulesExporter:
     FIELD_PREFIX = "q2vt"
 
     def __init__(self, flattened_rules: List[FlattenedRule],
-                 extent, include_required_fields_only, max_zoom, feedback: QgsProcessingFeedback):
+                 extent, include_required_fields_only, max_zoom, clip_cent, feedback: QgsProcessingFeedback):
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
         self.max_zoom = max_zoom
+        self.clip_cent = clip_cent
         self.temp_dir = self._create_temp_dir()
         self.processed_layers = []
         self.feedback = feedback
@@ -486,7 +488,7 @@ class RulesExporter:
         output_path = join(self.temp_dir, f'map_layer_{layer_id}.fgb')
         
         # Build processing pipeline
-        options = f'-clipdst "{extent_wkt}" -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
+        options = f'-spat "{extent_wkt}" -spat_srs {_TILING_SCHEME['EPSG_CRS']} -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
         layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
         layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
         
@@ -561,16 +563,13 @@ class RulesExporter:
             featureLimit=-1,
             geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
         )
-        self._match_zoom_levels_to_qgis_tiling_scheme(rules)
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
         sleep(1) # Avoid project crashing
         if not exists(output_dataset):
-            output = 'TEMPORARY_OUTPUT' if transformation else output_dataset
             layer = self._run_processing("refactorfields", INPUT=feature_source,
-                                        FIELDS_MAPPING=field_mapping, OUTPUT=output)
-            if transformation:
-                layer = self._apply_transformation(layer, transformation, output_dataset)
+                                        FIELDS_MAPPING=field_mapping)
+            layer = self._apply_transformation(layer, transformation, output_dataset)
         else:
             layer = None
 
@@ -581,19 +580,21 @@ class RulesExporter:
     def _apply_transformation(self, layer: QgsVectorLayer, transformation, 
                              output_dataset: str) -> QgsVectorLayer:
         """Apply geometry transformation to layer."""
-        if isinstance(transformation, str):
-            return self._run_processing(transformation, INPUT=layer, OUTPUT=output_dataset)
-        elif isinstance(transformation, tuple):
-            output_geometry = abs(transformation[0] - 2)
-            return self._run_processing(
-                "geometrybyexpression",
-                INPUT=layer,
-                OUTPUT_GEOMETRY=output_geometry,
-                EXPRESSION=transformation[1],
-                OUTPUT=output_dataset
-            )
-        return layer
+        output_geometry = abs(transformation[0] - 2)
+        return self._run_processing(
+            "geometrybyexpression",
+            INPUT=layer,
+            OUTPUT_GEOMETRY=output_geometry,
+            EXPRESSION=transformation[1],
+            OUTPUT=output_dataset
+        )
 
+    def _get_polygon_centroids_expression(self):
+        """Get polygon centroids expression based on user perference - visible polygon/whole polygon"""
+        clipped_polygon = f"with_variable('clip',intersection(@geometry, geom_from_wkt({self.extent.asWktPolygon()}), if(not is_empty_or_null(@clip), @clip, NULL))"
+        centroids = "if(intersects(centroid(@geometry), @geometry), centroid(@geometry),  point_on_surface(@geometry))"
+        return centroids
+    
     def _add_label_expression_field(self, flat_rule: FlattenedRule, 
                                     fields: dict) -> dict:
         """Add label expression as a calculated field."""
@@ -612,48 +613,51 @@ class RulesExporter:
     def _get_geometry_transformation(self, flat_rule: FlattenedRule) -> Union[str, Tuple, None]:
         """Determine geometry transformation needed for rule."""
         rule_type = flat_rule.get_attribute("t")
-
         if rule_type == 1:  # Labeling
-            return self._get_labeling_transformation(flat_rule)
+            transformation = self._get_labeling_transformation(flat_rule)
         else:  # Renderer
-            return self._get_renderer_transformation(flat_rule)
-
+            transformation = self._get_renderer_transformation(flat_rule)
+        # Clip output geometry to extent
+        transformation[1] = f"with_variable('clip',intersection(@geometry, geom_from_wkt({self.extent.asWktPolygon()}), if(not is_empty_or_null(@clip), @clip, NULL))"
+        return tuple(transformation)
+    
     def _get_labeling_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
         """Get geometry transformation for labeling rules."""
         settings = flat_rule.rule.settings()
+        target_geom = flat_rule.get_attribute("g")
+        transform_expr = '@geometry'
 
         if settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attribute("c", target_geom)
-            return target_geom, transform_expr
 
-        if flat_rule.get_attribute("g") == 2:  # Polygon to centroid
+        elif target_geom == 2:  # Polygon to centroid
             flat_rule.set_attribute("c", 0)
-            return "centroids"
-
-        return None
+            target_geom = 0
+            transform_expr = self._get_polygon_centroids_expression()
+        return [target_geom, transform_expr]
 
     def _get_renderer_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
         """Get geometry transformation for renderer rules."""
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
+        target_geom = flat_rule.get_attribute("g")
+        transform_expr = '@geometry'
 
         if symbol_layer.layerType() == "GeometryGenerator":
             target_geom = symbol_layer.subSymbol().type()
             transform_expr = symbol_layer.geometryExpression()
-            return target_geom, transform_expr
+        else:
+            target_geom = flat_rule.get_attribute("c")
+            source_geom = flat_rule.get_attribute("g")
 
-        source_geom = flat_rule.get_attribute("g")
-        target_geom = flat_rule.get_attribute("c")
-
-        if source_geom != target_geom:
-            if target_geom == 0:
-                return "centroids"
-            elif target_geom == 1:
-                return "polygonstolines"
-
-        return None
+            if source_geom != target_geom:
+                if target_geom == 0:
+                    transform_expr = self._get_polygon_centroids_expression()
+                elif target_geom == 1:
+                    transform_expr = "boundary(@geometry)"
+        return [target_geom, transform_expr]
 
 
     def _get_ddp(self, current_object, ddp, depth = 0, index=0):
@@ -1169,17 +1173,18 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 4, max_zoom: int = 5, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 9, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
-                 feedback: QgsProcessingFeedback = None):
-        self.min_zoom = min_zoom + 1
-        self.max_zoom = max_zoom + 2
+                 clip_cent: int = 0, feedback: QgsProcessingFeedback = None):
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom + 1
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
         self.output_content = output_content
+        self.clip_cent = clip_cent
         self.feedback = feedback or QgsProcessingFeedback()
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1248,7 +1253,7 @@ class QGIS2VectorTiles:
     def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
         """Export rules to vector layers."""
         exporter = RulesExporter(
-            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.feedback)
+            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.clip_cent, self.feedback)
         return exporter.export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:

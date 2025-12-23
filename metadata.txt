@@ -16,8 +16,8 @@ tags=cartography,style,styles,tile,tiles,web, webmappings, wms, wmts, vector til
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
-	** v1.0 (10.12.25):
-		- Initial
 	** v1.1 (16.12.25):
 		- Fix bugs
 		- Support all expressions based properties (ddp)
+	** v1.0 (10.12.25):
+		- Initial
