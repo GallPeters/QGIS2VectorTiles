@@ -385,12 +385,12 @@ class RulesExporter:
     FIELD_PREFIX = "q2vt"
 
     def __init__(self, flattened_rules: List[FlattenedRule],
-                 extent, include_required_fields_only, max_zoom, clip_cent, feedback: QgsProcessingFeedback):
+                 extent, include_required_fields_only, max_zoom, cent_source, feedback: QgsProcessingFeedback):
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
         self.max_zoom = max_zoom
-        self.clip_cent = clip_cent
+        self.cent_source = cent_source
         self.temp_dir = self._create_temp_dir()
         self.processed_layers = []
         self.feedback = feedback
@@ -481,17 +481,17 @@ class RulesExporter:
         fields_str = ','.join([f for f in fields if f not in ('#!allattributes!#', 'fid')])
         selection = f' -select {fields_str}' if fields_str else ''
         
-        extent_wkt = self.extent.asWktPolygon()
+        extent_wkt = self.extent.asWktCoordinates().replace(",",'')
         subset_string = layer.subsetString()
         where = f' -where "{subset_string}"' if subset_string else ''
         
         output_path = join(self.temp_dir, f'map_layer_{layer_id}.fgb')
         
         # Build processing pipeline
-        options = f'-spat "{extent_wkt}" -spat_srs {_TILING_SCHEME['EPSG_CRS']} -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
+        options = f'-spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
         layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
         layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
-        
+
         if layer.featureCount() > 0:
             layer = self._run_processing("multiparttosingleparts", INPUT=layer)
             layer = self._run_processing("simplifygeometries", INPUT=layer, 
@@ -581,18 +581,28 @@ class RulesExporter:
                              output_dataset: str) -> QgsVectorLayer:
         """Apply geometry transformation to layer."""
         output_geometry = abs(transformation[0] - 2)
-        return self._run_processing(
+        layer = self._run_processing(
             "geometrybyexpression",
             INPUT=layer,
             OUTPUT_GEOMETRY=output_geometry,
-            EXPRESSION=transformation[1],
+            EXPRESSION=transformation[1]
+        )
+        layer = self._run_processing(
+            "removenullgeometries",
+            INPUT=layer,
+            REMOVE_EMPTY=True,
+            
+        )
+        return self._run_processing(
+            "multiparttosingleparts", 
+            INPUT=layer, 
             OUTPUT=output_dataset
         )
-
+            
     def _get_polygon_centroids_expression(self):
         """Get polygon centroids expression based on user perference - visible polygon/whole polygon"""
-        clipped_polygon = f"with_variable('clip',intersection(@geometry, geom_from_wkt({self.extent.asWktPolygon()}), if(not is_empty_or_null(@clip), @clip, NULL))"
-        centroids = "if(intersects(centroid(@geometry), @geometry), centroid(@geometry),  point_on_surface(@geometry))"
+        source_polygons = f"intersection(@geometry, geom_from_wkt('{self.extent.asWktPolygon()}'))" if self.cent_source == 1 else '@geometry'
+        centroids = f"with_variable('source', {source_polygons}, if(intersects(centroid(@source), @source), centroid(@source),  point_on_surface(@source)))"
         return centroids
     
     def _add_label_expression_field(self, flat_rule: FlattenedRule, 
@@ -618,7 +628,7 @@ class RulesExporter:
         else:  # Renderer
             transformation = self._get_renderer_transformation(flat_rule)
         # Clip output geometry to extent
-        transformation[1] = f"with_variable('clip',intersection(@geometry, geom_from_wkt({self.extent.asWktPolygon()}), if(not is_empty_or_null(@clip), @clip, NULL))"
+        transformation[1] = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{self.extent.asWktPolygon()}')), if(not is_empty_or_null(@clip), @clip, NULL))"
         return tuple(transformation)
     
     def _get_labeling_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
@@ -1173,9 +1183,9 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 9, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
-                 clip_cent: int = 0, feedback: QgsProcessingFeedback = None):
+                 cent_source: int = 1, feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom + 1
         self.extent = extent or iface.mapCanvas().extent()
@@ -1184,7 +1194,7 @@ class QGIS2VectorTiles:
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
         self.output_content = output_content
-        self.clip_cent = clip_cent
+        self.cent_source = cent_source
         self.feedback = feedback or QgsProcessingFeedback()
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1253,7 +1263,7 @@ class QGIS2VectorTiles:
     def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
         """Export rules to vector layers."""
         exporter = RulesExporter(
-            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.clip_cent, self.feedback)
+            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.cent_source, self.feedback)
         return exporter.export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:

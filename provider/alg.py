@@ -31,6 +31,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     OUTPUT_DIR = "OUTPUT_DIR"
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
+    POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -174,6 +175,16 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 optional=False,
             )
         )
+        
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.POLYGONS_LABELS_BASE,
+                self.tr("Polygons Labels Base"),
+                options=["Whole Polygon", "Visible Polygon"],
+                defaultValue=0,  # Default to Required Fields Only
+                optional=False,
+            )
+        )
 
         # Output directory parameter
         self.addParameter(
@@ -229,6 +240,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         include_required_fields_only = self.parameterAsBool(
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
+        POLYGONS_LABELS_BASE = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
 
         try:
             # Your existing MBTiles generator class would be called here
@@ -241,6 +253,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
                 output_content = output_content_index,
+                cent_source=POLYGONS_LABELS_BASE,
                 feedback=feedback
             )
 
