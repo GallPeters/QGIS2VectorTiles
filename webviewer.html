@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QGIS Server Viewer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.2.1/ol.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-width: 320px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .controls h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 5px;
+        }
+        .controls label {
+            display: block;
+            margin: 8px 0 3px 0;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .controls input, .controls select {
+            width: 100%;
+            padding: 6px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .controls button {
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .controls button:hover {
+            background: #45a049;
+        }
+        .error {
+            color: red;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+        .success {
+            color: green;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+        .layers-section {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin: 5px 0;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .layer-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+        .layer-item .layer-name {
+            flex: 1;
+            font-weight: 500;
+        }
+        .layer-item .layer-type {
+            font-size: 10px;
+            color: #666;
+            margin-left: 5px;
+            padding: 2px 6px;
+            background: white;
+            border-radius: 3px;
+        }
+        .layer-item button {
+            margin: 0 0 0 5px;
+            padding: 4px 8px;
+            font-size: 10px;
+            background: #f44336;
+        }
+        .layer-item button:hover {
+            background: #da190b;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+        .form-row > div {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="controls">
+        <h3>Layer Configuration</h3>
+        
+        <label>Service Type:</label>
+        <select id="serviceType">
+            <option value="wmts">WMTS</option>
+            <option value="wms">WMS</option>
+        </select>
+
+        <label>Service URL:</label>
+        <input type="text" id="serviceUrl" value="http://localhost:8080/qgis" placeholder="http://localhost:8080/qgis">
+        
+        <label>Layer Name:</label>
+        <input type="text" id="layerName" value="your_layer_name" placeholder="Enter layer name">
+        
+        <div class="form-row">
+            <div>
+                <label>Format:</label>
+                <select id="format">
+                    <option value="image/png">PNG</option>
+                    <option value="image/jpeg">JPEG</option>
+                    <option value="image/webp">WebP</option>
+                </select>
+            </div>
+            <div>
+                <label>Projection:</label>
+                <select id="projection">
+                    <option value="EPSG:3857">EPSG:3857</option>
+                    <option value="EPSG:4326">EPSG:4326</option>
+                    <option value="EPSG:900913">EPSG:900913</option>
+                </select>
+            </div>
+        </div>
+        
+        <button onclick="addLayer()">Add Layer</button>
+        <div id="message"></div>
+
+        <div class="layers-section">
+            <h3>Active Layers</h3>
+            <div id="layersList">
+                <div style="font-size: 11px; color: #666; padding: 10px; text-align: center;">
+                    No layers added yet
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ol@v10.2.1/dist/ol.js"></script>
+    <script>
+        let map;
+        const layers = [];
+        let layerCounter = 0;
+
+        // Initialize map with OpenStreetMap base layer
+        function initMap() {
+            map = new ol.Map({
+                target: 'map',
+                layers: [
+                    new ol.layer.Tile({
+                        source: new ol.source.OSM()
+                    })
+                ],
+                view: new ol.View({
+                    center: ol.proj.fromLonLat([0, 0]),
+                    zoom: 2
+                })
+            });
+        }
+
+        function addLayer() {
+            const serviceType = document.getElementById('serviceType').value;
+            const url = document.getElementById('serviceUrl').value;
+            const layerName = document.getElementById('layerName').value;
+            const format = document.getElementById('format').value;
+            const projection = document.getElementById('projection').value;
+            const messageEl = document.getElementById('message');
+            
+            messageEl.textContent = '';
+            messageEl.className = '';
+
+            if (!url || !layerName) {
+                messageEl.textContent = 'Please provide both URL and Layer Name';
+                messageEl.className = 'error';
+                return;
+            }
+
+            try {
+                let layer;
+                const layerId = 'layer_' + (layerCounter++);
+
+                if (serviceType === 'wmts') {
+                    layer = createWMTSLayer(url, layerName, format, projection, layerId);
+                } else {
+                    layer = createWMSLayer(url, layerName, format, projection, layerId);
+                }
+
+                // Add layer to map
+                map.addLayer(layer);
+
+                // Store layer info
+                layers.push({
+                    id: layerId,
+                    name: layerName,
+                    type: serviceType.toUpperCase(),
+                    layer: layer,
+                    visible: true
+                });
+
+                // Update layers list
+                updateLayersList();
+
+                messageEl.textContent = 'Layer added successfully!';
+                messageEl.className = 'success';
+
+                // Try to fit view to layer extent
+                setTimeout(() => {
+                    const source = layer.getSource();
+                    if (source.getTileGrid && source.getTileGrid()) {
+                        const extent = source.getTileGrid().getExtent();
+                        if (extent) {
+                            map.getView().fit(extent);
+                        }
+                    }
+                }, 100);
+
+            } catch (e) {
+                messageEl.textContent = 'Error adding layer: ' + e.message;
+                messageEl.className = 'error';
+                console.error(e);
+            }
+        }
+
+        function createWMTSLayer(url, layerName, format, projection, layerId) {
+            const wmtsUrl = url.includes('/wmts') ? url : url + '/wmts';
+            
+            const source = new ol.source.WMTS({
+                url: wmtsUrl,
+                layer: layerName,
+                matrixSet: projection,
+                format: format,
+                projection: projection,
+                tileGrid: new ol.tilegrid.WMTS({
+                    origin: ol.extent.getTopLeft(ol.proj.get(projection).getExtent()),
+                    resolutions: getResolutions(projection),
+                    matrixIds: getMatrixIds(projection)
+                }),
+                style: 'default',
+                wrapX: true
+            });
+
+            return new ol.layer.Tile({
+                source: source,
+                properties: { id: layerId }
+            });
+        }
+
+        function createWMSLayer(url, layerName, format, projection, layerId) {
+            const wmsUrl = url.includes('?') ? url : url + '?';
+            
+            const source = new ol.source.TileWMS({
+                url: wmsUrl,
+                params: {
+                    'LAYERS': layerName,
+                    'FORMAT': format,
+                    'TILED': true
+                },
+                projection: projection,
+                serverType: 'qgis'
+            });
+
+            return new ol.layer.Tile({
+                source: source,
+                properties: { id: layerId }
+            });
+        }
+
+        function updateLayersList() {
+            const listEl = document.getElementById('layersList');
+            
+            if (layers.length === 0) {
+                listEl.innerHTML = '<div style="font-size: 11px; color: #666; padding: 10px; text-align: center;">No layers added yet</div>';
+                return;
+            }
+
+            listEl.innerHTML = layers.map(l => `
+                <div class="layer-item">
+                    <input type="checkbox" 
+                           id="toggle_${l.id}" 
+                           ${l.visible ? 'checked' : ''} 
+                           onchange="toggleLayer('${l.id}')">
+                    <span class="layer-name">${l.name}</span>
+                    <span class="layer-type">${l.type}</span>
+                    <button onclick="removeLayer('${l.id}')">Remove</button>
+                </div>
+            `).join('');
+        }
+
+        function toggleLayer(layerId) {
+            const layerInfo = layers.find(l => l.id === layerId);
+            if (layerInfo) {
+                layerInfo.visible = !layerInfo.visible;
+                layerInfo.layer.setVisible(layerInfo.visible);
+            }
+        }
+
+        function removeLayer(layerId) {
+            const index = layers.findIndex(l => l.id === layerId);
+            if (index !== -1) {
+                const layerInfo = layers[index];
+                map.removeLayer(layerInfo.layer);
+                layers.splice(index, 1);
+                updateLayersList();
+            }
+        }
+
+        function getResolutions(projection) {
+            const projExtent = ol.proj.get(projection).getExtent();
+            const size = ol.extent.getWidth(projExtent) / 256;
+            const resolutions = new Array(18);
+            for (let z = 0; z < 18; ++z) {
+                resolutions[z] = size / Math.pow(2, z);
+            }
+            return resolutions;
+        }
+
+        function getMatrixIds(projection) {
+            const matrixIds = new Array(18);
+            for (let z = 0; z < 18; ++z) {
+                matrixIds[z] = z;
+            }
+            return matrixIds;
+        }
+
+        // Initialize map on load
+        initMap();
+    </script>
+</body>
+</html>

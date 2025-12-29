@@ -405,9 +405,10 @@ class RulesExporter:
             rules_by_dataset.setdefault(flat_rule.output_dataset_name, []).append(flat_rule)
 
         for rules in rules_by_dataset.values():
-            self._export_rule_group(rules)
-
-        return self.processed_layers
+            if not self._export_rule_group(rules):
+                for rule in rules:
+                    self.flattened_rules.remove(rule)
+        return self.processed_layers, self.flattened_rules
 
     def _match_zoom_levels_to_qgis_tiling_scheme(self, rules: list[FlattenedRule]):
         """The tiling scheme zoom levels need to be updated because QGIS treats zoom level 0 differently than GDAL.
@@ -572,7 +573,6 @@ class RulesExporter:
             layer = self._apply_transformation(layer, transformation, output_dataset)
         else:
             layer = None
-
         QgsProject.instance().removeMapLayer(layer_id)
 
         return layer
@@ -1120,7 +1120,7 @@ class RuleFlattener:
         max_zoom = flat_rule.get_attribute("i")
         # min_zoom = max(self.min_zoom, min_zoom - 1)
         max_zoom = min(self.max_zoom, max_zoom + 1)
-        relevant_zooms = list(range(min_zoom, max_zoom))
+        relevant_zooms = list(range(min_zoom, max_zoom + 1))
         split_rules = []
         for zoom in relevant_zooms:
             rule_clone = self._create_scale_specific_rule(flat_rule, zoom)
@@ -1183,11 +1183,11 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 0, max_zoom: int = 10, extent=None,
+    def __init__(self, min_zoom: int = 8, max_zoom: int = 14, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  cent_source: int = 1, feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom + 1
+        self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.output_dir = output_dir or gettempdir()
         self.include_required_fields_only = include_required_fields_only
@@ -1223,8 +1223,7 @@ class QGIS2VectorTiles:
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
                 self._log(". Exporting rules to layers...")
-                layers = self._export_rules(rules)
-                
+                layers, rules = self._export_rules(rules)
                 export_time = perf_counter()
                 self._log(f". Successfully exported {len(layers)} layers "
                         f"({self._elapsed_minutes(flatten_time, export_time)} minutes).")
