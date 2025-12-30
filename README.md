@@ -1,6 +1,6 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
  
-Pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr).
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (.mbtiles or XYZ) and a single vector tiles layer (.qlr).
 
 ## Demo
 
@@ -20,7 +20,7 @@ Replace big, messy and complex projects with multiple layers and data sources (P
 
 ### 3. Client-Side Rendering (In Development)
 Generate a client-side (MapLibre) compatible style:
-- sprites (In Development)
+- sprites
 - style
 - glyphs
 
@@ -33,6 +33,41 @@ Generate a client-side (MapLibre) compatible style:
 5. Generates vector tiles using GDAL MVT driver
 6. Loads styled tiles back into QGIS
 
+## Tiling scheme
+| Zoom Level | Reference Scale |
+| :-: | :-: |
+|0|419311712|
+|1|209655856|
+|2|104827928|
+|3|52413964|
+|4|26206982|
+|5|13103491|
+|6|6551745|
+|7|3275872|
+|8|1637936|
+|9|818968|
+|10|409484|
+|11|204742|
+|12|102371|
+|13|51185|
+|14|25592|
+|15|12796|
+|16|6398|
+|17|3199|
+|18|1599|
+|19|799|
+|20|399|
+|21|199|
+|22|99|
+
+## Changelog
+### v1.2 (30.12.25):
+- add Polygons Labels Base parameter
+### v1.1 (16.12.25):
+- Fix bugs
+- Support expressions based properties
+### v1.0 (10.12.25):
+- Initial
 ## License
 
 This project is licensed under the GNU General Public License v3.0.

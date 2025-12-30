@@ -1183,7 +1183,7 @@ class QGIS2VectorTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 8, max_zoom: int = 14, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 14, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
                  cent_source: int = 1, feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
