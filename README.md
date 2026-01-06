@@ -4,10 +4,13 @@
 
 ## Demo
 
-*Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA area) to vector tiles in zoom levels 0-8 (sped up from 8 minutes)*
-
+*1. Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA) to vector tiles in zoom levels 0-8 (sped up from 8 minutes)*
 
 https://github.com/user-attachments/assets/13d54e68-f5ca-46a1-866f-c93a2a9c5d88
+
+*2. Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (part of Europe) to vector tiles in zoom levels 0-8 (sped up from 6 minutes)*
+
+https://github.com/user-attachments/assets/6457b05a-f00a-4935-bea1-28b0d8550e8f
 
 
 ## Use Cases
