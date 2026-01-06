@@ -65,7 +65,7 @@ Generate a client-side (MapLibre) compatible style:
 
 ## Changelog
 ### v1.2 (30.12.25):
-- add Polygons Labels Base parameter
+- Add Polygons Labels Base parameter
 ### v1.1 (16.12.25):
 - Fix bugs
 - Support expressions based properties
