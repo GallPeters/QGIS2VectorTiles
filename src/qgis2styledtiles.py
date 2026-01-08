@@ -1,5 +1,5 @@
 """
-QGIS2VectorTiles (Q2VT)
+Q2StyledTiles:
 
 Converts QGIS vector layer styling to vector tiles format by:
 1. Flattening nested rule-based renderers/labeling with property inheritance
@@ -33,12 +33,10 @@ from qgis.core import (
     QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis, QgsExpression
 )
 
+from .settings import _CONF, _PLUGIN_DIR
 
-_PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), r'python/plugins/QGIS2VectorTiles')
-if __name__ == "__console__":
-    _PLUGIN_DIR = r'C:\tests'
-_CONF_FILE = join(_PLUGIN_DIR, r'tiles_conf.toml')
-_TILES_CONF = load(open(_CONF_FILE, "rb"))
+
+_TILES_CONF = load(open(_CONF, "rb"))
 _TILING_SCHEME = _TILES_CONF['TILING_SCHEME']
 
 
@@ -791,7 +789,7 @@ class RuleFlattener:
         layer_node = self.layer_tree_root.findLayer(layer.id())
         is_visible = layer_node.isVisible() if layer_node else False
         return is_vector and is_visible
-
+    
     def _process_layer_rules(self, layer: QgsVectorLayer, layer_idx: int) -> None:
         """Process both renderer and labeling rules for a layer."""
         for rule_type in self.RULE_TYPES:
@@ -1177,7 +1175,7 @@ class RuleFlattener:
         return rule_clone
 
 
-class QGIS2VectorTiles:
+class QGIS2StyledTiles:
     """
     Main adapter class that orchestrates the conversion process from QGIS
     vector layer styling to vector tiles format.
@@ -1298,5 +1296,5 @@ class QGIS2VectorTiles:
 # Main execution for QGIS console
 if __name__ == "__console__":
     from qgis.utils import iface
-    adapter = QGIS2VectorTiles()
+    adapter = QGIS2StyledTiles()
     adapter.convert_project_to_vector_tiles()

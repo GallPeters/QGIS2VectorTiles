@@ -19,8 +19,18 @@ from os import makedirs
 from os.path import join
 from io import BytesIO
 from typing import Optional, TypeAlias
+from datetime import datetime
 
-from qgis.core import QgsSymbol, QgsRuleBasedRenderer
+from qgis.core import (
+    QgsSymbol, 
+    QgsRuleBasedRenderer,
+    QgsRuleBasedLabeling,
+    QgsCategorizedSymbolRenderer,
+    QgsGraduatedSymbolRenderer,
+    QgsSingleSymbolRenderer,
+    QgsPalLayerSettings,
+    QgsProject
+)
 from PyQt5.QtCore import QSize, QBuffer, QIODevice
 from PyQt5.QtGui import QImage
 from PIL import Image
@@ -392,15 +402,15 @@ class SpriteGenerator:
     MapLibre-compatible sprite files.
     """
 
-    def __init__(self, rules: list, output_dir: str):
+    def __init__(self, symbols_dict: dict[str, QgsSymbol], output_dir: str):
         """
         Initialize sprite generator.
         
         Args:
-            rules: List of QGIS rules containing symbols
+            symbols_dict: Dictionary mapping symbol names to QGIS symbols
             output_dir: Directory for output files
         """
-        self.rules = rules
+        self.symbols_dict = symbols_dict
         self.output_dir = output_dir
         self.lower_factor = 2
 
@@ -415,11 +425,9 @@ class SpriteGenerator:
         Returns:
             Output directory path on success, None if no symbols found
         """
-        self._prepare_rules()
-        imgs = self._extract_symbol_images()
+        imgs = self._create_symbol_images()
         
         if not imgs:
-            print("No marker symbols found in rules")
             return None
             
         matrix = SpriteMatrix(imgs)
@@ -433,86 +441,18 @@ class SpriteGenerator:
             
         return self.output_dir
 
-    def _prepare_rules(self):
+    def _create_symbol_images(self) -> list[SymbolImage]:
         """
-        Add properties to rules for uniform handling.
-        
-        Rules can be either renderer rules (type 0) or labeling rules (type 1).
-        This method normalizes access to their symbols.
-        """
-        for rule in self.rules:
-            if isinstance(rule, QgsRuleBasedRenderer.Rule):
-                rule.type = 0
-                rule.rulesymbol = rule.symbol()
-            else:
-                rule.type = 1
-                # Extract marker symbol from label background
-                rule.rulesymbol = rule.settings().format().background().markerSymbol()
-
-    def _extract_symbol_images(self) -> list[SymbolImage]:
-        """
-        Extract and render symbol images from rules.
+        Create SymbolImage objects from the symbols dictionary.
         
         Returns:
             List of SymbolImage objects ready for sprite sheet
         """
         imgs = []
-        name_counter = {}
-        
-        for rule in self.rules:
-            if self._rule_has_marker_symbol(rule):
-                # Get rule name or generate unique name
-                name = rule.description() if rule.description() else None
-                
-                # Generate unique name if empty or duplicate
-                if not name or name in name_counter:
-                    base_name = name if name else "symbol"
-                    if base_name not in name_counter:
-                        name_counter[base_name] = 0
-                    name_counter[base_name] += 1
-                    name = f"{base_name}_{name_counter[base_name]}"
-                else:
-                    name_counter[name] = 0
-                
-                symbol_img = SymbolImage(rule.rulesymbol, name)
-                imgs.append(symbol_img)
+        for name, symbol in self.symbols_dict.items():
+            symbol_img = SymbolImage(symbol, name)
+            imgs.append(symbol_img)
         return imgs
-
-    @staticmethod
-    def _rule_has_marker_symbol(rule) -> bool:
-        """
-        Check if a rule contains a marker symbol suitable for sprites.
-        
-        Args:
-            rule: QGIS rule object
-            
-        Returns:
-            True if rule contains a marker symbol
-        """
-        if not hasattr(rule, 'rulesymbol') or rule.rulesymbol is None:
-            return False
-            
-        # Labeling rules always have marker symbols
-        if rule.type == 1:
-            return True
-            
-        # Check renderer symbol layers
-        symbol_layers = rule.rulesymbol.symbolLayers()
-        if not symbol_layers:
-            return False
-            
-        symbol_lyr = symbol_layers[0]
-        
-        # Direct marker layer
-        if symbol_lyr.type() == QgsSymbol.SymbolType.Marker:
-            return True
-            
-        # Marker in subsymbol
-        subsymbol = symbol_lyr.subSymbol()
-        if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
-            return True
-            
-        return False
 
     def _save_files(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """
@@ -524,7 +464,6 @@ class SpriteGenerator:
         """
         sprite_img.save(self.output_dir)
         sprite_json.save(self.output_dir)
-        print(f"Sprite files saved to: {self.output_dir}")
 
     def _test_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """
@@ -537,24 +476,11 @@ class SpriteGenerator:
             sprite_img: Sprite sheet images
             sprite_json: Sprite metadata
         """
-        print("\n" + "="*60)
-        print("Running coordinate verification test...")
-        print("="*60)
-        
-        # Create test directories
         test_dir_1x = join(self.output_dir, "test_1x")
         test_dir_2x = join(self.output_dir, f"test_{self.lower_factor}x")
         makedirs(test_dir_1x, exist_ok=True)
         makedirs(test_dir_2x, exist_ok=True)
         
-        # Debug info
-        print(f"\nSprite dimensions:")
-        print(f"  1x: {sprite_img.img.width}x{sprite_img.img.height}")
-        print(f"  {self.lower_factor}x: {sprite_img.lowerimg.width}x{sprite_img.lowerimg.height}")
-        print(f"\nTotal symbols in JSON: {len(sprite_json.jsondict)}")
-        
-        # Test standard resolution
-        print(f"\nExtracting 1x symbols to: {test_dir_1x}")
         self._extract_test_symbols(
             sprite_img.img,
             sprite_json.jsondict,
@@ -562,18 +488,12 @@ class SpriteGenerator:
             "1x"
         )
         
-        # Test high resolution
-        print(f"\nExtracting {self.lower_factor}x symbols to: {test_dir_2x}")
         self._extract_test_symbols(
             sprite_img.lowerimg,
             sprite_json.lowerjsondict,
             test_dir_2x,
             f"{self.lower_factor}x"
         )
-        
-        print("\n" + "="*60)
-        print("Test complete!")
-        print("="*60)
 
     def _extract_test_symbols(
         self,
@@ -591,9 +511,6 @@ class SpriteGenerator:
             output_dir: Directory to save extracted symbols
             resolution: Resolution label for logging
         """
-        success_count = 0
-        error_count = 0
-        
         for name, coords in coords_dict.items():
             try:
                 x = int(coords["x"])
@@ -601,71 +518,295 @@ class SpriteGenerator:
                 width = int(coords["width"])
                 height = int(coords["height"])
                 
-                # Validate coordinates
                 if x < 0 or y < 0 or width <= 0 or height <= 0:
-                    print(f"  ⚠️ Invalid coordinates for '{name}': x={x}, y={y}, w={width}, h={height}")
-                    error_count += 1
                     continue
                 
                 if x + width > sprite.width or y + height > sprite.height:
-                    print(f"  ⚠️ Coordinates out of bounds for '{name}': box=({x},{y},{x+width},{y+height}), sprite_size=({sprite.width},{sprite.height})")
-                    error_count += 1
                     continue
                 
-                # Extract symbol region
                 box = (x, y, x + width, y + height)
                 symbol_img = sprite.crop(box)
                 
-                # Save with sanitized filename
                 safe_name = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name)
                 output_path = join(output_dir, f"{safe_name}.png")
                 symbol_img.save(output_path)
-                success_count += 1
                 
-            except Exception as e:
-                print(f"  ⚠️ Error extracting '{name}': {e}")
-                error_count += 1
+            except Exception:
+                continue
+
+
+class QGIS2Sprites:
+    """
+    Collects all marker symbols from QGIS project layers.
+    
+    Extracts symbols from:
+    - Single symbol renderers
+    - Categorized renderers
+    - Graduated renderers
+    - Rule-based renderers
+    - Single labeling (background markers)
+    - Rule-based labeling (background markers)
+    """
+
+    def __init__(self, output_dir: str):
+        """
+        Initialize symbol collector.
+        
+        Args:
+            output_dir: Base directory for output files
+        """
+        self.base_output_dir = output_dir
+        self.symbols_dict = {}
+        self.name_counter = {}
+
+    def generate_sprite(self, test_mode: bool = False) -> Optional[str]:
+        """
+        Collect all symbols from project layers and generate sprite sheet.
+        
+        Args:
+            test_mode: If True, generate test extraction folders
             
-        print(f"  ✓ Extracted {success_count}/{len(coords_dict)} symbols at {resolution} resolution")
-        if error_count > 0:
-            print(f"  ✗ Failed to extract {error_count} symbols")
+        Returns:
+            Output directory path on success, None if no symbols found
+        """
+        # Create timestamped output directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = join(self.base_output_dir, f"sprite_{timestamp}")
+        makedirs(output_dir, exist_ok=True)
+        
+        # Collect symbols from all layers
+        self._collect_all_symbols()
+        
+        if not self.symbols_dict:
+            return None
+        
+        # Generate sprite sheet
+        generator = SpriteGenerator(self.symbols_dict, output_dir)
+        return generator.generate(test_mode=test_mode)
+
+    def _collect_all_symbols(self):
+        """Collect symbols from all visible vector layers in the project."""
+        project = QgsProject.instance()
+        layers = project.mapLayers().values()
+        
+        for layer_idx, layer in enumerate(layers):
+            # Skip non-vector layers
+            if not hasattr(layer, 'renderer'):
+                continue
+                
+            # Skip invisible layers
+            if not layer.isSpatial() or not layer.isValid():
+                continue
+            
+            layer_name = layer.name() if layer.name() else f"layer_{layer_idx}"
+            
+            # Collect renderer symbols
+            if layer.renderer():
+                self._collect_renderer_symbols(layer.renderer(), layer_name, layer_idx)
+            
+            # Collect labeling symbols
+            if hasattr(layer, 'labeling') and layer.labeling():
+                self._collect_labeling_symbols(layer.labeling(), layer_name, layer_idx)
+
+    def _collect_renderer_symbols(self, renderer, layer_name: str, layer_idx: int):
+        """
+        Collect marker symbols from layer renderer.
+        
+        Args:
+            renderer: QGIS renderer object
+            layer_name: Name of the layer
+            layer_idx: Index of the layer
+        """
+        renderer_type = type(renderer).__name__
+        
+        if isinstance(renderer, QgsSingleSymbolRenderer):
+            symbol = renderer.symbol()
+            if self._is_marker_symbol(symbol):
+                name = layer_name
+                unique_name = self._get_unique_name(name, layer_name, layer_idx)
+                self.symbols_dict[unique_name] = symbol.clone()
+                
+        elif isinstance(renderer, QgsCategorizedSymbolRenderer):
+            for cat_idx, category in enumerate(renderer.categories()):
+                symbol = category.symbol()
+                if self._is_marker_symbol(symbol):
+                    name = category.label() if category.label() else f"{layer_name}_{cat_idx}"
+                    unique_name = self._get_unique_name(name, layer_name, layer_idx, cat_idx)
+                    self.symbols_dict[unique_name] = symbol.clone()
+                    
+        elif isinstance(renderer, QgsGraduatedSymbolRenderer):
+            for range_idx, range_item in enumerate(renderer.ranges()):
+                symbol = range_item.symbol()
+                if self._is_marker_symbol(symbol):
+                    name = range_item.label() if range_item.label() else f"{layer_name}_{range_idx}"
+                    unique_name = self._get_unique_name(name, layer_name, layer_idx, range_idx)
+                    self.symbols_dict[unique_name] = symbol.clone()
+                    
+        elif isinstance(renderer, QgsRuleBasedRenderer):
+            root_rule = renderer.rootRule()
+            if root_rule:
+                self._collect_rule_symbols(root_rule.children(), layer_name, layer_idx)
+
+    def _collect_rule_symbols(self, rules, layer_name: str, layer_idx: int, parent_path: str = ""):
+        """
+        Recursively collect symbols from rule-based renderer.
+        
+        Args:
+            rules: List of renderer rules
+            layer_name: Name of the layer
+            layer_idx: Index of the layer
+            parent_path: Path of parent rules for nested rules
+        """
+        for rule_idx, rule in enumerate(rules):
+            symbol = rule.symbol()
+            if symbol and self._is_marker_symbol(symbol):
+                rule_label = rule.label() if rule.label() else f"{layer_name}_{rule_idx}"
+                name = f"{parent_path}_{rule_label}" if parent_path else rule_label
+                unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
+                self.symbols_dict[unique_name] = symbol.clone()
+            
+            # Recursively process child rules
+            if rule.children():
+                new_path = f"{parent_path}_{rule_label}" if parent_path else rule_label
+                self._collect_rule_symbols(rule.children(), layer_name, layer_idx, new_path)
+
+    def _collect_labeling_symbols(self, labeling, layer_name: str, layer_idx: int):
+        """
+        Collect marker symbols from layer labeling.
+        
+        Args:
+            labeling: QGIS labeling object
+            layer_name: Name of the layer
+            layer_idx: Index of the layer
+        """
+        # Handle simple labeling
+        if hasattr(labeling, 'settings'):
+            settings = labeling.settings()
+            if self._has_marker_background(settings):
+                marker = settings.format().background().markerSymbol()
+                name = f"{layer_name}_label"
+                unique_name = self._get_unique_name(name, layer_name, layer_idx)
+                self.symbols_dict[unique_name] = marker.clone()
+        
+        # Handle rule-based labeling
+        elif isinstance(labeling, QgsRuleBasedLabeling):
+            root_rule = labeling.rootRule()
+            if root_rule:
+                self._collect_labeling_rule_symbols(root_rule.children(), layer_name, layer_idx)
+
+    def _collect_labeling_rule_symbols(self, rules, layer_name: str, layer_idx: int, parent_path: str = ""):
+        """
+        Recursively collect symbols from rule-based labeling.
+        
+        Args:
+            rules: List of labeling rules
+            layer_name: Name of the layer
+            layer_idx: Index of the layer
+            parent_path: Path of parent rules for nested rules
+        """
+        for rule_idx, rule in enumerate(rules):
+            settings = rule.settings()
+            if settings and self._has_marker_background(settings):
+                marker = settings.format().background().markerSymbol()
+                rule_desc = rule.description() if rule.description() else f"{layer_name}_label_{rule_idx}"
+                name = f"{parent_path}_{rule_desc}" if parent_path else rule_desc
+                unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
+                self.symbols_dict[unique_name] = marker.clone()
+            
+            # Recursively process child rules
+            if rule.children():
+                new_path = f"{parent_path}_{rule_desc}" if parent_path else rule_desc
+                self._collect_labeling_rule_symbols(rule.children(), layer_name, layer_idx, new_path)
+
+    def _is_marker_symbol(self, symbol) -> bool:
+        """
+        Check if symbol is a marker type.
+        
+        Args:
+            symbol: QGIS symbol object
+            
+        Returns:
+            True if symbol is marker type
+        """
+        if not symbol:
+            return False
+            
+        if symbol.type() == QgsSymbol.SymbolType.Marker:
+            return True
+            
+        # Check symbol layers
+        symbol_layers = symbol.symbolLayers()
+        if symbol_layers:
+            for layer in symbol_layers:
+                if layer.type() == QgsSymbol.SymbolType.Marker:
+                    return True
+                    
+                subsymbol = layer.subSymbol() if hasattr(layer, 'subSymbol') else None
+                if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
+                    return True
+        
+        return False
+
+    def _has_marker_background(self, settings) -> bool:
+        """
+        Check if label settings have marker background enabled.
+        
+        Args:
+            settings: QgsPalLayerSettings object
+            
+        Returns:
+            True if background is enabled and is marker type
+        """
+        if not settings:
+            return False
+            
+        try:
+            background = settings.format().background()
+            if not background.enabled():
+                return False
+                
+            marker = background.markerSymbol()
+            return marker is not None and marker.type() == QgsSymbol.SymbolType.Marker
+        except Exception:
+            return False
+
+    def _get_unique_name(self, name: str, layer_name: str, layer_idx: int, item_idx: int = None) -> str:
+        """
+        Generate unique name for symbol, handling duplicates.
+        
+        Args:
+            name: Preferred symbol name
+            layer_name: Name of the layer
+            layer_idx: Index of the layer
+            item_idx: Index of the item/rule (optional)
+            
+        Returns:
+            Unique symbol name
+        """
+        # Clean name
+        name = name.strip() if name else ""
+        
+        # If name exists, append layer info
+        if name in self.symbols_dict:
+            if item_idx is not None:
+                suffix = f"{layer_name}_{item_idx}" if layer_name else f"layer_{layer_idx}_{item_idx}"
+            else:
+                suffix = layer_name if layer_name else f"layer_{layer_idx}"
+            name = f"{name}_{suffix}"
+        
+        # If still exists or empty, use counter
+        if not name or name in self.symbols_dict:
+            base_name = name if name else f"{layer_name}_symbol" if layer_name else f"layer_{layer_idx}_symbol"
+            if base_name not in self.name_counter:
+                self.name_counter[base_name] = 0
+            self.name_counter[base_name] += 1
+            name = f"{base_name}_{self.name_counter[base_name]}"
+        
+        return name
 
 
 # Example usage for QGIS Python console
 if __name__ == "__console__":
-    output_dir = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\ScratchWorkspace\New folder (2)'
-    rules = []
-
-    def fetch_rules(rule):
-        """Recursively collect all rules from layer."""
-        rules.append(rule)
-        if rule.children():
-            for child in rule.children():
-                fetch_rules(child)
-
-    # Extract rules from active layer
-    layer = iface.activeLayer()
-    
-    # Get renderer rules
-    if hasattr(layer, 'renderer') and layer.renderer():
-        root_rule = layer.renderer().rootRule()
-        if root_rule:
-            for child in root_rule.children():
-                fetch_rules(child)
-    
-    # Get labeling rules
-    if hasattr(layer, 'labeling') and layer.labeling():
-        labeling_root = layer.labeling().rootRule()
-        if labeling_root:
-            for child in labeling_root.children():
-                fetch_rules(child)
-    
-    # Generate sprites with coordinate testing enabled
-    generator = SpriteGenerator(rules, output_dir)
-    result = generator.generate(test_mode=True)
-    
-    if result:
-        print(f"\nSprite generation complete!")
-        print(f"Output directory: {result}")
-    else:
-        print("\nNo sprites generated - no marker symbols found")
+    output_dir = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\ScratchWorkspace'
+    collector = QGIS2Sprites(output_dir)
+    collector.generate_sprite(test_mode=True)

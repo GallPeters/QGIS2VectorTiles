@@ -1,4 +1,5 @@
 import os
+from os.path import join, exists
 import inspect
 import tempfile
 from qgis.PyQt.QtCore import QCoreApplication
@@ -12,10 +13,14 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from .core import QGIS2VectorTiles
+
+from .qgis2styledtiles import QGIS2StyledTiles
+from .qgis2sprites import QGIS2Sprites
+from .settings import _ICON
 
 
-class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
+
+class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
     """
     QGIS Processing Algorithm for generating styled MBTiles from project layers.
     This wrapper provides a user interface for the MBTiles generation process
@@ -47,21 +52,21 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Returns a new instance of the algorithm. Required by QGIS Processing framework.
         """
-        return QGIS2VectorTilesAlgorithm()
+        return QGIS2StyledTilesAlgorithm()
 
     def name(self):
         """
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "qgis_2_vector_tiles_action"
+        return "QGIS2tiles_action"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("QGIS2VectorTiles")
+        return self.tr("QGIS2Tiles")
 
     def group(self):
         """
@@ -79,11 +84,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Returns the algorithm icon.
         """
-        cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
-        icon_path = os.path.join(os.path.join(cmd_folder, "icon.svg"))
-        if os.path.exists(icon_path):
-            return QIcon(icon_path)
-        return super().icon()
+        return _ICON
 
     def shortHelpString(self):
         """
@@ -244,7 +245,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
         try:
             # Your existing MBTiles generator class would be called here
-            mbtiles_generator = QGIS2VectorTiles(
+            tiles_generator = QGIS2StyledTiles(
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 extent=extent,
@@ -258,11 +259,128 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             )
 
             # Run the generation process
-            mbtiles_generator.convert_project_to_vector_tiles()
+            tiles_generator.convert_project_to_vector_tiles()
             feedback.pushInfo(f"{output_type} generation completed successfully")
 
         except Exception as e:
             feedback.reportError(f"Error during {output_type} generation: {str(e)}")
+            return {}
+
+        # Return empty results dictionary (modify as needed for your use case)
+        return {}
+
+
+
+
+class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
+    """
+    QGIS Processing Algorithm for generating styled MBTiles from project layers.
+    This wrapper provides a user interface for the MBTiles generation process
+    through the QGIS Processing Toolbox.
+    """
+
+    # Parameter names (constants for consistency)
+    OUTPUT_DIR = "OUTPUT_DIR"
+
+    def __init__(self):
+        """Initialize the algorithm"""
+        super().__init__()
+
+    def tr(self, string):
+        """
+        Returns a translatable string with the self.tr() function.
+        """
+        return QCoreApplication.translate("Processing", string)
+
+    def createInstance(self):
+        """
+        Returns a new instance of the algorithm. Required by QGIS Processing framework.
+        """
+        return QGIS2SpritesAlgorithm()
+
+    def name(self):
+        """
+        Returns the algorithm name, used for identifying the algorithm.
+        This string should be fixed for the algorithm, and must not be localized.
+        """
+        return "qgis_2_sprite_blast_action"
+
+    def displayName(self):
+        """
+        Returns the translated algorithm name, which should be used for any
+        user-visible display of the algorithm name.
+        """
+        return self.tr("QGIS2SpriteBlast")
+
+    def group(self):
+        """
+        Returns the name of the group this algorithm belongs to.
+        """
+        return None  # No inner group as requested
+
+    def groupId(self):
+        """
+        Returns the unique ID of the group this algorithm belongs to.
+        """
+        return None  # No inner group as requested
+
+    def icon(self):
+        """
+        Returns the algorithm icon.
+        """
+        return _ICON
+
+    def shortHelpString(self):
+        """
+        Returns a localised short helper string for the algorithm.
+        """
+        return self.tr(
+            "Generates a MapLibre sprite from all marker symbols in the currenr project." \
+            "The sprite will include all renderer and labeling background marker symbols of all current project's visible vector layers."
+            "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
+        )
+
+    def initAlgorithm(self, config=None):
+        """
+        Define the inputs and outputs of the algorithm.
+        """
+        # Output directory parameter
+        self.addParameter(
+            QgsProcessingParameterFolderDestination(
+                self.OUTPUT_DIR,
+                self.tr("Output Directory"),
+                optional=False,
+                defaultValue=tempfile.gettempdir(),
+            )
+        )
+
+    def processAlgorithm(self, parameters, context, feedback):
+        """
+        Main processing method. This is where your existing MBTiles generation logic
+        should be called.
+
+        Args:
+            parameters: Dictionary containing parameter values
+            context: QgsProcessingContext object
+            feedback: QgsProcessingFeedback object for progress reporting
+
+        Returns:
+            Dictionary with results (can be empty for this use case)
+        """
+
+        # Extract parameter values
+        output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
+
+        try:
+            # Your existing MBTiles generator class would be called here
+            sprite_generator = QGIS2Sprites(output_dir)
+            sprite_generator.generate_sprite()
+
+            # Run the generation process
+            feedback.pushInfo(f"sprite generation completed successfully")
+
+        except Exception as e:
+            feedback.reportError(f"Error during sprite generation: {str(e)}")
             return {}
 
         # Return empty results dictionary (modify as needed for your use case)
