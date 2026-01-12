@@ -59,14 +59,14 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "QGIS2tiles_action"
+        return "QGIS2StyledTiles_action"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("QGIS2Tiles")
+        return self.tr("QGIS2StyledTiles")
 
     def group(self):
         """
@@ -303,14 +303,14 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "qgis_2_sprite_blast_action"
+        return "QGIS2Sprites_action"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("QGIS2SpriteBlast")
+        return self.tr("QGIS2Sprites")
 
     def group(self):
         """

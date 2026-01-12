@@ -23,6 +23,7 @@ from gc import collect
 
 import processing
 from osgeo import gdal, ogr, osr
+from PyQt5.QtCore import QVariant
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
     QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
@@ -30,7 +31,7 @@ from qgis.core import (
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
     QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
     QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol, QgsTextFormat,
-    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication, QgsLabelThinningSettings, Qgis, QgsExpression
+    QgsFeatureRequest, QgsProcessingFeedback, QgsApplication,QgsPropertyDefinition, QgsLabelThinningSettings, Qgis, QgsExpression
 )
 
 from .settings import _CONF, _PLUGIN_DIR
@@ -540,15 +541,12 @@ class RulesExporter:
             
         return None
 
-    def _apply_field_mapping(self, layer: QgsVectorLayer, fields: dict, 
+    def _apply_field_mapping(self, layer: QgsVectorLayer, fields: list, 
                             selected_ids: Optional[List], transformation, rules: list[FlattenedRule]) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
         single_rule = rules[0]
         field_mapping = [{'type': 4, 'expression': '"fid"', 'name': f"{self.FIELD_PREFIX}_fid"}]
-        field_mapping.extend([
-            {'type': 10, 'expression': exp, 'name': name} 
-            for name, exp in fields.items()
-        ])
+        field_mapping.extend(fields)
         field_mapping.append({'type': 10, 'expression': f"'{single_rule.name}'", 'name':  f"{self.FIELD_PREFIX}_description"})
         if self.include_required_fields_only != 0:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
@@ -609,10 +607,8 @@ class RulesExporter:
         field_name = f"{self.FIELD_PREFIX}_label"
         expression = flat_rule.rule.settings().getLabelExpression().expression()
         
-        if not flat_rule.rule.settings().isExpression:
-            fields[field_name] = f'"{expression}"'
-        else:
-            fields[field_name] = expression
+        exp =  f'"{expression}"' if not flat_rule.rule.settings().isExpression else expression
+        fields.append({'type': 10, 'expression': exp, 'name': field_name})
 
         flat_rule.rule.settings().isExpression = False
         flat_rule.rule.settings().fieldName = field_name
@@ -700,7 +696,7 @@ class RulesExporter:
 
     def _create_expression_fields(self, flat_rules: List[FlattenedRule]) -> dict:
         """Create calculated fields from data-driven properties."""
-        fields = {}
+        fields = []
         
         for flat_rule in flat_rules:
             # Duplicate object to avoid script modify original instance
@@ -732,14 +728,24 @@ class RulesExporter:
                         field_name, expression = self._create_field_from_property(
                             prop_id, prop, flat_rule
                         )
-                        fields[field_name] = expression
-                        prop.setExpressionString(f'eval("{field_name}")')
+                        
+                        type_map = {
+                            QgsPropertyDefinition.DataTypeString: QVariant.String,
+                            QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
+                            QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool
+                            }
+                        prop_def = obj.propertyDefinitions().get(prop_key)
+                        field_type = type_map.get(prop_def.dataType()) or 10
 
+                        field_props = {'type':field_type, 'expression': expression, 'name': field_name} 
+                        fields.append(field_props)
+                        prop.setExpressionString(f'"{field_name}"')
         return fields
 
     def _create_field_from_property(self, prop_id: str, prop, 
                                     flat_rule: FlattenedRule) -> Tuple[str, str]:
         """Create field name and expression from data-driven property."""
+
         expression = prop.expressionString().replace(
             "@map_scale",
             str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o")))

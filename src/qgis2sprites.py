@@ -29,7 +29,8 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer,
     QgsSingleSymbolRenderer,
     QgsPalLayerSettings,
-    QgsProject
+    QgsProject,
+    QgsVectorLayerSimpleLabeling
 )
 from PyQt5.QtCore import QSize, QBuffer, QIODevice
 from PyQt5.QtGui import QImage
@@ -590,12 +591,14 @@ class QGIS2Sprites:
         layers = project.mapLayers().values()
         
         for layer_idx, layer in enumerate(layers):
-            # Skip non-vector layers
-            if not hasattr(layer, 'renderer'):
-                continue
-                
-            # Skip invisible layers
-            if not layer.isSpatial() or not layer.isValid():
+
+            # Skip invisible or invalid layers layers
+            is_vector = layer.type() == 0 and layer.geometryType() != 4
+            is_exist = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+            is_visible = is_exist.isVisible() if is_exist else False
+            is_valid = layer.isValid()
+            
+            if not all([is_vector, is_exist, is_visible, is_valid]):
                 continue
             
             layer_name = layer.name() if layer.name() else f"layer_{layer_idx}"
@@ -680,14 +683,13 @@ class QGIS2Sprites:
             layer_idx: Index of the layer
         """
         # Handle simple labeling
-        if hasattr(labeling, 'settings'):
+        if isinstance(labeling, QgsVectorLayerSimpleLabeling):
             settings = labeling.settings()
             if self._has_marker_background(settings):
                 marker = settings.format().background().markerSymbol()
                 name = f"{layer_name}_label"
                 unique_name = self._get_unique_name(name, layer_name, layer_idx)
                 self.symbols_dict[unique_name] = marker.clone()
-        
         # Handle rule-based labeling
         elif isinstance(labeling, QgsRuleBasedLabeling):
             root_rule = labeling.rootRule()
@@ -734,16 +736,16 @@ class QGIS2Sprites:
         if symbol.type() == QgsSymbol.SymbolType.Marker:
             return True
             
-        # Check symbol layers
-        symbol_layers = symbol.symbolLayers()
-        if symbol_layers:
-            for layer in symbol_layers:
-                if layer.type() == QgsSymbol.SymbolType.Marker:
-                    return True
+        # # Check symbol layers
+        # symbol_layers = symbol.symbolLayers()
+        # if symbol_layers:
+        #     for layer in symbol_layers:
+        #         if layer.type() == QgsSymbol.SymbolType.Marker:
+        #             return True
                     
-                subsymbol = layer.subSymbol() if hasattr(layer, 'subSymbol') else None
-                if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
-                    return True
+        #         subsymbol = layer.subSymbol() if hasattr(layer, 'subSymbol') else None
+        #         if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
+        #             return True
         
         return False
 
