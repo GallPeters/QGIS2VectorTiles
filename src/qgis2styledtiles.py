@@ -664,10 +664,10 @@ class RulesExporter:
         return [target_geom, transform_expr]
 
 
-    def _get_ddp(self, current_object, ddp, depth = 0, index=0):
+    def _get_ddp(self, current_object, parent_obj, ddp, depth = 0, index=0):
         """Get data defined properties objects"""
         if hasattr(current_object, 'dataDefinedProperties'):
-            ddp.append((current_object, depth, index))
+            ddp.append((current_object, parent_obj, depth, index))
         for attr in dir(current_object):
             try:
                 if any(char in attr.lower() for char in ['_',  'node', 'class', 'clone', 'create', 'copy', 'paste', 'clear', 'remove']):
@@ -688,7 +688,8 @@ class RulesExporter:
                         if not isinstance(subobj, type(current_object)):
                             subdepth = depth + 1
                             subindex = index + 1
-                            self._get_ddp(subobj, ddp, subdepth, subindex)
+                            parent_obj = current_object
+                            self._get_ddp(subobj, parent_obj, ddp, subdepth, subindex)
                     except (NameError, ValueError, AttributeError, TypeError):
                         break
             except (NameError, ValueError, AttributeError, TypeError):
@@ -716,8 +717,8 @@ class RulesExporter:
 
             # Extract rules objects which may contain data defined properties
             ddp_objects = []
-            self._get_ddp(root_object, ddp_objects)
-            for obj, depth, index in ddp_objects:
+            self._get_ddp(root_object, root_object, ddp_objects)
+            for obj, parent, depth, index in ddp_objects:
                 dd_props = obj.dataDefinedProperties()
                 for prop_key in dd_props.propertyKeys():
                     prop = dd_props.property(prop_key)
@@ -734,12 +735,14 @@ class RulesExporter:
                             QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
                             QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool
                             }
-                        prop_def = obj.propertyDefinitions().get(prop_key)
-                        field_type = type_map.get(prop_def.dataType()) or 10
-
-                        field_props = {'type':field_type, 'expression': expression, 'name': field_name} 
-                        fields.append(field_props)
-                        prop.setExpressionString(f'"{field_name}"')
+                        def_obj = getattr(obj, 'propertyDefinitions') or getattr(parent, 'propertyDefinitions')
+                        if def_obj:
+                            prop_def = def_obj().get(prop_key)
+                            if prop_def:
+                                field_type = type_map.get(prop_def.dataType()) or 10
+                                field_props = {'type':field_type, 'expression': expression, 'name': field_name} 
+                                fields.append(field_props)
+                                prop.setExpressionString(f'"{field_name}"')
         return fields
 
     def _create_field_from_property(self, prop_id: str, prop, 
@@ -752,8 +755,7 @@ class RulesExporter:
         )
 
         field_name = f"{self.FIELD_PREFIX}_{prop_id}"
-        expression = f"array_to_string(array({expression}))"
-
+        # expression = f"array_to_string(array({expression}))"
         return field_name, expression
 
     def _run_processing(self, algorithm: str, algorithm_type: str = "native", **params):
