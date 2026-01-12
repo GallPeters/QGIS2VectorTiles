@@ -11,12 +11,13 @@ The output includes:
 - sprite@2x.png: High resolution sprite sheet (2x scale)
 - sprite@2x.json: Metadata for high resolution sprites
 """
+import zipfile
 
 from dataclasses import dataclass, field
-from json import dump
+from json import dumps
 from math import sqrt, ceil
-from os import makedirs
-from os.path import join
+from os import makedirs, listdir, remove
+from os.path import join, basename
 from io import BytesIO
 from typing import Optional, TypeAlias
 from datetime import datetime
@@ -298,11 +299,13 @@ class SpriteImage:
         Args:
             output_dir: Directory to save files
         """
-        img_path = join(output_dir, "sprite")
-        self.img.save(f"{img_path}.png")
-        
-        lowerimg_path = f"{img_path}@{self.lowerfactor}x.png"
-        self.lowerimg.save(lowerimg_path)
+        with zipfile.ZipFile(output_dir, "w") as zf:
+            img_buffer = BytesIO()
+            self.img.save(img_buffer, format='PNG')
+            lowerimg_buffer = BytesIO()
+            self.lowerimg.save(lowerimg_buffer, format='PNG')
+            zf.writestr("sprite.png", img_buffer.getvalue())
+            zf.writestr(f"sprite@{self.lowerfactor}x.png", lowerimg_buffer.getvalue())
 
 
 @dataclass
@@ -384,14 +387,11 @@ class SpriteJSON:
         Args:
             output_dir: Directory to save files
         """
-        json_path = join(output_dir, "sprite")
-        
-        with open(f"{json_path}.json", "w", encoding="utf8") as output:
-            dump(self.jsondict, output, indent=2)
-            
-        lower_json_path = f"{json_path}@{self.lowerfactor}x"
-        with open(f"{lower_json_path}.json", "w", encoding="utf8") as output_lower:
-            dump(self.lowerjsondict, output_lower, indent=2)
+        with zipfile.ZipFile(output_dir, "a") as zf:
+            json =  dumps(self.jsondict, indent=2)
+            zf.writestr("sprite.json", json)
+            lowerjson =  dumps(self.lowerjsondict, indent=2)
+            zf.writestr(f"sprite@{self.lowerfactor}x.json",lowerjson)
 
 
 class SpriteGenerator:
@@ -403,7 +403,7 @@ class SpriteGenerator:
     MapLibre-compatible sprite files.
     """
 
-    def __init__(self, symbols_dict: dict[str, QgsSymbol], output_dir: str):
+    def __init__(self, symbols_dict: dict[str, QgsSymbol], output_dir: str, test_mode=False):
         """
         Initialize sprite generator.
         
@@ -414,8 +414,9 @@ class SpriteGenerator:
         self.symbols_dict = symbols_dict
         self.output_dir = output_dir
         self.lower_factor = 2
+        self.test_mode = test_mode
 
-    def generate(self, test_mode: bool = False) -> Optional[str]:
+    def generate(self) -> Optional[str]:
         """
         Generate sprite sheet and metadata files.
         
@@ -437,7 +438,7 @@ class SpriteGenerator:
         
         self._save_files(sprite_img, sprite_json)
         
-        if test_mode:
+        if self.test_mode:
             self._test_coordinates(sprite_img, sprite_json)
             
         return self.output_dir
@@ -463,8 +464,20 @@ class SpriteGenerator:
             sprite_img: Sprite sheet images
             sprite_json: Sprite metadata
         """
-        sprite_img.save(self.output_dir)
-        sprite_json.save(self.output_dir)
+        if self.test_mode:
+            zip_path = join(self.output_dir, f'{basename(self.output_dir)}.zip')
+        else:
+            zip_path = f'{self.output_dir}.zip'
+        sprite_img.save(zip_path)
+        sprite_json.save(zip_path)
+
+    def zip_directory(self, folder_path):
+        """Zip directory"""
+        output_zip = f'{folder_path}.zip'
+        with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in listdir(folder_path):
+                file_path = join(folder_path, file)
+                zipf.write(file_path, file)
 
     def _test_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """
@@ -549,7 +562,7 @@ class QGIS2Sprites:
     - Rule-based labeling (background markers)
     """
 
-    def __init__(self, output_dir: str):
+    def __init__(self, output_dir: str, test_mode: bool = False):
         """
         Initialize symbol collector.
         
@@ -557,10 +570,11 @@ class QGIS2Sprites:
             output_dir: Base directory for output files
         """
         self.base_output_dir = output_dir
+        self.test_mode = test_mode
         self.symbols_dict = {}
         self.name_counter = {}
 
-    def generate_sprite(self, test_mode: bool = False) -> Optional[str]:
+    def generate_sprite(self) -> Optional[str]:
         """
         Collect all symbols from project layers and generate sprite sheet.
         
@@ -573,7 +587,8 @@ class QGIS2Sprites:
         # Create timestamped output directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = join(self.base_output_dir, f"sprite_{timestamp}")
-        makedirs(output_dir, exist_ok=True)
+        if self.test_mode:
+            makedirs(output_dir, exist_ok=True)
         
         # Collect symbols from all layers
         self._collect_all_symbols()
@@ -582,8 +597,8 @@ class QGIS2Sprites:
             return None
         
         # Generate sprite sheet
-        generator = SpriteGenerator(self.symbols_dict, output_dir)
-        return generator.generate(test_mode=test_mode)
+        generator = SpriteGenerator(self.symbols_dict, output_dir, self.test_mode)
+        return generator.generate()
 
     def _collect_all_symbols(self):
         """Collect symbols from all visible vector layers in the project."""
@@ -624,26 +639,31 @@ class QGIS2Sprites:
         
         if isinstance(renderer, QgsSingleSymbolRenderer):
             symbol = renderer.symbol()
-            if self._is_marker_symbol(symbol):
+            symbol = self._get_marker_symbols(symbol)
+            if symbol:
                 name = layer_name
                 unique_name = self._get_unique_name(name, layer_name, layer_idx)
                 self.symbols_dict[unique_name] = symbol.clone()
                 
         elif isinstance(renderer, QgsCategorizedSymbolRenderer):
             for cat_idx, category in enumerate(renderer.categories()):
-                symbol = category.symbol()
-                if self._is_marker_symbol(symbol):
-                    name = category.label() if category.label() else f"{layer_name}_{cat_idx}"
-                    unique_name = self._get_unique_name(name, layer_name, layer_idx, cat_idx)
-                    self.symbols_dict[unique_name] = symbol.clone()
+                if category.renderState():
+                    symbol = category.symbol()
+                    symbol = self._get_marker_symbols(symbol)
+                    if symbol:
+                        name = category.label() if category.label() else f"{layer_name}_{cat_idx}"
+                        unique_name = self._get_unique_name(name, layer_name, layer_idx, cat_idx)
+                        self.symbols_dict[unique_name] = symbol.clone()
                     
         elif isinstance(renderer, QgsGraduatedSymbolRenderer):
             for range_idx, range_item in enumerate(renderer.ranges()):
-                symbol = range_item.symbol()
-                if self._is_marker_symbol(symbol):
-                    name = range_item.label() if range_item.label() else f"{layer_name}_{range_idx}"
-                    unique_name = self._get_unique_name(name, layer_name, layer_idx, range_idx)
-                    self.symbols_dict[unique_name] = symbol.clone()
+                if range_item.renderState():
+                    symbol = range_item.symbol()
+                    symbol = self._get_marker_symbols(symbol)
+                    if symbol:
+                        name = range_item.label() if range_item.label() else f"{layer_name}_{range_idx}"
+                        unique_name = self._get_unique_name(name, layer_name, layer_idx, range_idx)
+                        self.symbols_dict[unique_name] = symbol.clone()
                     
         elif isinstance(renderer, QgsRuleBasedRenderer):
             root_rule = renderer.rootRule()
@@ -661,17 +681,19 @@ class QGIS2Sprites:
             parent_path: Path of parent rules for nested rules
         """
         for rule_idx, rule in enumerate(rules):
-            symbol = rule.symbol()
-            if symbol and self._is_marker_symbol(symbol):
-                rule_label = rule.label() if rule.label() else f"{layer_name}_{rule_idx}"
-                name = f"{parent_path}_{rule_label}" if parent_path else rule_label
-                unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
-                self.symbols_dict[unique_name] = symbol.clone()
-            
-            # Recursively process child rules
-            if rule.children():
-                new_path = f"{parent_path}_{rule_label}" if parent_path else rule_label
-                self._collect_rule_symbols(rule.children(), layer_name, layer_idx, new_path)
+            if rule.active():
+                symbol = rule.symbol()
+                symbol = self._get_marker_symbols(symbol)
+                if symbol:
+                    rule_label = rule.label() if rule.label() else f"{layer_name}_{rule_idx}"
+                    name = f"{parent_path}_{rule_label}" if parent_path else rule_label
+                    unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
+                    self.symbols_dict[unique_name] = symbol.clone()
+                
+                # Recursively process child rules
+                if rule.children():
+                    new_path = f"{parent_path}_{rule_label}" if parent_path else rule_label
+                    self._collect_rule_symbols(rule.children(), layer_name, layer_idx, new_path)
 
     def _collect_labeling_symbols(self, labeling, layer_name: str, layer_idx: int):
         """
@@ -708,7 +730,8 @@ class QGIS2Sprites:
         """
         for rule_idx, rule in enumerate(rules):
             settings = rule.settings()
-            if settings and self._has_marker_background(settings):
+            rule_desc = ''
+            if rule.active() and settings and self._has_marker_background(settings):
                 marker = settings.format().background().markerSymbol()
                 rule_desc = rule.description() if rule.description() else f"{layer_name}_label_{rule_idx}"
                 name = f"{parent_path}_{rule_desc}" if parent_path else rule_desc
@@ -720,7 +743,7 @@ class QGIS2Sprites:
                 new_path = f"{parent_path}_{rule_desc}" if parent_path else rule_desc
                 self._collect_labeling_rule_symbols(rule.children(), layer_name, layer_idx, new_path)
 
-    def _is_marker_symbol(self, symbol) -> bool:
+    def _get_marker_symbols(self, symbol) -> bool:
         """
         Check if symbol is a marker type.
         
@@ -731,23 +754,20 @@ class QGIS2Sprites:
             True if symbol is marker type
         """
         if not symbol:
-            return False
+            return
             
         if symbol.type() == QgsSymbol.SymbolType.Marker:
-            return True
+            return symbol
             
         # # Check symbol layers
-        # symbol_layers = symbol.symbolLayers()
-        # if symbol_layers:
-        #     for layer in symbol_layers:
-        #         if layer.type() == QgsSymbol.SymbolType.Marker:
-        #             return True
-                    
-        #         subsymbol = layer.subSymbol() if hasattr(layer, 'subSymbol') else None
-        #         if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
-        #             return True
+        symbol_layers = symbol.symbolLayers()
+        if symbol_layers:
+            for layer in symbol_layers:
+                subsymbol = layer.subSymbol() if hasattr(layer, 'subSymbol') else None
+                if subsymbol and subsymbol.type() == QgsSymbol.SymbolType.Marker:
+                    return layer.subSymbol()
         
-        return False
+        return
 
     def _has_marker_background(self, settings) -> bool:
         """
@@ -811,4 +831,4 @@ class QGIS2Sprites:
 if __name__ == "__console__":
     output_dir = r'C:\Users\P0026701\OneDrive - Ness Israel\Desktop\ScratchWorkspace'
     collector = QGIS2Sprites(output_dir)
-    collector.generate_sprite(test_mode=True)
+    collector.generate_sprite()
