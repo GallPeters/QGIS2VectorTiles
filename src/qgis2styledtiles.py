@@ -314,7 +314,9 @@ class GDALTilesGenerator:
         range_options = [f"MINZOOM={self._get_global_min_zoom()}", f"MAXZOOM={self._get_global_max_zoom()}"]
         if self.output_type == "mbtiles":
             return range_options
-        scheme_conf = list(_TILING_SCHEME.values())[:-1]
+        
+        param_limit = 4 if int(gdal.VersionInfo()) < 3100200 else -1
+        scheme_conf = list(_TILING_SCHEME.values())[:param_limit]
         scheme_options = [f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"]
         additional_options = [f'{key}={value}' for key, value in _TILES_CONF['GDAL_OPTIONS'].items()]
         return range_options + scheme_options + additional_options
