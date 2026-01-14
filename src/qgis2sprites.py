@@ -31,10 +31,15 @@ from qgis.core import (
     QgsSingleSymbolRenderer,
     QgsPalLayerSettings,
     QgsProject,
-    QgsVectorLayerSimpleLabeling
-)
-from PyQt5.QtCore import QSize, QBuffer, QIODevice
-from PyQt5.QtGui import QImage
+    QgsVectorLayerSimpleLabeling)
+from qgis.PyQt.QtCore import qVersion
+qt_version = int(qVersion()[0])
+if qt_version == 5:
+    from PyQt5.QtCore import QSize, QBuffer, QIODevice
+    from PyQt5.QtGui import QImage
+else:
+    from PyQt6.QtCore import QSize, QBuffer, QIODevice
+    from PyQt6.QtGui import QImage
 from PIL import Image
 
 # Type aliases for clarity
@@ -609,11 +614,11 @@ class QGIS2Sprites:
 
             # Skip invisible or invalid layers layers
             is_vector = layer.type() == 0 and layer.geometryType() != 4
-            is_exist = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
-            is_visible = is_exist.isVisible() if is_exist else False
+            layer_node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+            is_visible = layer_node.isVisible() if layer_node is not None else False
             is_valid = layer.isValid()
             
-            if not all([is_vector, is_exist, is_visible, is_valid]):
+            if not all([is_vector, is_visible, is_valid]):
                 continue
             
             layer_name = layer.name() if layer.name() else f"layer_{layer_idx}"

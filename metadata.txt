@@ -1,10 +1,10 @@
 [general]
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
-qgisMaximumVersion=3.98
+qgisMaximumVersion=4.99
 description=Turn a QGIS project into a lightweight vector tiles package for WMS/WMTS serving or easy sharing while preserve original style.
 about=Pack a QGIS project's visible vector layers into a single vector tiles source (.mbtiles or XYZ directory) and a single vector tiles layer (.qlr) while preserve original style which can include a variety of renders, labeling, geometry generators, complex expressions and more.
-version=1.2
+version=1.3
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
@@ -15,11 +15,16 @@ tracker=https://github.com/GallPeters/QGIS2VectorTiles
 tags=cartography, style, styles, tiles, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
 icon=icon.png
 hasProcessingProvider=yes
+supportsQt6=True
 changelog=
 	** v1.2 (30.12.25):
-		- add Polygons Labels Base parameter
+		- Add QT6 support
+		- Add MapLibre\Mapbox sprites generator processing
+		- Fix bugs (prevent crashes when running on Linux)
+	** v1.2 (30.12.25):
+		- Expose "Polygons Labels Base" as processing parameter
 	** v1.1 (16.12.25):
-		- Fix bugs
 		- Support expressions based properties
+		- Fix bugs
 	** v1.0 (10.12.25):
 		- Initial

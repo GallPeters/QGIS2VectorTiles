@@ -23,7 +23,14 @@ from gc import collect
 
 import processing
 from osgeo import gdal, ogr, osr
-from PyQt5.QtCore import QVariant
+
+from qgis.PyQt.QtCore import qVersion
+qt_version = int(qVersion()[0])
+if qt_version == 5:
+    from PyQt5.QtCore import QVariant
+else:
+    from PyQt6.QtCore import QVariant
+
 from qgis.core import (
     QgsProject, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
     QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
@@ -564,10 +571,11 @@ class RulesExporter:
         )
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
-        sleep(1) # Avoid project crashing
         if not exists(output_dataset):
+            sleep(0.5) # Avoid project crashing
             layer = self._run_processing("refactorfields", INPUT=feature_source,
                                         FIELDS_MAPPING=field_mapping)
+            sleep(0.5) # Avoid project crashing
             layer = self._apply_transformation(layer, transformation, output_dataset)
         else:
             layer = None
@@ -797,7 +805,7 @@ class RuleFlattener:
         """Check if layer is a visible vector layer."""
         is_vector = layer.type() == 0 and layer.geometryType() != 4
         layer_node = self.layer_tree_root.findLayer(layer.id())
-        is_visible = layer_node.isVisible() if layer_node else False
+        is_visible = layer_node.isVisible() if layer_node is not None else False
         return is_vector and is_visible
     
     def _process_layer_rules(self, layer: QgsVectorLayer, layer_idx: int) -> None:
