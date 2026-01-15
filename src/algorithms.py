@@ -1,7 +1,6 @@
 import os
 from os.path import join, exists
 import inspect
-import tempfile
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
@@ -192,9 +191,8 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT_DIR,
                 self.tr("Output Directory"),
-                optional=False,
-                defaultValue=tempfile.gettempdir(),
-            )
+                optional=False
+                            )
         )
 
     def checkParameterValues(self, parameters, context):
@@ -349,9 +347,7 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT_DIR,
                 self.tr("Output Directory"),
-                optional=False,
-                defaultValue=tempfile.gettempdir(),
-            )
+                optional=False            )
         )
 
     def processAlgorithm(self, parameters, context, feedback):
