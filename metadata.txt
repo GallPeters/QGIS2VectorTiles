@@ -17,7 +17,7 @@ icon=icon.png
 hasProcessingProvider=yes
 supportsQt6=True
 changelog=
-	** v1.2 (30.12.25):
+	** v1.3 (30.12.25):
 		- Add QT6 support
 		- Add MapLibre\Mapbox sprites generator processing
 		- Fix bugs (prevent crashes when running on Linux)
