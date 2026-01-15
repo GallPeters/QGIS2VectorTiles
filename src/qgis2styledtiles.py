@@ -61,10 +61,11 @@ class ZoomLevels:
             for zoom, zoom_scale in enumerate(cls.SCALES):
                 if scale >= zoom_scale:
                     return zoom
-        else:
-             for zoom, zoom_scale in sorted(enumerate(cls.SCALES), reverse=True):
-                if scale <= zoom_scale:
-                    return zoom
+        if scale > cls.SCALES[0]:
+             return 0
+        for zoom, zoom_scale in sorted(enumerate(cls.SCALES), reverse=True):
+            if scale <= zoom_scale:
+                return zoom
         return len(cls.SCALES) - 1
 
     @classmethod
@@ -560,26 +561,21 @@ class RulesExporter:
         if self.include_required_fields_only != 0:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
             for field in layer.fields()])
-
-        layer = QgsProject.instance().addMapLayer(layer, False)
-        layer_id = layer.id()
-        feature_source = QgsProcessingFeatureSourceDefinition(
-            layer.source(), 
-            selectedFeaturesOnly=False if not selected_ids else True, 
-            featureLimit=-1,
-            geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
-        )
         output_dataset = single_rule.output_dataset_name
         output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
+        exp = single_rule.rule.filterExpression()
+        if exp:
+            layer = self._run_processing("extractbyexpression", INPUT=layer,
+                                            EXPRESSION=exp)
+            if not layer.featureCount() > 0:
+                layer = None
+                return layer
         if not exists(output_dataset):
-            sleep(0.5) # Avoid project crashing
-            layer = self._run_processing("refactorfields", INPUT=feature_source,
+            layer = self._run_processing("refactorfields", INPUT=layer,
                                         FIELDS_MAPPING=field_mapping)
-            sleep(0.5) # Avoid project crashing
             layer = self._apply_transformation(layer, transformation, output_dataset)
         else:
             layer = None
-        QgsProject.instance().removeMapLayer(layer_id)
 
         return layer
 
@@ -745,7 +741,12 @@ class RulesExporter:
                             QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
                             QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool
                             }
-                        def_obj = getattr(obj, 'propertyDefinitions') or getattr(parent, 'propertyDefinitions')
+                        if hasattr(obj, 'propertyDefinitions'):
+                            def_obj = getattr(obj, 'propertyDefinitions')
+                        elif hasattr(parent, 'propertyDefinitions'):
+                            def_obj = getattr(parent, 'propertyDefinitions')
+                        else:
+                            return fields
                         if def_obj:
                             prop_def = def_obj().get(prop_key)
                             if prop_def:
@@ -785,11 +786,12 @@ class RuleFlattener:
 
     RULE_TYPES = {0: "renderer", 1: "labeling"}
 
-    def __init__(self, min_zoom: int, max_zoom: int):
+    def __init__(self, min_zoom: int, max_zoom: int, feedback):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.layer_tree_root = QgsProject.instance().layerTreeRoot()
         self.flattened_rules = []
+        self.feedback = feedback
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
         """Extract and flatten all rules from visible vector layers."""
@@ -970,7 +972,7 @@ class RuleFlattener:
         ]
 
         if sibling_filters:
-            else_expression = f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)})'
+            else_expression = f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)}) IS 1'
         else:
             else_expression = ""
         
@@ -1272,7 +1274,7 @@ class QGIS2StyledTiles:
 
     def _flatten_rules(self) -> List[FlattenedRule]:
         """Flatten all rules from project layers."""
-        flattener = RuleFlattener(self.min_zoom, self.max_zoom)
+        flattener = RuleFlattener(self.min_zoom, self.max_zoom, self.feedback)
         return flattener.flatten_all_rules()
 
     def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
