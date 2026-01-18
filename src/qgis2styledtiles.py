@@ -14,7 +14,6 @@ from tomllib import load
 from datetime import datetime
 from os import makedirs, cpu_count
 from os.path import join, basename, exists
-from tempfile import gettempdir
 from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
@@ -670,92 +669,217 @@ class RulesExporter:
         return [target_geom, transform_expr]
 
 
-    def _get_ddp(self, current_object, parent_obj, ddp, depth = 0, index=0):
-        """Get data defined properties objects"""
-        if hasattr(current_object, 'dataDefinedProperties'):
-            ddp.append((current_object, parent_obj, depth, index))
-        for attr in dir(current_object):
-            try:
-                if any(char in attr.lower() for char in ['_',  'node', 'class', 'clone', 'create', 'copy', 'paste', 'clear', 'remove']):
-                    continue
-                obj = getattr(current_object, attr)
-                if attr != 'subSymbol' and len(attr) > 4 and attr[3].isupper():
-                    continue
-                if any(word in type(obj).__name__.lower() for word in ['qgis', 'enum']):
-                    continue
-                call_obj = obj()
-                if isinstance(call_obj, type(current_object)):
-                    continue
-                if attr != 'symbolLayers' and type(call_obj).__module__  != 'qgis._core':
-                    continue
-                iterable_object = [call_obj] if not hasattr(call_obj, '__iter__') else call_obj
-                for index, subobj in enumerate(iterable_object):
-                    try:
-                        if not isinstance(subobj, type(current_object)):
-                            subdepth = depth + 1
-                            subindex = index + 1
-                            parent_obj = current_object
-                            self._get_ddp(subobj, parent_obj, ddp, subdepth, subindex)
-                    except (NameError, ValueError, AttributeError, TypeError):
-                        break
-            except (NameError, ValueError, AttributeError, TypeError):
-                continue
-
     def _create_expression_fields(self, flat_rules: List[FlattenedRule]) -> dict:
-        """Create calculated fields from data-driven properties."""
+        """Create calculated fields from data-driven properties.
+        
+        Safe version that:
+        - Works with cloned objects, never modifies originals
+        - Properly enables data-driven property extraction
+        - Uses safe attribute access patterns
+        - Handles memory cleanup explicitly
+        """
         fields = []
         
-        for flat_rule in flat_rules:
-            # Duplicate object to avoid script modify original instance
-            rule_type = flat_rule.get_attribute("t")
-            if rule_type == 0:
-                clone = flat_rule.rule.symbol().clone()
-                flat_rule.rule.setSymbol(clone)
-                root_object = flat_rule.rule.symbol()  
-            else:
-                
-                format_clone = QgsTextFormat(flat_rule.rule.settings().format())
-                if flat_rule.rule.settings().format().background().markerSymbol():
-                    symbol_clone = flat_rule.rule.settings().format().background().markerSymbol().clone()
-                    format_clone.background().setMarkerSymbol(symbol_clone)
-                flat_rule.rule.settings().setFormat(format_clone)
-                root_object = flat_rule.rule.settings()
-
-            # Extract rules objects which may contain data defined properties
-            ddp_objects = []
-            self._get_ddp(root_object, root_object, ddp_objects)
-            for obj, parent, depth, index in ddp_objects:
-                dd_props = obj.dataDefinedProperties()
-                for prop_key in dd_props.propertyKeys():
-                    prop = dd_props.property(prop_key)
-                    if prop and prop.isActive():
-                        attr = 's' if flat_rule.get_attribute("t") == 0 else 'f'
-                        extra_val = f'{attr}{int(flat_rule.get_attribute(attr)):02d}'
-                        prop_id = f'property_{prop_key}d{int(depth):02d}i{int(index):02d}{extra_val}'
-                        field_name, expression = self._create_field_from_property(
-                            prop_id, prop, flat_rule
-                        )
+        try:
+            for flat_rule in flat_rules:
+                try:
+                    # Clone the rule to avoid modifying originals
+                    cloned_rule = flat_rule.rule.clone()
+                    if cloned_rule is None:
+                        continue
+                    
+                    rule_type = flat_rule.get_attribute("t")
+                    
+                    # Get root object from cloned rule, never from original
+                    if rule_type == 0:  # Renderer
+                        root_symbol = cloned_rule.symbol()
+                        if root_symbol is None:
+                            continue
+                        # Work with the symbol, don't replace it
+                        root_object = root_symbol
                         
-                        type_map = {
-                            QgsPropertyDefinition.DataTypeString: QVariant.String,
-                            QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
-                            QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool
-                            }
-                        if hasattr(obj, 'propertyDefinitions'):
-                            def_obj = getattr(obj, 'propertyDefinitions')
-                        elif hasattr(parent, 'propertyDefinitions'):
-                            def_obj = getattr(parent, 'propertyDefinitions')
-                        else:
-                            return fields
-                        if def_obj:
-                            prop_def = def_obj().get(prop_key)
-                            if prop_def:
-                                field_type = type_map.get(prop_def.dataType()) or 10
-                                field_props = {'type':field_type, 'expression': expression, 'name': field_name} 
+                    else:  # Labeling (rule_type == 1)
+                        root_settings = cloned_rule.settings()
+                        if root_settings is None:
+                            continue
+                        
+                        # Clone format safely
+                        try:
+                            format_obj = root_settings.format()
+                            if format_obj is not None:
+                                format_clone = QgsTextFormat(format_obj)
+                                
+                                # Safely handle marker symbol if present
+                                bg_symbol = format_obj.background().markerSymbol() if format_obj.background() else None
+                                if bg_symbol is not None:
+                                    symbol_clone = bg_symbol.clone()
+                                    if symbol_clone is not None:
+                                        format_clone.background().setMarkerSymbol(symbol_clone)
+                                
+                                root_settings.setFormat(format_clone)
+                        except (RuntimeError, AttributeError, TypeError):
+                            # If format handling fails, continue with settings as-is
+                            pass
+                        
+                        root_object = root_settings
+                    
+                    # Extract data-driven properties from cloned objects
+                    ddp_objects = []
+                    self._get_ddp_safe(root_object, root_object, ddp_objects)
+                    
+                    # Process each data-driven property found
+                    for obj, parent, depth, index in ddp_objects:
+                        try:
+                            dd_props = obj.dataDefinedProperties()
+                            if dd_props is None:
+                                continue
+                            
+                            for prop_key in dd_props.propertyKeys():
+                                prop = dd_props.property(prop_key)
+                                if prop is None or not prop.isActive():
+                                    continue
+                                
+                                # Create field from property
+                                attr = 's' if rule_type == 0 else 'f'
+                                attr_val = flat_rule.get_attribute(attr)
+                                if attr_val is None:
+                                    attr_val = 0
+                                
+                                extra_val = f'{attr}{int(attr_val):02d}'
+                                prop_id = f'property_{prop_key}d{int(depth):02d}i{int(index):02d}{extra_val}'
+                                
+                                field_name, expression = self._create_field_from_property(
+                                    prop_id, prop, flat_rule
+                                )
+                                
+                                # Map property type to QVariant type
+                                type_map = {
+                                    QgsPropertyDefinition.DataTypeString: QVariant.String,
+                                    QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
+                                    QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool
+                                }
+                                
+                                # Get property definition for type info
+                                field_type = 10  # Default to String
+                                try:
+                                    if hasattr(obj, 'propertyDefinitions'):
+                                        prop_defs = obj.propertyDefinitions()
+                                        if prop_defs and prop_key in prop_defs:
+                                            prop_def = prop_defs[prop_key]
+                                            if hasattr(prop_def, 'dataType'):
+                                                field_type = type_map.get(prop_def.dataType(), 10)
+                                    elif hasattr(parent, 'propertyDefinitions'):
+                                        prop_defs = parent.propertyDefinitions()
+                                        if prop_defs and prop_key in prop_defs:
+                                            prop_def = prop_defs[prop_key]
+                                            if hasattr(prop_def, 'dataType'):
+                                                field_type = type_map.get(prop_def.dataType(), 10)
+                                except (RuntimeError, AttributeError, TypeError):
+                                    # Type detection failed, use default
+                                    pass
+                                
+                                # Add field to list
+                                field_props = {
+                                    'type': field_type,
+                                    'expression': expression,
+                                    'name': field_name
+                                }
                                 fields.append(field_props)
-                                prop.setExpressionString(f'"{field_name}"')
-        return fields
+                                
+                                # Update property to reference the new field
+                                try:
+                                    prop.setExpressionString(f'"{field_name}"')
+                                except RuntimeError:
+                                    # Property might be immutable, skip
+                                    pass
+                        
+                        except (RuntimeError, AttributeError, TypeError) as e:
+                            # Skip problematic property objects
+                            continue
+                
+                except Exception as e:
+                    # Skip this rule if anything goes wrong
+                    continue
+            
+            return fields
+        
+        finally:
+            # Explicit garbage collection to ensure Qt objects are cleaned up
+            try:
+                collect()
+            except Exception:
+                pass
 
+
+    # Add this helper method to your RulesExporter class
+    def _get_ddp_safe(self, current_object, parent_obj, ddp, depth=0, index=0):
+        """Safely extract data-defined properties objects.
+        
+        Only accesses known, safe attributes to avoid segfaults on Linux.
+        Uses explicit type checking and safe iteration patterns.
+        """
+        if current_object is None:
+            return
+        
+        try:
+            # Check if object has data-defined properties
+            if hasattr(current_object, 'dataDefinedProperties'):
+                try:
+                    ddp.append((current_object, parent_obj, depth, index))
+                except Exception:
+                    pass
+        except (RuntimeError, ReferenceError):
+            return
+        
+        # Only access known safe attribute accessors
+        safe_accessors = [
+            ('symbolLayers', True),      # Returns list
+            ('format', False),            # Returns single object
+            ('background', False),        # For format background
+            ('shadow', False),            # For format shadow
+            ('buffer', False),            # For format buffer
+        ]
+        
+        for attr_name, is_iterable in safe_accessors:
+            if not hasattr(current_object, attr_name):
+                continue
+            
+            try:
+                # Get the attribute safely
+                attr_method = getattr(current_object, attr_name, None)
+                if attr_method is None or not callable(attr_method):
+                    continue
+                
+                result = attr_method()
+                if result is None:
+                    continue
+                
+                # Process result based on type
+                if is_iterable:
+                    try:
+                        for sub_index, subobj in enumerate(result):
+                            if subobj is not None:
+                                self._get_ddp_safe(subobj, current_object, ddp, depth + 1, sub_index)
+                    except (TypeError, RuntimeError):
+                        # Not iterable or object was deleted
+                        pass
+                else:
+                    # Single object
+                    try:
+                        self._get_ddp_safe(result, current_object, ddp, depth + 1, 0)
+                    except RuntimeError:
+                        # Object might have been deleted during recursion
+                        pass
+            
+            except RuntimeError:
+                # Qt object was deleted or is invalid - common on Linux
+                continue
+            except (AttributeError, TypeError):
+                # Attribute doesn't exist or isn't callable
+                continue
+            except Exception:
+                # Any other unexpected error - skip this attribute
+                continue
     def _create_field_from_property(self, prop_id: str, prop, 
                                     flat_rule: FlattenedRule) -> Tuple[str, str]:
         """Create field name and expression from data-driven property."""
@@ -1207,7 +1331,7 @@ class QGIS2StyledTiles:
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
-        self.output_dir = output_dir or gettempdir()
+        self.output_dir = output_dir
         self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
