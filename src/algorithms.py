@@ -378,7 +378,7 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
         except Exception as e:
             feedback.reportError(f"Error during sprite generation: {str(e)}")
             return {}
-
+        
         # Return empty results dictionary (modify as needed for your use case)
         return {}
 
