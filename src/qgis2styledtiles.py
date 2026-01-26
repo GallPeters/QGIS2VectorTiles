@@ -36,9 +36,9 @@ from qgis.core import (
     QgsVectorLayer, QgsLayerDefinition, QgsVectorTileLayer, 
     QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer, QgsWkbTypes, QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition, QgsVectorTileBasicRendererStyle,
-    QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle,
-    QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol, QgsTextFormat,
-    QgsFeatureRequest, QgsProcessingUtils, QgsProcessingFeedback, QgsApplication,QgsPropertyDefinition, QgsLabelThinningSettings, Qgis, QgsExpression
+    QgsVectorTileBasicLabeling, QgsVectorTileBasicLabelingStyle, QgsTextBackgroundSettings,
+    QgsMarkerSymbol, QgsLineSymbol, QgsFillSymbol, QgsTextFormat,QgsPropertyCollection,
+    QgsFeatureRequest, QgsLayerTree, QgsProcessingUtils, QgsProcessingFeedback, QgsApplication,QgsPropertyDefinition, QgsLabelThinningSettings, Qgis, QgsExpression
 )
 
 from os.path import exists, join
@@ -401,13 +401,13 @@ class RulesExporter:
     FIELD_PREFIX = "q2vt"
 
     def __init__(self, flattened_rules: List[FlattenedRule],
-                 extent, include_required_fields_only, max_zoom, cent_source, feedback: QgsProcessingFeedback):
+                 extent, include_required_fields_only, max_zoom, utils_dir, cent_source, feedback: QgsProcessingFeedback):
         self.flattened_rules = flattened_rules
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
         self.max_zoom = max_zoom
         self.cent_source = cent_source
-        self.temp_dir = self._create_temp_dir()
+        self.utils_dir = utils_dir
         self.processed_layers = []
         self.feedback = feedback
 
@@ -445,13 +445,7 @@ class RulesExporter:
         #             if attr == 'i' and attr_val > real_maxzoom:
         #                 rule.set_attribute(attr, real_maxzoom)
         # return rules
-    
-    def _create_temp_dir(self) -> str:
-        """Create temporary directory using QGIS utils."""
-        # Use a subfolder to ensure cleanness
-        temp_dir = join(QgsProcessingUtils.tempFolder(), f"q2styledtiles_{uuid4().hex}")
-        makedirs(temp_dir, exist_ok=True)
-        return temp_dir
+
 
     def _export_base_layers(self) -> None:
         """Export base vector layers to FlatGeobuf format."""
@@ -495,7 +489,7 @@ class RulesExporter:
         subset_string = layer.subsetString()
         where = f' -where "{subset_string}"' if subset_string else ''
         
-        output_path = join(self.temp_dir, f'map_layer_{layer_id}.fgb')
+        output_path = join(self.utils_dir, f'map_layer_{layer_id}.fgb')
         
         # Build processing pipeline
         options = f'-spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -nlt PROMOTE_TO_MULTI{selection}'
@@ -514,7 +508,7 @@ class RulesExporter:
     def _export_rule_group(self, rules: List[FlattenedRule]) -> Optional[QgsVectorLayer]:
         """Export group of rules sharing the same dataset."""
         flat_rule = rules[0]
-        layer = QgsVectorLayer(join(self.temp_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
+        layer = QgsVectorLayer(join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
         if not layer.featureCount() > 0:
             return
 
@@ -562,7 +556,7 @@ class RulesExporter:
             field_mapping.extend([{'type': field.type(), 'expression': f'"{field.name()}"', 'name': f'{field.name()}'} 
             for field in layer.fields()])
         output_dataset = single_rule.output_dataset_name
-        output_dataset = join(self.temp_dir, f"{output_dataset}.fgb")
+        output_dataset = join(self.utils_dir, f"{output_dataset}.fgb")
         exp = single_rule.rule.filterExpression()
         if exp:
             layer = self._run_processing("extractbyexpression", INPUT=layer,
@@ -672,32 +666,22 @@ class RulesExporter:
 
     def _get_ddp(self, current_object, parent_obj, ddp, depth = 0, index=0, parent_attr=None):
         """Get data defined properties objects"""
-        # attrs = [attr for attr in dir(current_object) if attr[0] == attr[0].lower() and 'set' not in attr and '_' not in attr and attr.lower() and not any(word in attr.lower() for word in ['dump', 'availableshapes', 'node', 'prepare', 'baseclass', 'clone', 'create', 'copy', 'paste', 'clear', 'remove', 'to', 'force', 'flag', 'delete'])]
-        attrs = [attr for attr in dir(current_object) if attr in ['settings', 'symbol', 'format', 'background', 'markerSymbol', 'symbolLayers', 'subSymbol']]
+        # attrs = [attr for attr in dir(current_object) if attr[:3] != 'set' or attr[3] != attr[3].upper()]
+        attrs = [attr for attr in dir(current_object) if attr[0] == attr[0].lower() and '_' not in attr and (attr[:3] != 'set' or attr[3] != attr[3].upper()) and not any(word.lower() in attr.lower() for word in ['dump', 'availableshapes', 'node', 'prepare', 'baseclass', 'clone', 'create', 'copy', 'paste', 'clear', 'remove', 'to', 'force', 'flag', 'delete', 'overrundistance', 'placedirectionsymbol', 'zindex', 'propertydefinitions'])]
+        # attrs = [attr for attr in dir(current_object) if attr[0] == attr[0].lower() and '_' not in attr ]
+        # attrs = [attr for attr in dir(current_object) if attr in ['settings', 'symbol', 'format', 'background', 'markerSymbol', 'symbolLayers', 'subSymbol']]
         for attr in attrs:
             try: 
-                # path = r"/mnt/c/projects/example.txt"
-                # with open(path, "w", encoding="utf-8") as f:
-                #     f.write(f"{current_object} {attr}")
-                #     f.close()
-                # if attr == 'markerSymbol':
-                #     print(current_object.markerSymbol().symbolLayers())
-                # if attr == 'symbolLayers':
-                #     print(current_object.symbolLayers())
+                path = r"/mnt/c/projects/example.txt"
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(f"{current_object} {attr}")
+                    f.close()
                 subobj = getattr(current_object, attr)
+                if isinstance(subobj(), type(current_object)):
+                    continue
                 if callable(subobj):
                     if attr != 'symbolLayers':
-                        iterable_object = [subobj()]       
-                        # if hasattr(subobj(), 'clone'):
-                        #     pass
-                        #     # iterable_object = [subobj().clone()]
-                        # elif subobj():
-                        #     iterable_object = [type(subobj())(subobj())]
-                        #     setter = f'set{attr[0].capitalize()}{attr[1:]}'
-                        #     if hasattr(current_object, setter):
-                        #         getattr(current_object, setter)(iterable_object[0])
-                        #         subobj = getattr(current_object, attr)
-                        #         iterable_object = [subobj()]
+                        iterable_object = [subobj()] 
                     else:
                         iterable_object = subobj()
                             
@@ -712,7 +696,7 @@ class RulesExporter:
                                 subindex = index + 1
                                 parent_obj = current_object
                                 self._get_ddp(subcallobj, parent_obj, ddp, subdepth, subindex, attr)
-            except (NameError, ValueError, AttributeError, TypeError) as e:
+            except (NameError, ValueError, AttributeError, TypeError):
                 continue
 
     def _create_expression_fields(self, flat_rules: List[FlattenedRule]) -> dict:
@@ -749,8 +733,8 @@ class RulesExporter:
                             prop_def = def_obj().get(prop_key)
                             if prop_def:
                                 field_type = type_map.get(prop_def.dataType())
-                                field_props = {'type':field_type, 'expression': expression, 'name': field_name} 
-                                # prop.setExpressionString(f'"{field_name}"')
+                                field_props = {'type':field_type, 'expression': expression, 'name': field_name}
+                                prop.setExpressionString(f'"{field_name}"')
                                 fields.append(field_props)
         return fields
 
@@ -784,20 +768,24 @@ class RuleFlattener:
 
     RULE_TYPES = {0: "renderer", 1: "labeling"}
 
-    def __init__(self, min_zoom: int, max_zoom: int, feedback):
+    def __init__(self, min_zoom: int, max_zoom: int, utils_dir, feedback):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
+        self.utils_dir = utils_dir
         self.layer_tree_root = QgsProject.instance().layerTreeRoot()
         self.flattened_rules = []
         self.feedback = feedback
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
         """Extract and flatten all rules from visible vector layers."""
+        layer_tree_clone = QgsLayerTree()
         for layer_idx, layer in enumerate(self.layer_tree_root.findLayers()):
             if self._is_valid_layer(layer.layer()):
-                temp_layer = layer.layer().clone()
-                self._process_layer_rules(temp_layer, layer_idx)
-        
+                qlr_path = join(self.utils_dir, f"q2styledtiles_{uuid4().hex}.qlr")
+                QgsLayerDefinition().exportLayerDefinition(qlr_path, [layer])
+                QgsLayerDefinition.loadLayerDefinition(qlr_path, QgsProject.instance(), layer_tree_clone)
+        for layer_idx, layer in enumerate(layer_tree_clone.findLayers()):
+            self._process_layer_rules(layer.layer(), layer_idx)
         return self.flattened_rules
 
     def _is_valid_layer(self, layer) -> bool:
@@ -1222,12 +1210,13 @@ class QGIS2StyledTiles:
         """
         try:
             temp_dir = self._create_temp_directory()
+            utils_dir = self._create_utils_dir()
             self._log(". Starting conversion process...")
             start_time = perf_counter()
 
             # Step 1: Flatten all rules
             self._log(". Flattening rules...")
-            rules = self._flatten_rules()
+            rules = self._flatten_rules(utils_dir)
             if not rules:
                 self._log(". No visible vector layers found in project.")
                 return None
@@ -1239,7 +1228,7 @@ class QGIS2StyledTiles:
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
                 self._log(". Exporting rules to layers...")
-                layers, rules = self._export_rules(rules)
+                layers, rules = self._export_rules(rules, utils_dir)
                 export_time = perf_counter()
                 self._log(f". Successfully exported {len(layers)} layers "
                         f"({self._elapsed_minutes(flatten_time, export_time)} minutes).")
@@ -1269,16 +1258,22 @@ class QGIS2StyledTiles:
         temp_dir = join(self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f"))
         makedirs(temp_dir, exist_ok=True)
         return temp_dir
+    
+    def _create_utils_dir(self):
+        """Create temporary directory using QGIS utils."""
+        temp_dir = join(QgsProcessingUtils.tempFolder(), f"q2styledtiles_{uuid4().hex}")
+        makedirs(temp_dir, exist_ok=True)
+        return temp_dir
 
-    def _flatten_rules(self) -> List[FlattenedRule]:
+    def _flatten_rules(self, utils_dir) -> List[FlattenedRule]:
         """Flatten all rules from project layers."""
-        flattener = RuleFlattener(self.min_zoom, self.max_zoom, self.feedback)
+        flattener = RuleFlattener(self.min_zoom, self.max_zoom, utils_dir, self.feedback)
         return flattener.flatten_all_rules()
 
-    def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
+    def _export_rules(self, rules: List[FlattenedRule], utils_dir) -> List[QgsVectorLayer]:
         """Export rules to vector layers."""
         exporter = RulesExporter(
-            rules, self.extent, self.include_required_fields_only, self.max_zoom, self.cent_source, self.feedback)
+            rules, self.extent, self.include_required_fields_only, self.max_zoom, utils_dir, self.cent_source, self.feedback)
         return exporter.export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
