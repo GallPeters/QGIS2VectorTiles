@@ -713,7 +713,6 @@ class RulesExporter:
             if self.cent_source == 1
             else "@geometry"
         )
-        print(source_polygons)
         centroids = f"with_variable('source', {source_polygons}, if(intersects(centroid(@source),"\
             "@source), centroid(@source),  point_on_surface(@source)))"
         return centroids
@@ -1441,7 +1440,7 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 9,
+        max_zoom: int = 16,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
