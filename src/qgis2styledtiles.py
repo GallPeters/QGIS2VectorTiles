@@ -533,33 +533,28 @@ class RulesExporter:
     def _export_single_base_layer(self, layer: QgsVectorLayer, fields: set) -> None:
         """Export single base layer with field selection and transformations."""
         layer_id = layer.id()
-
-        output_path = join(self.utils_dir, f"map_layer_{layer_id}.fgb")
+        fields_str = ','.join([f for f in fields if f not in ('#!allattributes!#', 'fid')])
+        selection = f' -select {fields_str}' if fields_str else ''
+        
+        extent_wkt = self.extent.asWktCoordinates().replace(",",'')
+        subset_string = layer.subsetString()
+        where = f' -where "{subset_string}"' if subset_string else ''
+        
+        output_path = join(self.utils_dir, f'map_layer_{layer_id}.fgb')
+        
         # Build processing pipeline
-        layer = self._run_processing(
-            "reprojectlayer",
-            INPUT=layer,
-            TARGET_CRS=f"EPSG:{_TILING_SCHEME['EPSG_CRS']}",
-        )
-        layer = self._run_processing(
-            "extractbyextent", INPUT=layer, EXTENT=self.extent, CLIP=False
-        )
-        layer = self._run_processing("retainfields", INPUT=layer, FIELDS=list(fields))
+        options = f'-spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -dim XY{where} -explodecollections{selection}'
+        layer = self._run_processing("buildvirtualvector", "gdal", INPUT=layer)
+        layer = self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS=options)
+
         if layer.featureCount() > 0:
             layer = self._run_processing("multiparttosingleparts", INPUT=layer)
-            layer = self._run_processing(
-                "simplifygeometries",
-                INPUT=layer,
-                METHOD=0,
-                TOLERANCE=_TILES_CONF["GENERAL_CONF"]["DATA_SIMPLIFICATION_TOLERANCE"],
-            )
+            layer = self._run_processing("simplifygeometries", INPUT=layer, 
+                                        METHOD=0, TOLERANCE=_TILES_CONF['GENERAL_CONF']['DATA_SIMPLIFICATION_TOLERANCE'])
             layer = self._run_processing("fixgeometries", INPUT=layer, MTHOD=1)
-            layer = self._run_processing(
-                "extractbyexpression",
-                INPUT=layer,
-                EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)",
-                OUTPUT=output_path,
-            )
+            layer = self._run_processing("extractbyexpression", INPUT=layer,
+                                        EXPRESSION="is_valid($geometry) AND NOT is_empty_or_null($geometry)",
+                                        OUTPUT=output_path)
 
     def _export_rule_group(
         self, rules: List[FlattenedRule]
