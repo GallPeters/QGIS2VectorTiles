@@ -507,11 +507,11 @@ class RulesExporter:
 
     def _export_rule_group(self, rules: List[FlattenedRule]) -> Optional[QgsVectorLayer]:
         """Export group of rules sharing the same dataset."""
+        self._change_map_scale_expressions(rules)
         flat_rule = rules[0]
         layer = QgsVectorLayer(join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb"))
         if not layer.featureCount() > 0:
             return
-
         fields = self._create_expression_fields(rules)
         
         if flat_rule.get_attribute("t") == 1:  # Labeling
@@ -543,6 +543,26 @@ class RulesExporter:
                 return layer.selectedFeatureIds()
             
         return None
+    
+    def _change_map_scale_expressions(self, rules):
+        """update expressions included @map_scale and replace it with the curren_scale"""
+        for flat_rule in rules:
+            rule_type = flat_rule.get_attribute("t")
+            if rule_type == 1:
+                settings = flat_rule.rule.settings()
+                label_exp = settings.getLabelExpression().expression()
+                updated_exp = label_exp.replace("@map_scale", str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))))
+                settings.fieldName = updated_exp
+                if settings.geometryGeneratorEnabled:
+                    updated_exp = settings.geometryGenerator.replace("@map_scale", str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))))
+                    settings.geometryGenerator = updated_exp
+            else:
+                symbol = flat_rule.rule.symbol()
+                if symbol:
+                    for symbol_layer in symbol.symbolLayers():
+                        if symbol_layer.layerType() == "GeometryGenerator":
+                            updated_exp = symbol_layer.geometryExpression().replace("@map_scale", str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))))
+                            symbol_layer.setGeometryExpression(updated_exp)
 
     def _apply_field_mapping(self, layer: QgsVectorLayer, fields: list, 
                             selected_ids: Optional[List], transformation, rules: list[FlattenedRule]) -> QgsVectorLayer:
@@ -564,7 +584,6 @@ class RulesExporter:
                 layer = None
                 return layer
         if not exists(output_dataset):
-            print(field_mapping)
             layer = self._run_processing("refactorfields", INPUT=layer,
                                         FIELDS_MAPPING=field_mapping)
             layer = self._apply_transformation(layer, transformation, output_dataset)
@@ -664,10 +683,11 @@ class RulesExporter:
 
 
 
-    def _get_ddp(self, current_object, parent_obj, ddp, depth = 0, index=0):
+    def _get_ddp(self, current_object, parent_obj, ddp, depth=0, index=0):
         """Get data defined properties objects"""
         crashing_attr = ['_', 'valueandcolorfieldusages', 'zindex', 'availableshapes', 'pyqtconfigure', 'next', 'attr', 'clone']
         attrs = [i for i in dir(current_object) if not any(word.lower() in i.lower() for word in crashing_attr)]
+
         for attr in attrs:
             try:
                 subobj = getattr(current_object, attr)
@@ -677,12 +697,13 @@ class RulesExporter:
                     iterable_object = [subobj()] if not isinstance(subobj(), list) else subobj()
                     if iterable_object and any('datadefined' in subattr.lower() for subattr in dir(iterable_object[0])):
                         for index, subcallobj in enumerate(iterable_object):
-                            if hasattr(subcallobj, 'dataDefinedProperties'):
-                                ddp.append((subcallobj, parent_obj, depth, index))
-                            subdepth = depth + 1
-                            subindex = index + 1
-                            parent_obj = current_object
-                            self._get_ddp(subcallobj, parent_obj, ddp, subdepth, subindex)
+                            index+=1
+                            if not subcallobj in [prop[0] for prop in ddp]:
+                                if hasattr(subcallobj, 'dataDefinedProperties'):
+                                    ddp.append((subcallobj, parent_obj, depth, index))
+                                depth+=1
+                                parent_obj = current_object
+                                self._get_ddp(subcallobj, parent_obj, ddp, depth, index)
             except (NameError, ValueError, AttributeError, TypeError):
                 continue
 
@@ -720,7 +741,8 @@ class RulesExporter:
                             prop_def = def_obj().get(prop_key)
                             if prop_def:
                                 field_type = type_map.get(prop_def.dataType())
-                                expression = f"try({expression}, array_to_string({expression}))"
+                                if 'array' in expression:
+                                    expression = f"try(array_to_string({expression}), {expression})"
                                 field_props = {'type':field_type, 'expression': expression, 'name': field_name}
                                 prop.setExpressionString(f'"{field_name}"')
                                 fields.append(field_props)
@@ -1122,6 +1144,32 @@ class RuleFlattener:
         rule_clone.set_attribute("f", renderer_idx)
         return rule_clone
 
+
+    def _get_ddp(self, current_object, ddp, depth = 0, index=0):
+        """Get data defined properties objects"""
+        crashing_attr = ['_', 'valueandcolorfieldusages', 'zindex', 'availableshapes', 'pyqtconfigure', 'next', 'attr', 'clone']
+        attrs = [i for i in dir(current_object) if not any(word.lower() in i.lower() for word in crashing_attr)]
+
+        for attr in attrs:
+            try:
+                subobj = getattr(current_object, attr)
+                if callable(subobj):
+                    if isinstance(subobj(), type(current_object)):
+                        continue
+                    iterable_object = [subobj()] if not isinstance(subobj(), list) else subobj()
+                    if iterable_object and any('datadefined' in subattr.lower() for subattr in dir(iterable_object[0])):
+                        for index, subcallobj in enumerate(iterable_object):
+                            if hasattr(subcallobj, 'dataDefinedProperties'):
+                                dd_props = subcallobj.dataDefinedProperties()
+                                for prop_key in dd_props.propertyKeys():
+                                    prop = dd_props.property(prop_key)
+                                    if prop and prop.isActive():
+                                        expression = prop.expressionString()
+                                        ddp.add(expression)
+                                self._get_ddp(subcallobj, ddp)
+            except (NameError, ValueError, AttributeError, TypeError):
+                continue
+
     @staticmethod
     def _ranges_overlap(r1_start: int, r1_end: int, r2_start: int, r2_end: int) -> bool:
         """Check if two ranges overlap."""
@@ -1150,25 +1198,25 @@ class RuleFlattener:
         """Check if rule has scale-dependent expressions."""
         expressions = []
         rule_type = flat_rule.get_attribute("t")
-
-        if rule_type == 0:  # Renderer
-            objects = [flat_rule.rule.symbol()] + flat_rule.rule.symbol().symbolLayers()
-        else:  # Labeling
-            objects = [flat_rule.rule.settings()]
-
-        for obj in objects:
-            dd_props = obj.dataDefinedProperties()
-            for prop_key in dd_props.propertyKeys():
-                prop = dd_props.property(prop_key)
-                if prop:
-                    expressions.append(prop.expressionString())
-
+        ddp = set()
+        self._get_ddp(flat_rule.rule, ddp)
+        expressions.extend(list(ddp))
         expressions.append(flat_rule.rule.filterExpression())
-        
-        if rule_type == 1:
-            label_exp = flat_rule.rule.settings().getLabelExpression().expression()
-            expressions.append(label_exp)
 
+
+        if rule_type == 1:
+            settings = flat_rule.rule.settings()
+            label_exp = settings.getLabelExpression().expression()
+            expressions.append(label_exp)
+            if settings.geometryGeneratorEnabled:
+                expressions.append(settings.geometryGenerator)
+        else:
+            symbol = flat_rule.rule.symbol()
+            if symbol:
+                for symbol_layer in symbol.symbolLayers():
+                    if symbol_layer.layerType() == "GeometryGenerator":
+                        expressions.append(symbol_layer.geometryExpression())
+                
         return "@map_scale" in ', '.join(expressions)
 
     def _create_scale_specific_rule(self, flat_rule: FlattenedRule, 
@@ -1201,9 +1249,9 @@ class QGIS2StyledTiles:
     vector layer styling to vector tiles format.
     """
 
-    def __init__(self, min_zoom: int = 5, max_zoom: int = 12, extent=None,
+    def __init__(self, min_zoom: int = 0, max_zoom: int = 17, extent=None,
                  output_dir: str = None, include_required_fields_only=0, output_type: str = "xyz", cpu_percent: int = 100, output_content: int = 0,
-                 cent_source: int = 0, feedback: QgsProcessingFeedback = None):
+                 cent_source: int = 1, feedback: QgsProcessingFeedback = None):
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
