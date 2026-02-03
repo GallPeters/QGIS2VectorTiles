@@ -64,9 +64,9 @@ else:
     from PyQt6.QtCore import QVariant
 
 # Import by run environment
-if __name__ == '__console__':
+if __name__ == "__console__":
     _PLUGIN_DIR = join(
-        QgsApplication.qgisSettingsDirPath(), 'python', 'plugins', 'QGIS2VectorTiles'
+        QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles"
     )
     _RESOURCES = join(_PLUGIN_DIR, "resources")
     _CONF = join(_RESOURCES, "conf.toml")
@@ -78,6 +78,27 @@ else:
 # Constants
 _TILES_CONF = load(open(_CONF, "rb"))
 _TILING_SCHEME = _TILES_CONF["TILING_SCHEME"]
+_CRASHING_ATTRS = [
+    "_",
+    "value",
+    "index",
+    "available",
+    "config",
+    "next",
+    "attr",
+    "clone",
+    "function",
+    "flag",
+    "capabil" "remove",
+    "symbols",
+    "clear",
+    "prepare",
+    "dump",
+    "copy",
+    "create",
+    "update",
+    "replace",
+]
 
 
 class ZoomLevels:
@@ -90,10 +111,9 @@ class ZoomLevels:
         """Convert scale to zero-padded zoom level string."""
         if scale in [0, 0.0]:
             scale = cls.SCALES[0 if edge == "o" else -1]
-        if edge == "o":
-            for zoom, zoom_scale in enumerate(cls.SCALES):
-                if scale >= zoom_scale:
-                    return zoom
+        for zoom, zoom_scale in enumerate(cls.SCALES):
+            if scale >= zoom_scale and edge == "o":
+                return zoom
         if scale > cls.SCALES[0]:
             return 0
         for zoom, zoom_scale in sorted(enumerate(cls.SCALES), reverse=True):
@@ -116,25 +136,18 @@ class FlattenedRule:
     rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     layer: QgsVectorLayer
     name: Optional[str] = ""
-    output_dataset_name: str = ""
+    output_dataset: Optional[str] = ""
 
     def __post_init__(self):
         """Construct rule's name"""
-        if not self.name:
-            lyr_name = self.layer.name() or self.layer.id()
-            rule_type = (
-                "symbology"
-                if isinstance(self.rule, QgsRuleBasedRenderer.Rule)
-                else "labeling"
-            )
-            if rule_type == "symbology":
-                rule_name = self.rule.label()
-            else:
-                rule_name = self.rule.description()
-            rule_name = rule_name or self.rule.ruleKey()
-            self.name = f"{lyr_name} > {rule_type} > {rule_name}"
+        lyr_name = self.layer.name()
+        rule_type = "renderer" if isinstance(self.rule, QgsRuleBasedRenderer.Rule) else "labeling"
+        rule_name = getattr(self.rule, "label" if rule_type == "renderer" else "description")()
+        self.name = (
+            f"{lyr_name or self.layer.id()} > {rule_type} > {rule_name or self.rule.ruleKey()}"
+        )
 
-    def get_attribute(self, char: str) -> Optional[int]:
+    def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""
         desc = self.rule.description()
         start = desc.find(char) + 1
@@ -142,11 +155,11 @@ class FlattenedRule:
             return None
         return int(desc[start : start + 2])
 
-    def set_attribute(self, char: str, value: int) -> None:
+    def set_attr(self, char: str, value: int):
         """Set rule attribute in description."""
         value = int(value)
         new_attr = f"{char}{value:02d}"
-        current = self.get_attribute(char)
+        current = self.get_attr(char)
 
         desc = self.rule.description()
         if current is not None:
@@ -156,22 +169,17 @@ class FlattenedRule:
             desc = f"{desc}{new_attr}"
 
         self.rule.setDescription(desc)
-        self.output_dataset_name = desc
+        self.output_dataset = desc
 
-        # Normalize scale attribute for dataset naming
         i = desc.find("s")
         if i >= 0:
-            self.output_dataset_name = self.output_dataset_name.replace(
-                desc[i : i + 3], "s00"
-            )
+            self.output_dataset = self.output_dataset.replace(desc[i : i + 3], "s00")
 
 
 class TilesStyler:
     """Applies styling to vector tile layers from flattened rules."""
 
-    def __init__(
-        self, flattened_rules: List[FlattenedRule], output_dir: str, tiles_path: str
-    ):
+    def __init__(self, flattened_rules: List[FlattenedRule], output_dir: str, tiles_path: str):
         self.flattened_rules = flattened_rules
         self.output_dir = output_dir or QgsProcessingUtils.tempFolder()
         self.tiles_layer = self._create_tiles_layer(tiles_path)
@@ -189,19 +197,16 @@ class TilesStyler:
 
     def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
-        suffix = (
-            "&http-header:referer="
-            if tiles_path and tiles_path.split(".")[-1] != "mbtiles"
-            else ""
-        )
+        header = "&http-header:referer="
+        suffix = header if tiles_path and tiles_path.split(".")[-1] != "mbtiles" else ""
         layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
         layer = QgsProject.instance().addMapLayer(layer, False)
         QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
         return layer
 
-    def _create_style_from_rule(self, flat_rule: FlattenedRule) -> None:
+    def _create_style_from_rule(self, flat_rule: FlattenedRule):
         """Create appropriate style from flattened rule."""
-        rule_type = flat_rule.get_attribute("t")
+        rule_type = flat_rule.get_attr("t")
 
         if rule_type == 0:  # Renderer
             style = QgsVectorTileBasicRendererStyle()
@@ -212,25 +217,21 @@ class TilesStyler:
             self._setup_labeling_style(style, flat_rule)
             self.labeling_styles.append(style)
 
-    def _setup_renderer_style(
-        self, style: QgsVectorTileBasicRendererStyle, flat_rule: FlattenedRule
-    ) -> None:
+    def _setup_renderer_style(self, style, flat_rule: FlattenedRule):
         """Configure renderer style properties."""
         self._setup_base_style_properties(style, flat_rule)
 
         symbol = flat_rule.rule.symbol()
         symbol_layer = symbol.symbolLayers()[-1]
         sub_symbol = symbol_layer.subSymbol()
-        source_geom = int(flat_rule.get_attribute("g"))
-        target_geom = int(flat_rule.get_attribute("c"))
+        sub_symbol_layer = sub_symbol.symbolLayers()[-1]
+        source_geom = int(flat_rule.get_attr("g"))
+        target_geom = int(flat_rule.get_attr("c"))
 
-        # Handle geometry transformations
         if source_geom != target_geom:
             if sub_symbol and symbol_layer.layerType() == "GeometryGenerator":
                 self._copy_data_driven_properties(symbol, sub_symbol)
-                self._copy_data_driven_properties(
-                    symbol.symbolLayers()[-1], sub_symbol.symbolLayers()[-1]
-                )
+                self._copy_data_driven_properties(symbol_layer, sub_symbol_layer)
                 symbol = sub_symbol
             else:
                 symbol = self._create_transformed_symbol(target_geom, symbol_layer)
@@ -247,7 +248,7 @@ class TilesStyler:
 
     def _setup_labeling_style(
         self, style: QgsVectorTileBasicLabelingStyle, flat_rule: FlattenedRule
-    ) -> None:
+    ):
         """Configure labeling style properties."""
         self._setup_base_style_properties(style, flat_rule)
         settings = QgsPalLayerSettings(flat_rule.rule.settings())
@@ -264,22 +265,22 @@ class TilesStyler:
         thin.setMinimumDistanceToDuplicateUnit(Qgis.RenderUnit.Points)
         settings.setThinningSettings(thin)
 
-    def _setup_base_style_properties(self, style, flat_rule: FlattenedRule) -> None:
+    def _setup_base_style_properties(self, style, flat_rule: FlattenedRule):
         """Setup common style properties."""
         style.setEnabled(True)
-        style.setLayerName(flat_rule.output_dataset_name)
+        style.setLayerName(flat_rule.output_dataset)
         style.setStyleName(flat_rule.rule.description())
-        style.setMinZoomLevel(flat_rule.get_attribute("o"))
-        style.setMaxZoomLevel(flat_rule.get_attribute("i"))
+        style.setMinZoomLevel(flat_rule.get_attr("o"))
+        style.setMaxZoomLevel(flat_rule.get_attr("i"))
         geom_types = {
             0: QgsWkbTypes.PointGeometry,
             1: QgsWkbTypes.LineGeometry,
             2: QgsWkbTypes.PolygonGeometry,
         }
-        geom_code = flat_rule.get_attribute("c")
+        geom_code = flat_rule.get_attr("c")
         style.setGeometryType(geom_types.get(geom_code, QgsWkbTypes.PointGeometry))
 
-    def _copy_data_driven_properties(self, source_obj, target_obj) -> None:
+    def _copy_data_driven_properties(self, source_obj, target_obj):
         """Copy data-driven properties between objects."""
         source_props = source_obj.dataDefinedProperties()
         target_props = target_obj.dataDefinedProperties()
@@ -289,7 +290,7 @@ class TilesStyler:
             target_props.setProperty(prop_key, prop)
             target_props.property(prop_key).setActive(True)
 
-    def _apply_styles_to_layer(self) -> None:
+    def _apply_styles_to_layer(self):
         """Apply collected styles to the tiles layer."""
         renderer = QgsVectorTileBasicRenderer()
         renderer.setStyles(self.renderer_styles)
@@ -300,7 +301,7 @@ class TilesStyler:
         self.tiles_layer.setRenderer(renderer)
         self.tiles_layer.setLabeling(labeling)
 
-    def _save_style(self) -> None:
+    def _save_style(self):
         """Save layer style to QLR file."""
         makedirs(self.output_dir, exist_ok=True)
         qlr_path = join(self.output_dir, "tiles.qlr")
@@ -339,9 +340,7 @@ class GDALTilesGenerator:
         creation_options = self._get_creation_options()
 
         driver = gdal.GetDriverByName("MVT")
-        dataset = driver.Create(
-            output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options
-        )
+        dataset = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
 
         for layer in self.layers:
             self._process_layer(dataset, layer, spatial_ref)
@@ -351,7 +350,7 @@ class GDALTilesGenerator:
 
         return uri
 
-    def _configure_gdal_threading(self) -> None:
+    def _configure_gdal_threading(self):
         """Configure GDAL threading based on CPU percentage."""
         cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
         gdal.SetConfigOption("GDAL_NUM_THREADS", cpu_num)
@@ -370,24 +369,18 @@ class GDALTilesGenerator:
 
     def _get_creation_options(self) -> List[str]:
         """Generate GDAL creation options based on output type."""
-        range_options = [
-            f"MINZOOM={self._get_global_min_zoom()}",
-            f"MAXZOOM={self._get_global_max_zoom()}",
-        ]
+        min_zoom, max_zoom = self._get_global_min_zoom(), self._get_global_max_zoom()
+        zoom_range = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
         if self.output_type == "mbtiles":
-            return range_options
+            return zoom_range
 
         param_limit = 4 if int(gdal.VersionInfo()) < 3100200 else -1
         scheme_conf = list(_TILING_SCHEME.values())[:param_limit]
-        scheme_options = [
-            f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"
-        ]
-        additional_options = [
-            f"{key}={value}" for key, value in _TILES_CONF["GDAL_OPTIONS"].items()
-        ]
-        return range_options + scheme_options + additional_options
+        scheme_options = [f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"]
+        extra_options = [f"{key}={value}" for key, value in _TILES_CONF["GDAL_OPTIONS"].items()]
+        return zoom_range + scheme_options + extra_options
 
-    def _process_layer(self, dataset, layer: QgsVectorLayer, spatial_ref) -> None:
+    def _process_layer(self, dataset, layer: QgsVectorLayer, spatial_ref):
         """Process a single layer and add it to the dataset."""
         layer_name = basename(layer.source()).split(".")[0]
         min_zoom = int(layer_name.split("o")[1][:2])
@@ -397,13 +390,9 @@ class GDALTilesGenerator:
         src_dataset = ogr.Open(source)
         src_layer = src_dataset.GetLayer(0)
 
-        layer_options = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
-        out_layer = dataset.CreateLayer(
-            layer_name,
-            srs=spatial_ref,
-            geom_type=src_layer.GetGeomType(),
-            options=layer_options,
-        )
+        options = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
+        geom_type = src_layer.GetGeomType()
+        out_layer = dataset.CreateLayer(layer_name, spatial_ref, geom_type, options)
 
         # Copy field definitions
         src_defn = src_layer.GetLayerDefn()
@@ -474,47 +463,44 @@ class RulesExporter:
         """Export all rules to datasets."""
         output_datases = self._export_base_layers()
         for output_datases, flat_rules in output_datases.items():
-            if not self._export_rule(flat_rules):
-                for flat_rule in flat_rules:
-                    self.flattened_rules.remove(flat_rule)
+            if self._export_rule(flat_rules):
+                continue
+            for flat_rule in flat_rules:
+                self.flattened_rules.remove(flat_rule)
         return self.processed_layers, self.flattened_rules
 
-    def _export_base_layers(self) -> None:
+    def _export_base_layers(self):
         """Export base vector layers to FlatGeobuf format."""
         output_datases = {}
         for flat_rule in self.flattened_rules:
-            output_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset_name}.fgb")
+            output_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset}.fgb")
             if not exists(output_path):
-                output_datases[flat_rule.output_dataset_name] = [flat_rule]
-                extent_wkt = self.extent.asWktCoordinates().replace(",",'')
-                source = flat_rule.layer.source()
-                where = ''
-                if flat_rule.layer.subsetString():
-                    where = f' -where "{flat_rule.layer.subsetString().replace('"','')}"'
-                    source = source.split('|subset=')[0]
-                options = f'-dim XY -explodecollections -t_srs EPSG:{_TILING_SCHEME['EPSG_CRS']} -spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME['EPSG_CRS']}{where}'
-                self._run_processing("convertformat", "gdal", INPUT=source, OPTIONS=options, OUTPUT=output_path)
+                output_datases[flat_rule.output_dataset] = [flat_rule]
+                extent_wkt = self.extent.asWktCoordinates().replace(",", "")
+                options = f'-dim XY -explodecollections -t_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]} -spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
+                params = {"INPUT": flat_rule.layer, "OPTIONS": options, "OUTPUT": output_path}
+                self._run_processing("convertformat", "gdal", **params)
             else:
-                output_datases[flat_rule.output_dataset_name].append(flat_rule)
+                output_datases[flat_rule.output_dataset].append(flat_rule)
         return output_datases
 
     def _export_rule(self, flat_rules) -> Optional[QgsVectorLayer]:
         """Export group of rules sharing the same dataset."""
         flat_rule = flat_rules[0]
-        source_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset_name}.fgb")
+        source_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset}.fgb")
         if exists(source_path):
             layer = QgsVectorLayer(source_path)
             if not layer or layer.featureCount() <= 0:
                 return
             self._updated_map_scale_variable(flat_rules)
             fields = self._create_expression_fields(flat_rules)
-            if flat_rule.get_attribute("t") == 1:
+            if flat_rule.get_attr("t") == 1:
                 fields = self._add_label_expression_field(flat_rule, fields)
             transformation = self._get_geometry_transformation(flat_rule)
             layer = self._apply_field_mapping(layer, fields, transformation, flat_rule)
             if not layer or layer.featureCount() <= 0:
                 return
-            layer.setName(flat_rule.output_dataset_name)
+            layer.setName(flat_rule.output_dataset)
             self.processed_layers.append(layer)
             return layer
         return
@@ -522,74 +508,56 @@ class RulesExporter:
     def _updated_map_scale_variable(self, flat_rules):
         """update expressions included @map_scale and replace it with the curren_scale"""
         for flat_rule in flat_rules:
-            rule_type = flat_rule.get_attribute("t")
+            rule_type = flat_rule.get_attr("t")
             if rule_type == 1:
                 settings = flat_rule.rule.settings()
                 label_exp = settings.getLabelExpression().expression()
-                updated_exp = label_exp.replace(
-                    "@map_scale",
-                    str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))),
-                )
+                zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+                updated_exp = label_exp.replace("@map_scale", zoom_scale)
                 settings.fieldName = updated_exp
                 if settings.geometryGeneratorEnabled:
-                    updated_exp = settings.geometryGenerator.replace(
-                        "@map_scale",
-                        str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o"))),
-                    )
+                    updated_exp = settings.geometryGenerator.replace("@map_scale", zoom_scale)
                     settings.geometryGenerator = updated_exp
             else:
                 symbol = flat_rule.rule.symbol()
-                if symbol:
-                    for symbol_layer in symbol.symbolLayers():
-                        if symbol_layer.layerType() == "GeometryGenerator":
-                            updated_exp = symbol_layer.geometryExpression().replace(
-                                "@map_scale",
-                                str(
-                                    ZoomLevels.zoom_to_scale(
-                                        flat_rule.get_attribute("o")
-                                    )
-                                ),
-                            )
-                            symbol_layer.setGeometryExpression(updated_exp)
+                if not symbol:
+                    continue
+                for symbol_layer in symbol.symbolLayers():
+                    if symbol_layer.layerType() == "GeometryGenerator":
+                        generator_exp = symbol_layer.geometryExpression()
+                        updated_exp = generator_exp.replace("@map_scale", zoom_scale)
+                        symbol_layer.setGeometryExpression(updated_exp)
 
     def _apply_field_mapping(
-        self,
-        layer: QgsVectorLayer,
-        fields: list,
-        transformation,
-        flat_rule,
+        self, layer: QgsVectorLayer, fields: list, transformation, flat_rule
     ) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
         field_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
         field_mapping.extend(fields)
         field_mapping.append((10, f"'{flat_rule.name}'", f"{self.FIELD_PREFIX}_description"))
         if self.include_required_fields_only != 0:
-            field_mapping.extend(
-                [(field.type(), f'"{field.name()}"', f"{field.name()}") for field in layer.fields()])
-        output_dataset = flat_rule.output_dataset_name
+            all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in layer.fields()]
+            field_mapping.extend(all_fields)
+        output_dataset = flat_rule.output_dataset
         output_dataset = join(self.utils_dir, f"{output_dataset}.fgb")
-        if not exists(output_dataset):
-            field_mapping = [{"type": field[0], "expression": field[1], "name": field[2]} for field in field_mapping]
-            layer_clone = None
-            if flat_rule.rule.filterExpression():
-                layer_clone = layer.clone()
-                layer_clone.selectByExpression(flat_rule.rule.filterExpression())
-                if layer_clone.selectedFeatureCount() > 0: 
-                    QgsProject.instance().addMapLayer(layer_clone, False)
-                    layer = QgsProcessingFeatureSourceDefinition(layer_clone.source(),                                                       
-                                                   selectedFeaturesOnly=True,
-                                                   featureLimit=-1,
-                                                   geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid)
-                else:
-                    QgsProject.instance().removeMapLayer(layer_clone)
-                    return
-            layer = self._run_processing("refactorfields", INPUT=layer, FIELDS_MAPPING=field_mapping)
-            if layer_clone:
+        if exists(output_dataset):
+            return
+
+        field_mappings = [{"type": f[0], "expression": f[1], "name": f[2]} for f in field_mapping]
+        layer_clone = None
+        if flat_rule.rule.filterExpression():
+            layer_clone = layer.clone()
+            layer_clone.selectByExpression(flat_rule.rule.filterExpression())
+            if layer_clone.selectedFeatureCount() > 0:
+                QgsProject.instance().addMapLayer(layer_clone, False)
+                layer = QgsProcessingFeatureSourceDefinition(layer_clone.source(), True, -1)
+            else:
                 QgsProject.instance().removeMapLayer(layer_clone)
-            # QgsProject.instance().removeMapLayer(layer)
-            layer = self._apply_transformation(layer, transformation, output_dataset)
-        else:
-            layer = None
+                return
+        layer = self._run_processing("refactorfields", INPUT=layer, FIELDS_MAPPING=field_mapping)
+        if layer_clone:
+            QgsProject.instance().removeMapLayer(layer_clone)
+        layer = self._apply_transformation(layer, transformation, output_dataset)
         return layer
 
     def _apply_transformation(
@@ -604,24 +572,30 @@ class RulesExporter:
             EXPRESSION=transformation[1],
         )
         if layer.isValid() and layer.featureCount() > 0:
-            return self._run_processing("convertformat", "gdal", INPUT=layer, OPTIONS= '-explodecollections -skipinvalid -skipfailures', OUTPUT=output_dataset)
+            return self._run_processing(
+                "convertformat",
+                "gdal",
+                INPUT=layer,
+                OPTIONS="-explodecollections -skipinvalid -skipfailures",
+                OUTPUT=output_dataset,
+            )
         return None
 
-
     def _get_polygon_centroids_expression(self):
-        """Get polygon centroids expression based on 
+        """Get polygon centroids expression based on
         user perference - visible polygon/whole polygon"""
         source_polygons = (
             f"intersection(@geometry, geom_from_wkt('{self.extent.asWktPolygon()}'))"
             if self.cent_source == 1
             else "@geometry"
         )
-        centroids = f"with_variable('source', {source_polygons}, if(intersects(centroid(@source),"\
+        centroids = (
+            f"with_variable('source', {source_polygons}, if(intersects(centroid(@source),"
             "@source), centroid(@source),  point_on_surface(@source)))"
+        )
         return centroids
 
-    def _add_label_expression_field(
-        self, flat_rule: FlattenedRule, fields: dict) -> dict:
+    def _add_label_expression_field(self, flat_rule: FlattenedRule, fields: dict) -> dict:
         """Add label expression as a calculated field."""
         field_name = f"{self.FIELD_PREFIX}_label"
         label_exp = flat_rule.rule.settings().getLabelExpression().expression()
@@ -631,55 +605,49 @@ class RulesExporter:
         flat_rule.rule.settings().fieldName = field_name
         return fields
 
-    def _get_geometry_transformation(
-        self, flat_rule: FlattenedRule
-    ) -> Union[str, Tuple, None]:
+    def _get_geometry_transformation(self, flat_rule: FlattenedRule) -> Union[str, Tuple, None]:
         """Determine geometry transformation needed for rule."""
-        rule_type = flat_rule.get_attribute("t")
+        rule_type = flat_rule.get_attr("t")
         if rule_type == 1:
             transformation = self._get_labeling_transformation(flat_rule)
         else:
             transformation = self._get_renderer_transformation(flat_rule)
         transformation[1] = (
-            f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt"\
+            f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt"
             f"('{self.extent.asWktPolygon()}')), if(not is_empty_or_null(@clip), @clip, NULL))"
         )
         return tuple(transformation)
 
-    def _get_labeling_transformation(
-        self, flat_rule: FlattenedRule
-    ) -> Union[Tuple, str, None]:
+    def _get_labeling_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
         """Get geometry transformation for labeling rules."""
         settings = flat_rule.rule.settings()
-        target_geom = flat_rule.get_attribute("g")
+        target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
 
         if settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
-            flat_rule.set_attribute("c", target_geom)
+            flat_rule.set_attr("c", target_geom)
 
         elif target_geom == 2:  # Polygon to centroid
-            flat_rule.set_attribute("c", 0)
+            flat_rule.set_attr("c", 0)
             target_geom = 0
             transform_expr = self._get_polygon_centroids_expression()
         return [target_geom, transform_expr]
 
-    def _get_renderer_transformation(
-        self, flat_rule: FlattenedRule
-    ) -> Union[Tuple, str, None]:
+    def _get_renderer_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
         """Get geometry transformation for renderer rules."""
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
-        target_geom = flat_rule.get_attribute("g")
+        target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
 
         if symbol_layer.layerType() == "GeometryGenerator":
             target_geom = symbol_layer.subSymbol().type()
             transform_expr = symbol_layer.geometryExpression()
         else:
-            target_geom = flat_rule.get_attribute("c")
-            source_geom = flat_rule.get_attribute("g")
+            target_geom = flat_rule.get_attr("c")
+            source_geom = flat_rule.get_attr("g")
 
             if source_geom != target_geom:
                 if target_geom == 0:
@@ -690,33 +658,10 @@ class RulesExporter:
 
     def _get_ddp(self, current_object, parent_obj, ddp, depth=0, index=0):
         """Get data defined properties objects"""
-        crashing_attr = [
-            "_",
-            "value",
-            "index",
-            "available",
-            "config",
-            "next",
-            "attr",
-            "clone",
-            'function',
-            'flag',
-            'capabil'
-            'clear',
-            'remove',
-            'symbols',
-            'clear',
-            'prepare',
-            'dump',
-            'copy',
-            'create',
-            'update',
-            'replace'
-        ]
         attrs = [
             i
             for i in dir(current_object)
-            if not any(word.lower() in i.lower() for word in crashing_attr) and i[0].islower()
+            if not any(word.lower() in i.lower() for word in _CRASHING_ATTRS) and i[0].islower()
         ]
 
         for attr in attrs:
@@ -726,13 +671,13 @@ class RulesExporter:
             try:
                 subobj = getattr(current_object, attr)
                 if callable(subobj):
-                    iterable_object = (
-                        [subobj()] if not isinstance(subobj(), list) else subobj()
-                    )
+                    iterable_object = [subobj()] if not isinstance(subobj(), list) else subobj()
                     if iterable_object:
                         for index, subcallobj in enumerate(iterable_object):
                             index += 1
-                            if not 'qgis.' in str(type(subcallobj)) or isinstance(subcallobj, type(current_object)):
+                            if not "qgis." in str(type(subcallobj)) or isinstance(
+                                subcallobj, type(current_object)
+                            ):
                                 break
                             if not subcallobj in [prop[0] for prop in ddp]:
                                 if hasattr(subcallobj, "dataDefinedProperties"):
@@ -755,10 +700,12 @@ class RulesExporter:
                 for prop_key in dd_props.propertyKeys():
                     prop = dd_props.property(prop_key)
                     if prop and prop.isActive():
-                        attr = "s" if flat_rule.get_attribute("t") == 0 else "f"
-                        suffix = f"{attr}{int(flat_rule.get_attribute(attr)):02d}"
+                        attr = "s" if flat_rule.get_attr("t") == 0 else "f"
+                        suffix = f"{attr}{int(flat_rule.get_attr(attr)):02d}"
                         prop_id = f"property_{prop_key}d{int(depth):02d}i{int(index):02d}{suffix}"
-                        field_name, expression = self._create_field_from_property(prop_id, prop, flat_rule)
+                        field_name, expression = self._create_field_from_property(
+                            prop_id, prop, flat_rule
+                        )
                         type_map = {
                             QgsPropertyDefinition.DataTypeString: QVariant.String,
                             QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
@@ -780,9 +727,11 @@ class RulesExporter:
                             fields.append(field_props)
         return fields
 
-    def _create_field_from_property(self, prop_id: str, prop, flat_rule: FlattenedRule) -> Tuple[str, str]:
+    def _create_field_from_property(
+        self, prop_id: str, prop, flat_rule: FlattenedRule
+    ) -> Tuple[str, str]:
         """Create field name and expression from data-driven property."""
-        outer_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attribute("o")))
+        outer_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
         expression = prop.expressionString().replace("@map_scale", outer_zoom)
         field_name = f"{self.FIELD_PREFIX}_{prop_id}"
         return field_name, expression
@@ -795,7 +744,7 @@ class RulesExporter:
         output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
 
         if isinstance(output, str):
-            output = QgsVectorLayer(output)       
+            output = QgsVectorLayer(output)
         return output
 
 
@@ -825,39 +774,29 @@ class RuleFlattener:
         """Seperate every rule to diffrent layer and save it on memory
         in order to prevent shared properties overwritten"""
         for flattened_rule in self.flattened_rules:
-            layer_clone = flattened_rule.layer.clone()
-            layer_clone.setRenderer(None)
-            layer_clone.setLabeling(None)
-            rule_type = flattened_rule.get_attribute("t")
-            if rule_type == 0:
-                root = QgsRuleBasedRenderer.Rule(None)
-                func = layer_clone.setRenderer
-                system = QgsRuleBasedRenderer(root)
-            else:
-                root = QgsRuleBasedLabeling.Rule(None)
-                func = layer_clone.setLabeling
-                system = QgsRuleBasedLabeling(root)
-            rule_clone = flattened_rule.rule.clone()
-            rule_symbol = rule_clone.symbol() if rule_type == 0 else rule_clone.settings().format().background().markerSymbol()
-            if rule_symbol:
-                symbol_clone = rule_symbol.clone()
-                if rule_type == 0:
-                    rule_clone.setSymbol(symbol_clone) 
-                else:
-                    new_settings = QgsPalLayerSettings(rule_clone.settings())
-                    new_format = QgsTextFormat(new_settings.format())
-                    new_bg = QgsTextBackgroundSettings(new_format.background())
-                    new_bg.setMarkerSymbol(symbol_clone)
-                    new_format.setBackground(new_bg)
-                    new_settings.setFormat(new_format)
-                    rule_clone.setSettings(new_settings)
+            rule = flattened_rule.rule
+            rule_type = flattened_rule.get_attr("t")
+            rule_clone = (
+                QgsRuleBasedRenderer.Rule(None)
+                if rule_type == 0
+                else QgsRuleBasedLabeling.Rule(None)
+            )
+            rule_clone.setDescription(rule.description())
+            rule_clone.setFilterExpression(rule.filterExpression())
+            rule_clone.setMinimumScale(rule.minimumScale())
+            rule_clone.setMaximumScale(rule.maximumScale())
 
-            system.rootRule().appendChild(rule_clone)
-            func(system)
-            
-            getter = layer_clone.renderer() if rule_type == 0 else layer_clone.labeling()
-            flattened_rule.layer = layer_clone
-            flattened_rule.rule =  getter.rootRule().children()[0]
+            if rule_type == 0:
+                rule_clone.setSymbol(rule.symbol().clone())
+            else:
+                new_settings = QgsPalLayerSettings(rule.settings())
+                new_format = QgsTextFormat(new_settings.format())
+                new_bg = QgsTextBackgroundSettings(new_format.background())
+                new_bg.setMarkerSymbol(new_bg.markerSymbol().clone())
+                new_format.setBackground(new_bg)
+                new_settings.setFormat(new_format)
+                rule_clone.setSettings(new_settings)
+            flattened_rule.rule = rule_clone
 
     def _is_valid_layer(self, layer) -> bool:
         """Check if layer is a visible vector layer."""
@@ -866,7 +805,7 @@ class RuleFlattener:
         is_visible = layer_node.isVisible() if layer_node is not None else False
         return is_vector and is_visible
 
-    def _process_layer_rules(self, layer: QgsVectorLayer, layer_idx: int) -> None:
+    def _process_layer_rules(self, layer: QgsVectorLayer, layer_idx: int):
         """Process both renderer and labeling rules for a layer."""
         for rule_type, type_name in self.RULE_TYPES.items():
             rule_system = self._get_or_convert_rule_system(layer, rule_type)
@@ -874,9 +813,7 @@ class RuleFlattener:
             if rule_system:
                 root_rule = self._prepare_root_rule(rule_system, layer)
                 if root_rule:
-                    self._flatten_rule_hierarchy(
-                        layer, layer_idx, root_rule, rule_type, 0, 0
-                    )
+                    self._flatten_rule_hierarchy(layer, layer_idx, root_rule, rule_type, 0, 0)
 
     def _get_or_convert_rule_system(self, layer: QgsVectorLayer, rule_type: int):
         """Get or convert layer styling to rule-based system."""
@@ -897,9 +834,7 @@ class RuleFlattener:
             return system
 
         inactive_items = self._get_inactive_items(system)
-        rulebased_renderer = (
-            QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
-        )
+        rulebased_renderer = QgsRuleBasedRenderer.convertFromRenderer(system) if system else None
 
         if rulebased_renderer and inactive_items:
             for rule_index in sorted(inactive_items, reverse=True):
@@ -919,9 +854,7 @@ class RuleFlattener:
 
         if items_method:
             items = getattr(system, items_method)()
-            inactive_items = [
-                i for i, item in enumerate(items) if not item.renderState()
-            ]
+            inactive_items = [i for i, item in enumerate(items) if not item.renderState()]
 
         return inactive_items
 
@@ -956,7 +889,7 @@ class RuleFlattener:
         rule_type: int,
         rule_level: int,
         rule_idx: int,
-    ) -> None:
+    ):
         """Recursively flatten rule hierarchy with inheritance."""
         if rule.parent():
             if rule_type == 1:
@@ -965,9 +898,7 @@ class RuleFlattener:
             if inherited_rule:
                 flat_rule = FlattenedRule(inherited_rule, layer)
                 flat_rule.rule.setDescription("")
-                self._set_rule_attributes(
-                    flat_rule, layer_idx, rule_type, rule_level, rule_idx
-                )
+                self._set_rule_attributes(flat_rule, layer_idx, rule_type, rule_level, rule_idx)
 
                 if not self._is_within_zoom_range(flat_rule):
                     return
@@ -1003,49 +934,47 @@ class RuleFlattener:
         rule_type: int,
         rule_level: int,
         rule_idx: int,
-    ) -> None:
+    ):
         """Set rule attributes for identification and processing."""
-        flat_rule.set_attribute("l", layer_idx)
-        flat_rule.set_attribute("t", rule_type)
-        flat_rule.set_attribute("d", rule_level)
-        flat_rule.set_attribute("r", rule_idx)
-        flat_rule.set_attribute("g", flat_rule.layer.geometryType())
-        flat_rule.set_attribute("c", flat_rule.layer.geometryType())
-        flat_rule.set_attribute("o", self._get_rule_zoom(flat_rule, min))
-        flat_rule.set_attribute("i", self._get_rule_zoom(flat_rule, max))
-        flat_rule.set_attribute("s" if rule_type == 0 else "f", 0)
+        flat_rule.set_attr("l", layer_idx)
+        flat_rule.set_attr("t", rule_type)
+        flat_rule.set_attr("d", rule_level)
+        flat_rule.set_attr("r", rule_idx)
+        flat_rule.set_attr("g", flat_rule.layer.geometryType())
+        flat_rule.set_attr("c", flat_rule.layer.geometryType())
+        flat_rule.set_attr("o", self._get_rule_zoom(flat_rule, min))
+        flat_rule.set_attr("i", self._get_rule_zoom(flat_rule, max))
+        flat_rule.set_attr("s" if rule_type == 0 else "f", 0)
 
     def _get_rule_zoom(self, flat_rule: FlattenedRule, comparator) -> int:
         """Extract rule zoom level from scale."""
         attr_name = f"{comparator.__name__}imumScale"
         rule_scale = getattr(flat_rule.rule, attr_name)()
-        edge = "i" if comparator.__name__ == 'max' else "o"
+        edge = "i" if comparator.__name__ == "max" else "o"
         return int(ZoomLevels.scale_to_zoom(rule_scale, edge))
 
     def _is_within_zoom_range(self, flat_rule: FlattenedRule) -> bool:
         """Check if rule is within requested zoom range."""
-        min_zoom = flat_rule.get_attribute("o")
-        max_zoom = flat_rule.get_attribute("i")
+        min_zoom = flat_rule.get_attr("o")
+        max_zoom = flat_rule.get_attr("i")
         return self._ranges_overlap(min_zoom, max_zoom, self.min_zoom, self.max_zoom)
 
-    def _clip_rules_to_zoom_range(self, flat_rules: List[FlattenedRule]) -> None:
+    def _clip_rules_to_zoom_range(self, flat_rules: List[FlattenedRule]):
         """Clip rule zoom range to general zoom range."""
         for flat_rule in flat_rules:
-            if flat_rule.get_attribute("o") < self.min_zoom:
-                flat_rule.set_attribute("o", self.min_zoom)
-            if flat_rule.get_attribute("i") > self.max_zoom:
-                flat_rule.set_attribute("i", self.max_zoom)
+            if flat_rule.get_attr("o") < self.min_zoom:
+                flat_rule.set_attr("o", self.min_zoom)
+            if flat_rule.get_attr("i") > self.max_zoom:
+                flat_rule.set_attr("i", self.max_zoom)
 
-    def _split_rule(
-        self, flat_rule: FlattenedRule, rule_type: int
-    ) -> List[FlattenedRule]:
+    def _split_rule(self, flat_rule: FlattenedRule, rule_type: int) -> List[FlattenedRule]:
         """Split rule based on type."""
         if rule_type == 0:  # Renderer
             return self._split_by_symbol_layers(flat_rule)
         else:  # Labeling
             return self._split_by_matching_renderers(flat_rule)
 
-    def _convert_else_filter(self, else_rule, parent_rule) -> None:
+    def _convert_else_filter(self, else_rule, parent_rule):
         """Convert ELSE filter to explicit exclusion of sibling conditions."""
         sibling_filters = [
             sibling.filterExpression()
@@ -1054,9 +983,7 @@ class RuleFlattener:
         ]
 
         if sibling_filters:
-            else_expression = (
-                f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)}) IS 1'
-            )
+            else_expression = f'NOT ({" OR ".join(f"({f})" for f in sibling_filters)}) IS 1'
         else:
             else_expression = ""
 
@@ -1075,19 +1002,19 @@ class RuleFlattener:
 
         return clone
 
-    def _inherit_scale_range(self, clone, rule, comparator) -> None:
+    def _inherit_scale_range(self, clone, rule, comparator):
         """Inherit scale limits using min/max comparator."""
         attr_name = f"{comparator.__name__}imumScale"
         rule_scale = getattr(rule, attr_name)()
         if rule_scale == 0:
-            opposite = min if comparator.__name__ == 'max' else max
+            opposite = min if comparator.__name__ == "max" else max
             rule_scale = opposite(ZoomLevels.SCALES)
         parent_scale = getattr(rule.parent(), attr_name)()
         inherited_scale = comparator(rule_scale, parent_scale)
         setter_name = f"set{comparator.__name__.capitalize()}imumScale"
         getattr(clone, setter_name)(inherited_scale)
 
-    def _inherit_filter_expression(self, clone, rule) -> None:
+    def _inherit_filter_expression(self, clone, rule):
         """Inherit and combine filter expressions from parent hierarchy."""
         parent_filter = rule.parent().filterExpression()
         rule_filter = rule.filterExpression()
@@ -1114,7 +1041,7 @@ class RuleFlattener:
 
         clone.setFilterExpression(final_filter)
 
-    def _inherit_symbol_layers(self, clone, rule) -> None:
+    def _inherit_symbol_layers(self, clone, rule):
         """Inherit symbol layers from parent."""
         clone_symbol = clone.symbol()
         parent_symbol = rule.parent().symbol()
@@ -1134,9 +1061,7 @@ class RuleFlattener:
         split_rules = []
 
         for layer_idx in reversed(range(symbol_layer_count)):
-            rule_clone = FlattenedRule(
-                flat_rule.rule.clone(), flat_rule.layer, flat_rule.name
-            )
+            rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
 
             symbol_layer = symbol.symbolLayer(layer_idx)
             sub_symbol = symbol_layer.subSymbol()
@@ -1146,8 +1071,8 @@ class RuleFlattener:
                 else symbol_layer.type()
             )
 
-            rule_clone.set_attribute("c", symbol_type)
-            rule_clone.set_attribute("s", layer_idx)
+            rule_clone.set_attr("c", symbol_type)
+            rule_clone.set_attr("s", layer_idx)
 
             clone_symbol = rule_clone.rule.symbol()
             for remove_idx in reversed(range(symbol_layer_count)):
@@ -1158,9 +1083,7 @@ class RuleFlattener:
 
         return split_rules
 
-    def _split_by_matching_renderers(
-        self, label_rule: FlattenedRule
-    ) -> List[FlattenedRule]:
+    def _split_by_matching_renderers(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split label rule by matching renderer rules with overlapping scales."""
         matching_rules = []
         renderer_idx = 0
@@ -1168,18 +1091,14 @@ class RuleFlattener:
         for renderer_rule in self.flattened_rules:
             if (
                 label_rule.layer.id() != renderer_rule.layer.id()
-                or renderer_rule.get_attribute("t") != 0
+                or renderer_rule.get_attr("t") != 0
             ):
                 continue
 
-            if renderer_rule.output_dataset_name in [
-                r.output_dataset_name for r in matching_rules
-            ]:
+            if renderer_rule.output_dataset in [r.output_dataset for r in matching_rules]:
                 continue
 
-            matched_rule = self._match_label_to_renderer(
-                label_rule, renderer_rule, renderer_idx
-            )
+            matched_rule = self._match_label_to_renderer(label_rule, renderer_rule, renderer_idx)
             if matched_rule:
                 matching_rules.append(matched_rule)
             renderer_idx += 1
@@ -1190,17 +1109,15 @@ class RuleFlattener:
         self, label_rule: FlattenedRule, renderer_rule: FlattenedRule, renderer_idx: int
     ) -> Optional[FlattenedRule]:
         """Create combined rule matching label to renderer with overlapping scales."""
-        label_min = label_rule.get_attribute("o")
-        label_max = label_rule.get_attribute("i")
-        renderer_min = renderer_rule.get_attribute("o")
-        renderer_max = renderer_rule.get_attribute("i")
+        label_min = label_rule.get_attr("o")
+        label_max = label_rule.get_attr("i")
+        renderer_min = renderer_rule.get_attr("o")
+        renderer_max = renderer_rule.get_attr("i")
 
         if not self._ranges_overlap(label_min, label_max, renderer_min, renderer_max):
             return None
 
-        rule_clone = FlattenedRule(
-            label_rule.rule.clone(), label_rule.layer, label_rule.name
-        )
+        rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer, label_rule.name)
         clone_rule = rule_clone.rule
 
         label_filter = clone_rule.filterExpression()
@@ -1214,42 +1131,19 @@ class RuleFlattener:
         clone_rule.setFilterExpression(combined_filter)
 
         if label_min < renderer_min:
-            rule_clone.set_attribute("o", renderer_min)
+            rule_clone.set_attr("o", renderer_min)
         if label_max > renderer_max:
-            rule_clone.set_attribute("i", renderer_max)
+            rule_clone.set_attr("i", renderer_max)
 
-        rule_clone.set_attribute("f", renderer_idx)
+        rule_clone.set_attr("f", renderer_idx)
         return rule_clone
 
     def _get_ddp(self, current_object, ddp, clone=False):
         """Get data defined properties objects"""
-        crashing_attr = [
-            "_",
-            "value",
-            "index",
-            "available",
-            "config",
-            "next",
-            "attr",
-            "clone",
-            'function',
-            'flag',
-            'capabil'
-            'clear',
-            'remove',
-            'symbols',
-            'clear',
-            'prepare',
-            'dump',
-            'copy',
-            'create',
-            'update',
-            'replace'
-        ]
         attrs = [
             i
             for i in dir(current_object)
-            if not any(word.lower() in i.lower() for word in crashing_attr) and i[0].islower()
+            if not any(word.lower() in i.lower() for word in _CRASHING_ATTRS) and i[0].islower()
         ]
 
         for attr in attrs:
@@ -1260,14 +1154,13 @@ class RuleFlattener:
                 if callable(subobj):
                     if isinstance(subobj(), type(current_object)):
                         continue
-                    iterable_object = (
-                        [subobj()] if not isinstance(subobj(), list) else subobj()
-                    )
+                    iterable_object = [subobj()] if not isinstance(subobj(), list) else subobj()
                     if iterable_object:
-                        for subcallobj in iterable_object:
-                            if not 'qgis.' in str(type(subcallobj)) or isinstance(subcallobj, type(current_object)):
+                        for index, subcallobj in enumerate(iterable_object):
+                            if not "qgis." in str(type(subcallobj)) or isinstance(
+                                subcallobj, type(current_object)
+                            ):
                                 break
-                            file.close()
                             if hasattr(subcallobj, "dataDefinedProperties"):
                                 dd_props = subcallobj.dataDefinedProperties()
                                 for prop_key in dd_props.propertyKeys():
@@ -1286,15 +1179,13 @@ class RuleFlattener:
         b_min, b_max = sorted((r2_start, r2_end))
         return a_min <= b_max and b_min <= a_max
 
-    def _split_by_scale_expressions(
-        self, flat_rule: FlattenedRule
-    ) -> List[FlattenedRule]:
+    def _split_by_scale_expressions(self, flat_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split rule by zoom levels if contains scale-dependent expressions."""
         if not self._has_scale_dependencies(flat_rule):
             return [flat_rule]
 
-        min_zoom = flat_rule.get_attribute("o")
-        max_zoom = flat_rule.get_attribute("i")
+        min_zoom = flat_rule.get_attr("o")
+        max_zoom = flat_rule.get_attr("i")
         max_zoom = min(self.max_zoom, max_zoom + 1)
         relevant_zooms = list(range(min_zoom, max_zoom + 1))
         split_rules = []
@@ -1307,7 +1198,7 @@ class RuleFlattener:
     def _has_scale_dependencies(self, flat_rule: FlattenedRule) -> bool:
         """Check if rule has scale-dependent expressions."""
         expressions = []
-        rule_type = flat_rule.get_attribute("t")
+        rule_type = flat_rule.get_attr("t")
         ddp = set()
         self._get_ddp(flat_rule.rule, ddp)
         expressions.extend(list(ddp))
@@ -1328,13 +1219,9 @@ class RuleFlattener:
 
         return "@map_scale" in ", ".join(expressions)
 
-    def _create_scale_specific_rule(
-        self, flat_rule: FlattenedRule, zoom: int
-    ) -> FlattenedRule:
+    def _create_scale_specific_rule(self, flat_rule: FlattenedRule, zoom: int) -> FlattenedRule:
         """Create rule with scale-specific values."""
-        rule_clone = FlattenedRule(
-            flat_rule.rule.clone(), flat_rule.layer, flat_rule.name
-        )
+        rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
         scale = str(ZoomLevels.zoom_to_scale(zoom))
 
         filter_exp = flat_rule.rule.filterExpression()
@@ -1342,15 +1229,15 @@ class RuleFlattener:
             scale_specific_filter = filter_exp.replace("@map_scale", scale)
             rule_clone.rule.setFilterExpression(scale_specific_filter)
 
-        rule_type = flat_rule.get_attribute("t")
+        rule_type = flat_rule.get_attr("t")
         if rule_type == 1:
             label_exp = flat_rule.rule.settings().getLabelExpression().expression()
             if "@map_scale" in label_exp:
                 scale_specific_label = label_exp.replace("@map_scale", scale)
                 rule_clone.rule.settings().fieldName = scale_specific_label
 
-        rule_clone.set_attribute("o", zoom)
-        rule_clone.set_attribute("i", zoom)
+        rule_clone.set_attr("o", zoom)
+        rule_clone.set_attr("i", zoom)
 
         return rule_clone
 
@@ -1364,14 +1251,14 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 17,
+        max_zoom: int = 12,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
         output_type: str = "xyz",
         cpu_percent: int = 100,
-        output_content: int = 0,    
-        cent_source: int = 1,   
+        output_content: int = 0,
+        cent_source: int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
         self.min_zoom = min_zoom
@@ -1448,11 +1335,12 @@ class QGIS2StyledTiles:
 
     def _clear_project(self):
         """Clear temp layers which are not visible in the project legend"""
-        legend_layers_ids = [layer.layer().id() for layer in QgsProject.instance().layerTreeRoot().findLayers()]
+        legend_layers_ids = [
+            layer.layer().id() for layer in QgsProject.instance().layerTreeRoot().findLayers()
+        ]
         for layer in list(QgsProject.instance().mapLayers().values()):
             if layer.id() not in legend_layers_ids:
-                QgsProject.instance().removeMapLayer(layer)           
-
+                QgsProject.instance().removeMapLayer(layer)
 
     def _get_utils_dir(self) -> str:
         """Clear utils dir"""
@@ -1462,25 +1350,19 @@ class QGIS2StyledTiles:
                 rmtree(path)
             except (PermissionError, NotADirectoryError):
                 continue
-        utils_dir = join(
-            QgsProcessingUtils.tempFolder(), f"q2styledtiles_{uuid4().hex}"
-        )
+        utils_dir = join(QgsProcessingUtils.tempFolder(), f"q2styledtiles_{uuid4().hex}")
         makedirs(utils_dir, exist_ok=True)
         return utils_dir
 
     def _create_temp_directory(self) -> str:
         """Create temporary directory for processing."""
-        temp_dir = join(
-            self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f")
-        )
+        temp_dir = join(self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f"))
         makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
     def _flatten_rules(self) -> List[FlattenedRule]:
         """Flatten all rules from project layers."""
-        flattener = RuleFlattener(
-            self.min_zoom, self.max_zoom, self.utils_dir, self.feedback
-        )
+        flattener = RuleFlattener(self.min_zoom, self.max_zoom, self.utils_dir, self.feedback)
         return flattener.flatten_all_rules()
 
     def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
@@ -1503,12 +1385,7 @@ class QGIS2StyledTiles:
     def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str) -> str:
         """Generate vector tiles."""
         generator = GDALTilesGenerator(
-            layers,
-            temp_dir,
-            self.output_type,
-            self.extent,
-            self.cpu_percent,
-            self.feedback,
+            layers, temp_dir, self.output_type, self.extent, self.cpu_percent, self.feedback
         )
         tiles_uri = generator.generate()
         return tiles_uri
@@ -1518,7 +1395,7 @@ class QGIS2StyledTiles:
         styler = TilesStyler(rules, temp_dir, tiles_uri)
         styler.apply_styling()
 
-    def _log(self, message: str) -> None:
+    def _log(self, message: str):
         """Log message to feedback or console."""
         if __name__ != "__console__":
             self.feedback.pushInfo(message)
