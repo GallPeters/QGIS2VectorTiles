@@ -32,9 +32,12 @@ from qgis.core import (
     QgsVectorLayer,
     QgsLayerDefinition,
     QgsVectorTileLayer,
+    QgsProperty,
     QgsGraduatedSymbolRenderer,
     QgsCategorizedSymbolRenderer,
     QgsWkbTypes,
+    QgsReadWriteContext,
+    QgsMapLayer,
     QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition,
     QgsVectorTileBasicRendererStyle,
@@ -59,8 +62,10 @@ from qgis.core import (
 
 # Import by QT version
 if int(qVersion()[0]) == 5:
+    from PyQt5.QtXml import QDomDocument
     from PyQt5.QtCore import QVariant
 else:
+    from PyQt6.QtXml import QDomDocument
     from PyQt6.QtCore import QVariant
 
 # Import by run environment
@@ -68,12 +73,9 @@ if __name__ == "__console__":
     _PLUGIN_DIR = join(
         QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles"
     )
-    _RESOURCES = join(_PLUGIN_DIR, "resources")
-    _CONF = join(_RESOURCES, "conf.toml")
-    _ICON_PATH = join(_RESOURCES, "icon.svg")
-    _ICON = QIcon(_ICON_PATH) if exists(_ICON_PATH) else super().icon()
+    _CONF = join(_PLUGIN_DIR, "resources", "conf.toml")
 else:
-    from .settings import *
+    from .settings import _CONF
 
 # Constants
 _TILES_CONF = load(open(_CONF, "rb"))
@@ -163,7 +165,6 @@ class DataDefinedPropertiesFetcher:
                     prop = props_collection.property(key)
                     if not prop or not prop.isActive():
                         continue
-                    print(qgis_subobject)
                     prop_type = props_defintions.get(key).dataType()
                     field_type = self.TYPES_MAP.get(prop_type)
                     self.dd_properties.append((prop, field_type))
@@ -563,7 +564,6 @@ class RulesExporter:
                 return
             self._updated_map_scale_variable(flat_rules)
             fields = self._create_expression_fields(flat_rules)
-            print(fields)
             if flat_rule.get_attr("t") == 1:
                 fields = self._add_label_expression_field(flat_rule, fields)
             transformation = self._get_geometry_transformation(flat_rule)
@@ -1181,7 +1181,6 @@ class RulesFlattener:
             renderer = QgsRuleBasedRenderer(QgsRuleBasedRenderer.Rule(None))
             renderer.rootRule().appendChild(rule_lcone)
             temp_layer.setRenderer(renderer)
-
         doc = QDomDocument("style")
         root = doc.createElement("qgis")
         doc.appendChild(root)
