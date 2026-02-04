@@ -23,6 +23,6 @@ class QGIS2VectorTilesPorvider(QgsProcessingProvider):
 
     def loadAlgorithms(self):
         self.addAlgorithm(QGIS2StyledTilesAlgorithm())
-        self.addAlgorithm(QGIS2SpritesAlgorithm())
+        # self.addAlgorithm(QGIS2SpritesAlgorithm())
 
 
