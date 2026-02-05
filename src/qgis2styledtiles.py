@@ -205,17 +205,12 @@ class FlattenedRule:
 
     rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     layer: QgsVectorLayer
-    name: Optional[str] = ""
     output_dataset: Optional[str] = ""
 
     def __post_init__(self):
         """Construct rule's name"""
         lyr_name = self.layer.name()
         rule_type = "renderer" if isinstance(self.rule, QgsRuleBasedRenderer.Rule) else "labeling"
-        rule_name = getattr(self.rule, "label" if rule_type == "renderer" else "description")()
-        self.name = (
-            f"{lyr_name or self.layer.id()} > {rule_type} > {rule_name or self.rule.ruleKey()}"
-        )
 
     def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""
@@ -244,6 +239,14 @@ class FlattenedRule:
         i = desc.find("s")
         if i >= 0:
             self.output_dataset = self.output_dataset.replace(desc[i : i + 3], "s00")
+
+    def _get_description(self):
+        """Construct rule description for labeling or renderer rule."""
+        lyr_name = self.layer.name() or self.layer.id()
+        rule_type = "renderer" if self.get_attr("t") == 0 else "labeling"
+        rule_num = self.get_attr("r")
+        rule_subnum = self.get_attr("s") if rule_type == 0 else self.get_attr("f")
+        return f"{lyr_name} > {rule_num} > {rule_num} > {rule_subnum}"
 
 
 class TilesStyler:
@@ -534,9 +537,8 @@ class RulesExporter:
         output_datases = self._export_base_layers()
         total_datasets = len(output_datases)
         for index, (output_dataset, flat_rules) in enumerate(output_datases.items()):
-            self.feedback.pushInfo(
-                f".......... Processing dataset {index + 1}/{total_datasets}: {flat_rules[0].name}..."
-            )
+            current_rule = f"{index + 1}/{total_datasets}: {output_dataset}"
+            self.feedback.pushInfo(f".......... Processing dataset {current_rule}...")
             if self._export_rule(flat_rules):
                 continue
             for flat_rule in flat_rules:
@@ -605,7 +607,8 @@ class RulesExporter:
         """Apply field mapping and geometry transformation."""
         field_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
         field_mapping.extend(fields)
-        field_mapping.append((10, f"'{flat_rule.name}'", f"{self.FIELD_PREFIX}_description"))
+        rule_description = f"'{flat_rule._get_description()}'"
+        field_mapping.append((10, rule_description, f"{self.FIELD_PREFIX}_description"))
         if self.include_required_fields_only != 0:
             all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in layer.fields()]
             field_mapping.extend(all_fields)
@@ -1081,7 +1084,7 @@ class RulesFlattener:
         split_rules = []
 
         for layer_idx in reversed(range(symbol_layer_count)):
-            rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
+            rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
 
             symbol_layer = symbol.symbolLayer(layer_idx)
             if not symbol_layer.enabled():
@@ -1136,7 +1139,7 @@ class RulesFlattener:
         if not self._ranges_overlap(label_min, label_max, renderer_min, renderer_max):
             return None
 
-        rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer, label_rule.name)
+        rule_clone = FlattenedRule(label_rule.rule.clone(), label_rule.layer)
         clone_rule = rule_clone.rule
 
         label_filter = clone_rule.filterExpression()
@@ -1176,7 +1179,7 @@ class RulesFlattener:
         split_rules = []
         for zoom in relevant_zooms:
             rule_clone = self._create_scale_specific_rule(flat_rule, zoom)
-            if self._symbol_layer_visible_at_zoom(rule_clone):
+            if flat_rule.get_attr("t") == 1 or self._symbol_layer_visible_at_zoom(rule_clone):
                 split_rules.append(rule_clone)
         return split_rules
 
@@ -1219,7 +1222,7 @@ class RulesFlattener:
 
     def _create_scale_specific_rule(self, flat_rule: FlattenedRule, zoom: int) -> FlattenedRule:
         """Create rule with scale-specific values."""
-        rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
+        rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
         scale = str(ZoomLevels.zoom_to_scale(zoom))
 
         filter_exp = flat_rule.rule.filterExpression()
@@ -1285,7 +1288,7 @@ class QGIS2StyledTiles:
             start_time = perf_counter()
 
             # Step 1: Flatten all rules
-            self._log(".... Flattening rules...")
+            self._log(". Flattening rules...")
             rules = self._flatten_rules()
             if not rules:
                 self._log(". No visible vector layers found in project.")
@@ -1294,30 +1297,30 @@ class QGIS2StyledTiles:
             flatten_finish_time = perf_counter()
             flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
             self._log(
-                f"....... Successfully extracted {len(rules)} rules " f"({flatten_time} minutes)."
+                f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes)."
             )
             output = tiles_uri = layers = None
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
-                self._log(".... Exporting rules to layers...")
+                self._log(". Exporting rules to layers...")
                 layers, rules = self._export_rules(rules)
                 export_finish_time = perf_counter()
                 export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
                 self._log(
-                    f"....... Successfully exported {len(layers)} layers ({export_time} minutes)."
+                    f". Successfully exported {len(layers)} layers ({export_time} minutes)."
                 )
 
                 # Step 3: Generate and style tiles
                 if self._has_features(layers):
-                    self._log(".... Generating tiles...")
+                    self._log(". Generating tiles...")
                     tiles_uri = self._generate_tiles(layers, temp_dir)
                     tiles_finish_time = perf_counter()
                     tiles_time = self._elapsed_minutes(export_finish_time, tiles_finish_time)
-                    self._log(f"....... Successfully generated tiles ({tiles_time} minutes).")
+                    self._log(f". Successfully generated tiles ({tiles_time} minutes).")
 
-            self._log(".... Loading and styling tiles...")
+            self._log(". Loading and styling tiles...")
             self._sytle_tiles(rules, temp_dir, tiles_uri)
-            self._log(f"....... Successfully loaded and styled tiles.")
+            self._log(f". Successfully loaded and styled tiles.")
 
             total_time = self._elapsed_minutes(start_time, perf_counter())
             self._log(f". Process completed successfully ({total_time} minutes).")
