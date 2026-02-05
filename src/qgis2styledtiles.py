@@ -537,8 +537,8 @@ class RulesExporter:
         output_datases = self._export_base_layers()
         total_datasets = len(output_datases)
         for index, (output_dataset, flat_rules) in enumerate(output_datases.items()):
-            current_rule = f"{index + 1}/{total_datasets}: {output_dataset}"
-            self.feedback.pushInfo(f".......... Processing dataset {current_rule}...")
+            current_rule = f"{index + 1}/{total_datasets}"
+            self.feedback.pushInfo(f".... Exporting dataset {current_rule}...")
             if self._export_rule(flat_rules):
                 continue
             for flat_rule in flat_rules:
@@ -626,8 +626,9 @@ class RulesExporter:
                 QgsProject.instance().addMapLayer(layer_clone, False)
                 layer = QgsProcessingFeatureSourceDefinition(layer_clone.source(), True, -1)
             else:
-                QgsProject.instance().removeMapLayer(layer_clone)
-                return
+                if layer_clone:
+                    QgsProject.instance().removeMapLayer(layer_clone)
+                    return
         layer = self._run_alg("refactorfields", INPUT=layer, FIELDS_MAPPING=field_mapping)
         if layer_clone:
             QgsProject.instance().removeMapLayer(layer_clone)
@@ -802,7 +803,8 @@ class RulesFlattener:
                 new_settings = QgsPalLayerSettings(rule.settings())
                 new_format = QgsTextFormat(new_settings.format())
                 new_bg = QgsTextBackgroundSettings(new_format.background())
-                new_bg.setMarkerSymbol(new_bg.markerSymbol().clone())
+                if new_bg.markerSymbol():
+                    new_bg.setMarkerSymbol(new_bg.markerSymbol().clone())
                 new_format.setBackground(new_bg)
                 new_settings.setFormat(new_format)
                 rule_clone.setSettings(new_settings)
@@ -1252,7 +1254,7 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 2,
+        max_zoom: int = 8,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
