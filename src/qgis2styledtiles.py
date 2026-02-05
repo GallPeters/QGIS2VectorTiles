@@ -14,7 +14,7 @@ from tomllib import load
 from datetime import datetime
 from os import makedirs, cpu_count, listdir
 from os.path import join, basename, exists
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
 from shutil import rmtree
@@ -532,7 +532,11 @@ class RulesExporter:
     def export(self) -> List[QgsVectorLayer]:
         """Export all rules to datasets."""
         output_datases = self._export_base_layers()
-        for output_datases, flat_rules in output_datases.items():
+        total_datasets = len(output_datases)
+        for index, (output_dataset, flat_rules) in enumerate(output_datases.items()):
+            self.feedback.pushInfo(
+                f".......... Processing dataset {index + 1}/{total_datasets}: {flat_rules[0].name}..."
+            )
             if self._export_rule(flat_rules):
                 continue
             for flat_rule in flat_rules:
@@ -541,23 +545,21 @@ class RulesExporter:
 
     def _export_base_layers(self):
         """Export base vector layers to FlatGeobuf format."""
-        output_datases = {}
+        output_datases = {flat_rule.output_dataset: [] for flat_rule in self.flattened_rules}
         for flat_rule in self.flattened_rules:
-            output_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset}.fgb")
+            output_datases[flat_rule.output_dataset].append(flat_rule)
+            output_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
             if not exists(output_path):
-                output_datases[flat_rule.output_dataset] = [flat_rule]
                 extent_wkt = self.extent.asWktCoordinates().replace(",", "")
                 options = f'-dim XY -explodecollections -t_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]} -spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
                 params = {"INPUT": flat_rule.layer, "OPTIONS": options, "OUTPUT": output_path}
                 self._run_alg("convertformat", "gdal", **params)
-            else:
-                output_datases[flat_rule.output_dataset].append(flat_rule)
         return output_datases
 
     def _export_rule(self, flat_rules) -> Optional[QgsVectorLayer]:
         """Export group of rules sharing the same dataset."""
         flat_rule = flat_rules[0]
-        source_path = join(self.utils_dir, f"map_layer_{flat_rule.output_dataset}.fgb")
+        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
         if exists(source_path):
             layer = QgsVectorLayer(source_path)
             if not layer or layer.featureCount() <= 0:
@@ -720,12 +722,19 @@ class RulesExporter:
         for flat_rule in flat_rules:
             min_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
             for prop, field_type in DataDefinedPropertiesFetcher(flat_rule.rule).fetch():
-                fields.append(self._expression_to_field(prop, field_type, min_zoom))
+                field_map = self._expression_to_field(prop, field_type, min_zoom)
+                if not field_map:
+                    continue
+                fields.append(field_map)
         return fields
 
     def _expression_to_field(self, prop: QgsProperty, field_type: QVariant, min_zoom: str) -> list:
         """Convert data defined expression to field"""
         expression = prop.expressionString().replace("@map_scale", min_zoom)
+        evaluation = QgsExpression(expression).evaluate()
+        if evaluation is not None:
+            prop.setExpressionString(str(evaluation))
+            return
         field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
         if "array" in expression:
             expression = f"try(array_to_string({expression}), {expression})"
@@ -735,7 +744,7 @@ class RulesExporter:
 
     def _run_alg(self, algorithm: str, algorithm_type: str = "native", **params):
         """Execute QGIS processing algorithm."""
-        i = perf_counter()
+        sleep(0.5)  # Avoid processing crashes due to rapid temp file creation
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
         output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
@@ -1075,6 +1084,8 @@ class RulesFlattener:
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer, flat_rule.name)
 
             symbol_layer = symbol.symbolLayer(layer_idx)
+            if not symbol_layer.enabled():
+                continue
             sub_symbol = symbol_layer.subSymbol()
             if symbol_layer.layerType() == "GeometryGenerator":
                 symbol_type = sub_symbol.type()
@@ -1095,23 +1106,23 @@ class RulesFlattener:
 
     def _split_by_matching_renderers(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split label rule by matching renderer rules with overlapping scales."""
-        matching_rules = []
+        splitted_rules = []
+        renderer_datasets = []
         renderer_idx = 0
 
         for renderer_rule in self.flattened_rules:
             if label_rule.layer.id() != renderer_rule.layer.id():
                 continue
-            if renderer_rule.get_attr("t") != 0:
+            if renderer_rule.get_attr("t") == 1:
                 continue
-            if renderer_rule.output_dataset in [r.output_dataset for r in matching_rules]:
+            if renderer_rule.output_dataset in renderer_datasets:
                 continue
-
-            matched_rule = self._match_label_to_renderer(label_rule, renderer_rule, renderer_idx)
-            if matched_rule:
-                matching_rules.append(matched_rule)
+            splitted_rule = self._match_label_to_renderer(label_rule, renderer_rule, renderer_idx)
+            if splitted_rule:
+                splitted_rules.append(splitted_rule)
+                renderer_datasets.append(renderer_rule.output_dataset)
             renderer_idx += 1
-
-        return matching_rules if matching_rules else [label_rule]
+        return splitted_rules if splitted_rules else [label_rule]
 
     def _match_label_to_renderer(
         self, label_rule: FlattenedRule, renderer_rule: FlattenedRule, renderer_idx: int
@@ -1165,9 +1176,23 @@ class RulesFlattener:
         split_rules = []
         for zoom in relevant_zooms:
             rule_clone = self._create_scale_specific_rule(flat_rule, zoom)
-            split_rules.append(rule_clone)
-
+            if self._symbol_layer_visible_at_zoom(rule_clone):
+                split_rules.append(rule_clone)
         return split_rules
+
+    def _symbol_layer_visible_at_zoom(self, flat_rule: FlattenedRule) -> bool:
+        """Check if symbol layer is visible at specific zoom level."""
+        min_zoom = flat_rule.get_attr("o")
+        symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
+        visiblity_prop = symbol_layer.dataDefinedProperties().property(44)
+        if visiblity_prop and visiblity_prop.isActive():
+            expression = visiblity_prop.expressionString()
+            min_scale = str(ZoomLevels.zoom_to_scale(min_zoom))
+            zoom_expression = expression.replace("@map_scale", min_scale)
+            evaluation = QgsExpression(zoom_expression).evaluate()
+            if evaluation is not None and not evaluation:
+                return False
+        return True
 
     def _has_scale_dependencies(self, flat_rule: FlattenedRule) -> bool:
         """Check if rule has scale-dependent expressions."""
@@ -1224,7 +1249,7 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 3,
+        max_zoom: int = 2,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
@@ -1260,7 +1285,7 @@ class QGIS2StyledTiles:
             start_time = perf_counter()
 
             # Step 1: Flatten all rules
-            self._log(". Flattening rules...")
+            self._log(".... Flattening rules...")
             rules = self._flatten_rules()
             if not rules:
                 self._log(". No visible vector layers found in project.")
@@ -1268,26 +1293,31 @@ class QGIS2StyledTiles:
 
             flatten_finish_time = perf_counter()
             flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
-            self._log(f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes).")
+            self._log(
+                f"....... Successfully extracted {len(rules)} rules " f"({flatten_time} minutes)."
+            )
             output = tiles_uri = layers = None
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
-                self._log(". Exporting rules to layers...")
+                self._log(".... Exporting rules to layers...")
                 layers, rules = self._export_rules(rules)
                 export_finish_time = perf_counter()
                 export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
-                self._log(f". Successfully exported {len(layers)} layers ({export_time} minutes).")
+                self._log(
+                    f"....... Successfully exported {len(layers)} layers ({export_time} minutes)."
+                )
 
                 # Step 3: Generate and style tiles
                 if self._has_features(layers):
-                    self._log(". Generating tiles...")
+                    self._log(".... Generating tiles...")
                     tiles_uri = self._generate_tiles(layers, temp_dir)
                     tiles_finish_time = perf_counter()
                     tiles_time = self._elapsed_minutes(export_finish_time, tiles_finish_time)
-                    self._log(f". Successfully generated tiles ({tiles_time} minutes).")
+                    self._log(f"....... Successfully generated tiles ({tiles_time} minutes).")
 
-            self._log(". Loading and styling tiles...")
+            self._log(".... Loading and styling tiles...")
             self._sytle_tiles(rules, temp_dir, tiles_uri)
+            self._log(f"....... Successfully loaded and styled tiles.")
 
             total_time = self._elapsed_minutes(start_time, perf_counter())
             self._log(f". Process completed successfully ({total_time} minutes).")
