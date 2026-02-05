@@ -60,16 +60,18 @@ Generate a client-side (MapLibre) compatible style:
 |22|99|
 
 ## Changelog
-### v.3 (04.02.26):
- - Added QT6 support
- - Improved rendering performance by matching the calculated field type of data-defined properties to the property type.
- - Bug fixes including preventing crashes when retrieving data-defined properties in version 3.40.
-### v.2 (30.12.25):
-- Expose Polygons Labels Base as processing parameter.
-### v.1 (16.12.25):
+### v1.3 (05.02.26):
+- Added QT6 support
+- Improved rendering performance by matching the calculated field type of data-defined properties to the property type.
+- Improved processing performence by skipping unnessesary rule splitting and exporting steps.
+- Bug fixes including preventing crashes when retrieving specific data-defined properties in version 3.40.
+### v1.2 (30.12.25):
+- Added Polygons Labels Base as processing parameter.
+### v1.1 (16.12.25):
 - Support data defined properties as calculated fields for improved rendering performence.
 - Bug fixes.
-### v.0 (10.12.25):
+### v1.0 (10.12.25):
+- Initial release.
 ## License
 
 This project is licensed under the GNU General Public License v2.0.
