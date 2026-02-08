@@ -62,6 +62,7 @@ Generate a client-side (MapLibre) compatible style:
 ## Changelog
 ### v1.5 (08.02.26):
 - Support fields based properties in addition to expression based properties.
+- Improved processing performence.
 ### v1.4 (08.02.26):
 - Improved renderering of Centroid Fill symbol layers.
 - Stabilizing DDP support when running on QGIS LTR (3.40.x).

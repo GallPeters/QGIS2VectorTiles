@@ -1266,7 +1266,7 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 12,
+        max_zoom: int = 8,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
