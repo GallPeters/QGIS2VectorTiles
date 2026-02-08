@@ -160,16 +160,27 @@ class DataDefinedPropertiesFetcher:
         """Get data defined property properties from qgis object"""
         for qgis_subobject in qgis_subobjects:
             if hasattr(qgis_subobject, "dataDefinedProperties"):
-                props_collection = qgis_subobject.dataDefinedProperties()
-                for key in props_collection.propertyKeys():
-                    prop = props_collection.property(key)
-                    if not prop or not prop.isActive():
-                        continue
-                    prop_type = props_defintions.get(key).dataType()
-                    field_type = self.TYPES_MAP.get(prop_type)
-                    self.dd_properties.append((prop, field_type))
+                self._get_propertys_from_subobjects(qgis_subobject)
             self._fetch_ddp(qgis_subobject)
 
+    def _get_propertys_from_subobjects(self, qgis_subobject):
+        """Get data defined properties from subobjects of qgis object"""
+        props_collection = qgis_subobject.dataDefinedProperties()
+        for key in props_collection.propertyKeys():
+            prop = props_collection.property(key)
+            if not prop or not prop.isActive():
+                continue
+            if prop.propertyType() not in [2,3]:
+                continue
+            # Convert field property to expression property
+            if prop.propertyType() == 2:
+                exp_prop = QgsProperty()
+                exp_prop.setExpressionString(prop.asExpression())
+                props_collection.setProperty(key, exp_prop)
+                prop = props_collection.property(key)
+            prop_type = qgis_subobject.propertyDefinitions().get(key).dataType()
+            field_type = self.TYPES_MAP.get(prop_type)
+            self.dd_properties.append((prop, field_type))
 
 class ZoomLevels:
     """Manages zoom level scales and conversions for web mapping standards."""
@@ -245,8 +256,8 @@ class FlattenedRule:
         lyr_name = self.layer.name() or self.layer.id()
         rule_type = "renderer" if self.get_attr("t") == 0 else "labeling"
         rule_num = self.get_attr("r")
-        rule_subnum = self.get_attr("s") if rule_type == 0 else self.get_attr("f")
-        return f"{lyr_name} > {rule_num} > {rule_num} > {rule_subnum}"
+        rule_subnum = self.get_attr("s") if rule_type == "renderer" else self.get_attr("f")
+        return f"{lyr_name} > {rule_num} > {rule_type} > {rule_subnum}"
 
 
 class TilesStyler:
@@ -747,7 +758,7 @@ class RulesExporter:
 
     def _run_alg(self, algorithm: str, algorithm_type: str = "native", **params):
         """Execute QGIS processing algorithm."""
-        sleep(0.5)  # Avoid processing crashes due to rapid temp file creation
+        sleep(0.25)  # Avoid processing crashes due to rapid temp file creation
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
         output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
