@@ -125,36 +125,36 @@ class DataDefinedPropertiesFetcher:
     def _fetch_ddp(self, qgis_object):
         """Get data defined properties from current object's subobjects"""
         for attr in dir(qgis_object):
-            if any(word.lower() in attr.lower() for word in self.CRASHING_ATTRS):
-                continue
-            if attr.startswith("set") and attr != attr.lower():
-                continue
-            if attr[0].isupper():
-                continue
-            getter = getattr(qgis_object, attr)
-            if not callable(getter):
-                continue
             try:
+                if any(word.lower() in attr.lower() for word in self.CRASHING_ATTRS):
+                    continue
+                if attr.startswith("set") and attr != attr.lower():
+                    continue
+                if attr[0].isupper():
+                    continue
+                getter = getattr(qgis_object, attr)
+                if not callable(getter):
+                    continue
                 qgis_subobjects = None
                 qgis_subobjects = [getter()] if not isinstance(getter(), list) else getter()
+                if not qgis_subobjects:
+                    continue
+                first_subobject = qgis_subobjects[0]
+                if isinstance(first_subobject, type(qgis_object)):
+                    continue
+                if "qgis." not in str(type(first_subobject)):
+                    continue
+                if first_subobject in self.dd_properties:
+                    continue
+                if hasattr(first_subobject, "propertyDefinitions"):
+                    props_defintions = getattr(first_subobject, "propertyDefinitions")()
+                elif hasattr(qgis_object, "propertyDefinitions"):
+                    props_defintions = getattr(qgis_object, "propertyDefinitions")()
+                else:
+                    props_defintions = None
+                self._get_properties(qgis_subobjects, props_defintions)
             except (NameError, ValueError, AttributeError, TypeError):
                 continue
-            if not qgis_subobjects:
-                continue
-            first_subobject = qgis_subobjects[0]
-            if isinstance(first_subobject, type(qgis_object)):
-                continue
-            if "qgis." not in str(type(first_subobject)):
-                continue
-            if first_subobject in self.dd_properties:
-                continue
-            if hasattr(first_subobject, "propertyDefinitions"):
-                props_defintions = getattr(first_subobject, "propertyDefinitions")()
-            elif hasattr(qgis_object, "propertyDefinitions"):
-                props_defintions = getattr(qgis_object, "propertyDefinitions")()
-            else:
-                props_defintions = None
-            self._get_properties(qgis_subobjects, props_defintions)
 
     def _get_properties(self, qgis_subobjects, props_defintions):
         """Get data defined property properties from qgis object"""
@@ -538,7 +538,7 @@ class RulesExporter:
         total_datasets = len(output_datases)
         for index, (output_dataset, flat_rules) in enumerate(output_datases.items()):
             current_rule = f"{index + 1}/{total_datasets}"
-            self.feedback.pushInfo(f".... Exporting dataset {current_rule}...")
+            self.feedback.pushInfo(f". Exporting rule {current_rule}...")
             if self._export_rule(flat_rules):
                 continue
             for flat_rule in flat_rules:
@@ -712,7 +712,6 @@ class RulesExporter:
         else:
             target_geom = flat_rule.get_attr("c")
             source_geom = flat_rule.get_attr("g")
-
             if source_geom != target_geom:
                 if target_geom == 0:
                     transform_expr = self._get_polygon_centroids_expression()
@@ -1094,9 +1093,11 @@ class RulesFlattener:
             sub_symbol = symbol_layer.subSymbol()
             if symbol_layer.layerType() == "GeometryGenerator":
                 symbol_type = sub_symbol.type()
+            elif symbol_layer.layerType() == "CentroidFill":
+                symbol_type = 0
             else:
                 symbol_type = symbol_layer.type()
-
+            
             rule_clone.set_attr("c", symbol_type)
             rule_clone.set_attr("s", layer_idx)
 
@@ -1254,7 +1255,7 @@ class QGIS2StyledTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 8,
+        max_zoom: int = 12,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
@@ -1304,7 +1305,7 @@ class QGIS2StyledTiles:
             output = tiles_uri = layers = None
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
-                self._log(". Exporting rules to layers...")
+                self._log(". Exporting rules to datasets...")
                 layers, rules = self._export_rules(rules)
                 export_finish_time = perf_counter()
                 export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
