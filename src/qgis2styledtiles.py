@@ -313,7 +313,7 @@ class TilesStyler:
         target_geom = int(flat_rule.get_attr("c"))
 
         if source_geom != target_geom:
-            if sub_symbol and symbol_layer.layerType() == "GeometryGenerator":
+            if sub_symbol and symbol_layer.layerType() in ["GeometryGenerator", "CentroidFill"]:
                 self._copy_data_driven_properties(symbol, sub_symbol)
                 self._copy_data_driven_properties(symbol_layer, sub_symbol_layer)
                 symbol = sub_symbol
@@ -594,10 +594,10 @@ class RulesExporter:
         """update expressions included @map_scale and replace it with the curren_scale"""
         for flat_rule in flat_rules:
             rule_type = flat_rule.get_attr("t")
+            zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
             if rule_type == 1:
                 settings = flat_rule.rule.settings()
                 label_exp = settings.getLabelExpression().expression()
-                zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
                 updated_exp = label_exp.replace("@map_scale", zoom_scale)
                 settings.fieldName = updated_exp
                 if settings.geometryGeneratorEnabled:

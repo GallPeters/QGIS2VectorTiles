@@ -21,6 +21,9 @@ import json
 import os
 from typing import Dict, Any, Union, Optional
 from datetime import datetime
+from qgis2sprites import SpriteGenerator
+import zipfile
+from pathlib import Path
 
 
 class QgisToMapLibreConverter:
@@ -29,6 +32,8 @@ class QgisToMapLibreConverter:
     def __init__(self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None):
         """Initialize converter with output directory and optional QgsVectorTileLayer."""
         self.output_dir = output_dir
+        self.marker_symbols = {}  # Dict to collect marker symbols for sprite generation
+        self.marker_counter = 0  # Counter for unique marker names
 
         # Get layer (use active layer if not provided)
         if layer is None:
@@ -71,18 +76,28 @@ class QgisToMapLibreConverter:
             ),
         }
 
+        print(f"🔄 Converting layer: {self.layer.name()}")
+        
         # Extract renderer styles
         renderer = self.layer.renderer()
         if isinstance(renderer, QgsVectorTileBasicRenderer):
+            styles_count = len(renderer.styles())
+            print(f"  Renderer styles: {styles_count}")
             for style_index, style in enumerate(renderer.styles()):
                 self._convert_renderer_style(style, style_index)
 
         # Extract labeling styles
         labeling = self.layer.labeling()
         if isinstance(labeling, QgsVectorTileBasicLabeling):
+            styles_count = len(labeling.styles())
+            print(f"  Labeling styles: {styles_count}")
             for style_index, style in enumerate(labeling.styles()):
                 self._convert_labeling_style(style, style_index)
 
+        print(f"📦 Markers collected: {len(self.marker_symbols)} total")
+        for name in self.marker_symbols:
+            print(f"    - {name}")
+        
         return self.style
 
     def _get_symbol_type_code(self, symbol_type) -> str:
@@ -205,90 +220,43 @@ class QgisToMapLibreConverter:
         if max_zoom >= 0:
             layer_def["maxzoom"] = max_zoom
 
-        if isinstance(symbol_layer, QgsSimpleMarkerSymbolLayer):
-            # Circle/Symbol properties
-            color = symbol_layer.color()
-            stroke_color = symbol_layer.strokeColor()
-            size = symbol_layer.size()
 
-            # Attempt to detect unit for size
-            size_unit = None
-            for attr in ("sizeUnit", "sizeUnits", "size_unit"):
-                if hasattr(symbol_layer, attr):
-                    u = getattr(symbol_layer, attr)
-                    size_unit = u() if callable(u) else u
-                    break
+        # Collect marker for sprite generation
+        marker_name = f"marker_{self.marker_counter}"
+        print(f"    ✓ marker detected: {marker_name}")
+        self.marker_counter += 1
+        self.marker_symbols[marker_name] = symbol.clone()
+        
+        # Use sprite-based icon
+        layer_def["type"] = "symbol"
+        layer_def["layout"]["icon-image"] = marker_name  # Reference marker from sprites
+        layer_def["layout"]["visibility"] = "visible"
 
-            circle_radius_px = self._convert_length_to_pixels(size, size_unit)
+        size = symbol_layer.size()
+        # detect unit for icon size (reuse size_unit logic)
+        size_unit = None
+        for attr in ("sizeUnit", "sizeUnits", "size_unit"):
+            if hasattr(symbol_layer, attr):
+                u = getattr(symbol_layer, attr)
+                size_unit = u() if callable(u) else u
+                break
+        icon_px = self._convert_length_to_pixels(size, size_unit)
+        layer_def["layout"]["icon-size"] = icon_px / 24.0  # Normalize to sprite size
+        
+        # Icon additional properties
+        layer_def["layout"]["icon-rotation-alignment"] = "map"
+        layer_def["layout"]["icon-pitch-alignment"] = "viewport"
+        layer_def["layout"]["icon-anchor"] = "center"
+        layer_def["layout"]["icon-allow-overlap"] = False
+        layer_def["layout"]["icon-ignore-placement"] = False
+        layer_def["paint"]["icon-opacity"] = 1.0
 
-            # Stroke width conversion
-            stroke_w = symbol_layer.strokeWidth()
-            stroke_unit = None
-            for attr in ("strokeWidthUnit", "strokeWidthUnits", "stroke_width_unit", "widthUnit"):
-                if hasattr(symbol_layer, attr):
-                    u = getattr(symbol_layer, attr)
-                    stroke_unit = u() if callable(u) else u
-                    break
-            stroke_w_px = self._convert_length_to_pixels(stroke_w, stroke_unit)
-
-            layer_def["paint"]["circle-color"] = self._qcolor_to_maplibre(color)
-            layer_def["paint"]["circle-radius"] = circle_radius_px
-            layer_def["paint"]["circle-stroke-color"] = self._qcolor_to_maplibre(stroke_color)
-            layer_def["paint"]["circle-stroke-width"] = stroke_w_px
-            layer_def["paint"]["circle-stroke-opacity"] = stroke_color.alphaF()
-            layer_def["paint"]["circle-opacity"] = color.alphaF()
-            
-            # Circle additional properties
-            layer_def["layout"]["visibility"] = "visible"
-            layer_def["paint"]["circle-blur"] = 0  # Default blur
-            layer_def["paint"]["circle-pitch-scale"] = "map"  # Default pitch scale
-            layer_def["paint"]["circle-pitch-alignment"] = "viewport"  # Default pitch alignment
-            layer_def["paint"]["circle-translate"] = [0, 0]  # Default no translation
-            layer_def["paint"]["circle-translate-anchor"] = "map"  # Default anchor
-
-            # Check for data-defined properties
-            self._apply_data_defined_properties(
-                symbol_layer,
-                layer_def,
-                {
-                    "color": ("paint", "circle-color"),
-                    "size": ("paint", "circle-radius"),
-                    "stroke_color": ("paint", "circle-stroke-color"),
-                    "stroke_width": ("paint", "circle-stroke-width"),
-                },
-            )
-
-        elif isinstance(symbol_layer, QgsSvgMarkerSymbolLayer):
-            # Use sprite-based icon
-            layer_def["type"] = "symbol"
-            layer_def["layout"]["icon-image"] = style_name  # Reference sprite
-            layer_def["layout"]["visibility"] = "visible"
-
-            size = symbol_layer.size()
-            # detect unit for icon size (reuse size_unit logic)
-            size_unit = None
-            for attr in ("sizeUnit", "sizeUnits", "size_unit"):
-                if hasattr(symbol_layer, attr):
-                    u = getattr(symbol_layer, attr)
-                    size_unit = u() if callable(u) else u
-                    break
-            icon_px = self._convert_length_to_pixels(size, size_unit)
-            layer_def["layout"]["icon-size"] = icon_px / 24.0  # Normalize to sprite size
-            
-            # Icon additional properties
-            layer_def["layout"]["icon-rotation-alignment"] = "map"
-            layer_def["layout"]["icon-pitch-alignment"] = "viewport"
-            layer_def["layout"]["icon-anchor"] = "center"
-            layer_def["layout"]["icon-allow-overlap"] = False
-            layer_def["layout"]["icon-ignore-placement"] = False
-            layer_def["paint"]["icon-opacity"] = 1.0
-
-            # Check for data-defined size
-            size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
-            if size_prop and size_prop.isActive():
-                field_name = self._get_field_from_property(size_prop)
-                if field_name:
-                    layer_def["layout"]["icon-size"] = ["get", field_name]
+        # Check for data-defined size
+        size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
+        if size_prop and size_prop.isActive():
+            field_name = self._get_field_from_property(size_prop)
+            if field_name:
+                layer_def["layout"]["icon-size"] = ["get", field_name]
 
         self.style["layers"].append(layer_def)
 
@@ -664,8 +632,22 @@ class QgisToMapLibreConverter:
         # Background (uses sprite if enabled)
         background = label_settings.format().background()
         if background.enabled():
-            # Assume sprite contains background icon with style name
-            layer_def["layout"]["icon-image"] = style_name
+            # Try to extract marker from background
+            try:
+                if hasattr(background, 'markerSymbol'):
+                    marker = background.markerSymbol()
+                    if marker and marker.type() == QgsSymbol.Marker:
+                        marker_name = f"marker_{self.marker_counter}"
+                        self.marker_counter += 1
+                        self.marker_symbols[marker_name] = marker.clone()
+                        layer_def["layout"]["icon-image"] = marker_name
+                    else:
+                        layer_def["layout"]["icon-image"] = style_name
+                else:
+                    layer_def["layout"]["icon-image"] = style_name
+            except Exception:
+                layer_def["layout"]["icon-image"] = style_name
+            
             layer_def["layout"]["icon-text-fit"] = "both"
             layer_def["layout"]["icon-text-fit-padding"] = [4, 2, 4, 2]
             layer_def["layout"]["icon-anchor"] = "center"
@@ -864,7 +846,7 @@ class QgisToMapLibreConverter:
         return json.dumps(self.style, indent=indent)
 
     def save_to_file(self, filename: str = "style.json", indent: int = 2):
-        """Save the style to a JSON file in a timestamped subdirectory."""
+        """Save style and sprites to same directory; add sprite source to style.json."""
         # Create subdirectory with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         style_subdir = f"style_{timestamp}"
@@ -873,10 +855,74 @@ class QgisToMapLibreConverter:
         if not os.path.exists(full_output_dir):
             os.makedirs(full_output_dir)
 
+        print(f"\n💾 Saving output to: {full_output_dir}")
+        
+        # Generate sprites if markers were collected
+        if self.marker_symbols:
+            print(f"✓ {len(self.marker_symbols)} markers collected for sprite generation")
+            import shutil
+            sprite_temp_dir = os.path.join(full_output_dir, "_sprite_temp")
+            if not os.path.exists(sprite_temp_dir):
+                os.makedirs(sprite_temp_dir)
+            
+            print(f"  Generating sprites...")
+            sprite_gen = SpriteGenerator(self.marker_symbols, sprite_temp_dir, 
+                                        scale_factor=1, test_mode=False)
+            sprite_output_dir = sprite_gen.generate()
+            
+            print(f"  SpriteGenerator returned: {sprite_output_dir}")
+            
+            if sprite_output_dir:
+                zip_path = f"{sprite_temp_dir}.zip"
+                print(f"  Looking for zip at: {zip_path}")
+                print(f"  Zip exists: {os.path.exists(zip_path)}")
+                
+                if os.path.exists(zip_path):
+                    print(f"  Extracting to: {full_output_dir}")
+                    try:
+                        with zipfile.ZipFile(zip_path, 'r') as zf:
+                            files = zf.namelist()
+                            print(f"  Files in zip: {files}")
+                            zf.extractall(full_output_dir)
+                        print(f"  ✓ Sprites extracted successfully")
+                        
+                        # Verify files exist
+                        for fname in ["sprite.json", "sprite.png"]:
+                            fpath = os.path.join(full_output_dir, fname)
+                            print(f"    {fname}: {'✓ exists' if os.path.exists(fpath) else '✗ missing'}")
+                        
+                        # Cleanup temp dir and zip
+                        try:
+                            os.remove(zip_path)
+                            shutil.rmtree(sprite_temp_dir, ignore_errors=True)
+                        except Exception as e:
+                            print(f"  Cleanup warning: {e}")
+                    except Exception as e:
+                        print(f"  ✗ Error extracting sprites: {e}")
+                else:
+                    print(f"  ✗ Zip file not found at: {zip_path}")
+                    print(f"  Checking temp dir: {sprite_temp_dir}")
+                    if os.path.exists(sprite_temp_dir):
+                        print(f"    Contents: {os.listdir(sprite_temp_dir)}")
+                    print(f"  Parent dir: {full_output_dir}")
+                    print(f"    Contents: {os.listdir(full_output_dir)}")
+                
+                # Add sprite source to style
+                self.style["sources"]["sprites"] = {
+                    "type": "sprite",
+                    "tiles": ["sprite"]
+                }
+            else:
+                print(f"  ✗ SpriteGenerator.generate() returned None or empty")
+        else:
+            print(f"⚠ No markers collected - sprite generation skipped")
+
+        # Save style.json
         filepath = os.path.join(full_output_dir, filename)
         with open(filepath, "w") as f:
             json.dump(self.style, f, indent=indent)
-
+        
+        print(f"✓ Style saved to: {filepath}")
         return filepath
 
     def run(self, filename: str = "style.json", indent: int = 2) -> str:

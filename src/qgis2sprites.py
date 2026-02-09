@@ -215,13 +215,18 @@ class SpriteImage:
 
     def save(self, output_zip: str):
         """Save sprite images to zip."""
-        with zipfile.ZipFile(output_zip, "w") as zf:
-            bio1 = BytesIO()
-            self.img.save(bio1, format='PNG')
-            bio2 = BytesIO()
-            self.lowerimg.save(bio2, format='PNG')
-            zf.writestr("sprite.png", bio1.getvalue())
-            zf.writestr(f"sprite@{self.lowerfactor}x.png", bio2.getvalue())
+        try:
+            with zipfile.ZipFile(output_zip, "w") as zf:
+                bio1 = BytesIO()
+                self.img.save(bio1, format='PNG')
+                zf.writestr("sprite.png", bio1.getvalue())
+                
+                bio2 = BytesIO()
+                self.lowerimg.save(bio2, format='PNG')
+                zf.writestr(f"sprite@{self.lowerfactor}x.png", bio2.getvalue())
+                print(f"    ✓ Sprite images written to {output_zip}")
+        except Exception as e:
+            print(f"    ✗ Error saving sprite images: {e}")
 
 
 @dataclass
@@ -264,10 +269,14 @@ class SpriteJSON:
 
     def save(self, output_zip: str):
         """Save JSON metadata to zip."""
-        with zipfile.ZipFile(output_zip, "a") as zf:
-            zf.writestr("sprite.json", dumps(self.jsondict, indent=2))
-            zf.writestr(f"sprite@{self.lowerfactor}x.json", 
-                       dumps(self.lowerjsondict, indent=2))
+        try:
+            with zipfile.ZipFile(output_zip, "a") as zf:
+                zf.writestr("sprite.json", dumps(self.jsondict, indent=2))
+                zf.writestr(f"sprite@{self.lowerfactor}x.json", 
+                           dumps(self.lowerjsondict, indent=2))
+                print(f"    ✓ JSON coordinates written to {output_zip}")
+        except Exception as e:
+            print(f"    ✗ Error saving JSON: {e}")
 
 
 class SpriteGenerator:
@@ -284,33 +293,54 @@ class SpriteGenerator:
     def generate(self) -> Optional[str]:
         """Process symbols through pipeline and return output directory path or None."""
         if not self.symbols_dict:
+            print(f"  ✗ No symbols in symbols_dict")
             return None
 
         try:
+            print(f"  Creating SymbolImage objects for {len(self.symbols_dict)} symbols...")
             imgs = [SymbolImage(sym, name, self.scale_factor)
                    for name, sym in self.symbols_dict.items()]
+            print(f"  ✓ Created {len(imgs)} SymbolImage objects")
+            for img in imgs:
+                print(f"    - {img.name}: {img.width}x{img.height}px")
+            
+            print(f"  Creating SpriteMatrix...")
             matrix = SpriteMatrix(imgs)
+            print(f"  ✓ Matrix shape: {matrix.shape}")
+            
+            print(f"  Creating SpriteImage...")
             sprite_img = SpriteImage(matrix, lowerfactor=self.lower_factor,
                                     scale_factor=self.scale_factor)
+            print(f"  ✓ Sprite image: {sprite_img.img.width}x{sprite_img.img.height}px")
+            
+            print(f"  Creating SpriteJSON...")
             sprite_json = SpriteJSON(sprite_img, lowerfactor=self.lower_factor,
                                     scale_factor=self.scale_factor)
+            print(f"  ✓ JSON coordinates: {len(sprite_json.jsondict)} entries")
 
+            print(f"  Saving sprite files to zip...")
             self._save_files(sprite_img, sprite_json)
+            print(f"  ✓ Files saved")
+            
             if self.test_mode:
                 self._test_coordinates(sprite_img, sprite_json)
 
             print(f"✓ Sprites generated (scale_factor={self.scale_factor}): {self.output_dir}.zip")
             return self.output_dir
         except Exception as e:
-            print(f"Sprite generation error: {e}")
+            import traceback
+            print(f"✗ Sprite generation error: {e}")
+            traceback.print_exc()
             return None
 
     def _save_files(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """Save sprite images and JSON to zip."""
         zip_path = f'{self.output_dir}.zip' if not self.test_mode else \
                    join(self.output_dir, f'{basename(self.output_dir)}.zip')
+        print(f"    Creating zip at: {zip_path}")
         sprite_img.save(zip_path)
         sprite_json.save(zip_path)
+        print(f"    ✓ Zip saved")
 
     def _test_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """Extract individual symbols to verify coordinates."""
