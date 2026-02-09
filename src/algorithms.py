@@ -271,14 +271,25 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
 
 
 class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
-    """
-    QGIS Processing Algorithm for generating styled MBTiles from project layers.
-    This wrapper provides a user interface for the MBTiles generation process
-    through the QGIS Processing Toolbox.
+    """QGIS Processing Algorithm for generating MapLibre sprites.
+
+    Provides a Processing Toolbox interface for sprite generation with
+    user-configurable symbol scaling. Collects all symbols from visible
+    vector layers and generates sprite sheets with variable scaling.
+
+    Parameters:
+        OUTPUT_DIR: Output directory for sprite PNG and JSON files
+        SCALE_FACTOR: Symbol scaling multiplier (1=normal size, 2=2× larger, etc.)
+                     Higher values produce sharper symbols due to high-resolution rendering
+
+    Usage:
+        Run from Processing Toolbox or Python console with desired scale_factor.
+        Output includes sprite.png, sprite@2x.png, sprite.json, and sprite@2x.json
     """
 
     # Parameter names (constants for consistency)
     OUTPUT_DIR = "OUTPUT_DIR"
+    SCALE_FACTOR = "SCALE_FACTOR"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -339,8 +350,10 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
         )
 
     def initAlgorithm(self, config=None):
-        """
-        Define the inputs and outputs of the algorithm.
+        """Define the inputs and outputs of the algorithm.
+
+        Parameters:
+            config: Optional configuration dictionary
         """
         # Output directory parameter
         self.addParameter(
@@ -350,10 +363,22 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
                 optional=False            )
         )
 
+        # Symbol scaling factor parameter
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.SCALE_FACTOR,
+                self.tr("Symbol Scale Factor"),
+                type=QgsProcessingParameterNumber.Integer,
+                defaultValue=1,
+                minValue=1,
+                maxValue=4,
+                optional=False,
+                help_text=self.tr("Scaling multiplier for symbol size: 1=normal, 2=2× larger, 3=3× larger, etc.")
+            )
+        )
+
     def processAlgorithm(self, parameters, context, feedback):
-        """
-        Main processing method. This is where your existing MBTiles generation logic
-        should be called.
+        """Main processing method for sprite generation.
 
         Args:
             parameters: Dictionary containing parameter values
@@ -361,24 +386,26 @@ class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
             feedback: QgsProcessingFeedback object for progress reporting
 
         Returns:
-            Dictionary with results (can be empty for this use case)
+            Dictionary with results (empty dict for sprite generation)
         """
 
         # Extract parameter values
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
+        scale_factor = self.parameterAsInt(parameters, self.SCALE_FACTOR, context)
 
         try:
-            # Your existing MBTiles generator class would be called here
-            sprite_generator = QGIS2Sprites(output_dir)
+            # Generate sprites with specified scale factor
+            sprite_generator = QGIS2Sprites(output_dir, scale_factor=scale_factor)
             sprite_generator.generate_sprite()
 
-            # Run the generation process
-            feedback.pushInfo(f"sprite generation completed successfully")
+            # Provide feedback to user
+            feedback.pushInfo(f"Sprite generation completed successfully with {scale_factor}× scale")
+            feedback.pushInfo(f"Output saved to: {output_dir}")
 
         except Exception as e:
             feedback.reportError(f"Error during sprite generation: {str(e)}")
             return {}
-        
-        # Return empty results dictionary (modify as needed for your use case)
+
+        # Return empty results dictionary
         return {}
 
