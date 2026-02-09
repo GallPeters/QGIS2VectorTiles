@@ -11,6 +11,7 @@ from qgis.core import (
     QgsSimpleLineSymbolLayer,
     QgsSimpleFillSymbolLayer,
     QgsSvgMarkerSymbolLayer,
+        QgsUnitTypes,
     QgsProperty,
     QgsWkbTypes,
     QgsSymbolLayer,
@@ -100,9 +101,8 @@ class QgisToMapLibreConverter:
         layer_name = style.layerName()
         symbol = style.symbol()
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel()
+        max_zoom = style.maxZoomLevel() + 1  # MapLibre maxzoom is exclusive, QGIS is inclusive
         enabled = style.isEnabled()
-
         if not enabled or not symbol:
             return
 
@@ -211,10 +211,30 @@ class QgisToMapLibreConverter:
             stroke_color = symbol_layer.strokeColor()
             size = symbol_layer.size()
 
+            # Attempt to detect unit for size
+            size_unit = None
+            for attr in ("sizeUnit", "sizeUnits", "size_unit"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    size_unit = u() if callable(u) else u
+                    break
+
+            circle_radius_px = self._convert_length_to_pixels(size, size_unit)
+
+            # Stroke width conversion
+            stroke_w = symbol_layer.strokeWidth()
+            stroke_unit = None
+            for attr in ("strokeWidthUnit", "strokeWidthUnits", "stroke_width_unit", "widthUnit"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    stroke_unit = u() if callable(u) else u
+                    break
+            stroke_w_px = self._convert_length_to_pixels(stroke_w, stroke_unit)
+
             layer_def["paint"]["circle-color"] = self._qcolor_to_maplibre(color)
-            layer_def["paint"]["circle-radius"] = self._convert_size(size)
+            layer_def["paint"]["circle-radius"] = circle_radius_px
             layer_def["paint"]["circle-stroke-color"] = self._qcolor_to_maplibre(stroke_color)
-            layer_def["paint"]["circle-stroke-width"] = symbol_layer.strokeWidth()
+            layer_def["paint"]["circle-stroke-width"] = stroke_w_px
             layer_def["paint"]["circle-stroke-opacity"] = stroke_color.alphaF()
             layer_def["paint"]["circle-opacity"] = color.alphaF()
             
@@ -245,9 +265,15 @@ class QgisToMapLibreConverter:
             layer_def["layout"]["visibility"] = "visible"
 
             size = symbol_layer.size()
-            layer_def["layout"]["icon-size"] = (
-                self._convert_size(size) / 24.0
-            )  # Normalize to sprite size
+            # detect unit for icon size (reuse size_unit logic)
+            size_unit = None
+            for attr in ("sizeUnit", "sizeUnits", "size_unit"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    size_unit = u() if callable(u) else u
+                    break
+            icon_px = self._convert_length_to_pixels(size, size_unit)
+            layer_def["layout"]["icon-size"] = icon_px / 24.0  # Normalize to sprite size
             
             # Icon additional properties
             layer_def["layout"]["icon-rotation-alignment"] = "map"
@@ -296,8 +322,17 @@ class QgisToMapLibreConverter:
             color = symbol_layer.color()
             width = symbol_layer.width()
 
+            # detect unit for line width
+            width_unit = None
+            for attr in ("widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    width_unit = u() if callable(u) else u
+                    break
+            width_px = self._convert_length_to_pixels(width, width_unit)
+
             layer_def["paint"]["line-color"] = self._qcolor_to_maplibre(color)
-            layer_def["paint"]["line-width"] = width
+            layer_def["paint"]["line-width"] = width_px
             layer_def["paint"]["line-opacity"] = color.alphaF()
 
             # Line cap and join
@@ -312,19 +347,95 @@ class QgisToMapLibreConverter:
             layer_def["layout"]["line-miter-limit"] = 2.0  # Default MapLibre value
             layer_def["layout"]["line-round-limit"] = 1.05  # Default MapLibre value
 
-            # Line dash pattern with custom dash vector
-            dash_vector = symbol_layer.customDashVector()
-            if dash_vector and len(dash_vector) > 0:
-                # Convert QGIS dash vector to MapLibre line-dasharray
-                # Scale the dash pattern by line width for proper visualization
-                dasharray = [dash * width for dash in dash_vector]
-                layer_def["paint"]["line-dasharray"] = dasharray
-            
+            # Line dash pattern: only add `line-dasharray` when QGIS uses a
+            # custom dash pattern (enabled) or when the stroke/pen style is a
+            # dashed type. Method/attribute names vary between QGIS versions
+            # so probe defensively.
+            dash_vector = None
+            try:
+                dash_vector = symbol_layer.customDashVector()
+            except Exception:
+                dash_vector = None
+
+            # Detect if a custom dash pattern is explicitly enabled in the
+            # symbol layer. Prefer the explicit `useCustomDashPattern()` API
+            # when present; fall back to other possible names for
+            # compatibility but do NOT treat the presence of a dash vector as
+            # proof that the option is enabled.
+            custom_dash_enabled = False
+            try:
+                if hasattr(symbol_layer, "useCustomDashPattern"):
+                    custom_dash_enabled = bool(symbol_layer.useCustomDashPattern())
+                elif hasattr(symbol_layer, "customDashEnabled"):
+                    custom_dash_enabled = bool(symbol_layer.customDashEnabled())
+                elif hasattr(symbol_layer, "isCustomDash"):
+                    custom_dash_enabled = bool(symbol_layer.isCustomDash())
+                else:
+                    custom_dash_enabled = False
+            except Exception:
+                custom_dash_enabled = False
+
+            # Get pen style from the symbol layer. QGIS/Qt pen style values:
+            # 0 = NoPen (no stroke), 1 = SolidLine, 2 = DashLine, 3 = DotLine,
+            # 4 = DashDotLine, 5 = DashDotDotLine, 6 = CustomDashLine
+            pen_style = None
+            try:
+                if hasattr(symbol_layer, "penStyle"):
+                    pen_style = symbol_layer.penStyle()
+                elif hasattr(symbol_layer, "strokeStyle"):
+                    pen_style = symbol_layer.strokeStyle()
+                elif hasattr(symbol_layer, "pen_style"):
+                    v = getattr(symbol_layer, "pen_style")
+                    pen_style = v() if callable(v) else v
+            except Exception:
+                pen_style = None
+
+            # Fixed dashed types (2-5) use QGIS-defined presets; custom (6)
+            # uses the dash vector when enabled.
+            fixed_dashed_types = {2, 3, 4, 5}
+
+            # If custom dash is enabled, prefer the custom dash vector.
+            if custom_dash_enabled:
+                if dash_vector and len(dash_vector) > 0:
+                    dash_unit = None
+                    for attr in ("dashUnit", "dashUnits", "customDashUnits"):
+                        if hasattr(symbol_layer, attr):
+                            u = getattr(symbol_layer, attr)
+                            dash_unit = u() if callable(u) else u
+                            break
+                    dasharray = [
+                        self._convert_length_to_pixels(d, dash_unit or width_unit)
+                        for d in dash_vector
+                    ]
+                    layer_def["paint"]["line-dasharray"] = dasharray
+            # If not custom but pen style is one of the fixed dashed presets,
+            # use corresponding preset patterns scaled by line width.
+            elif pen_style in fixed_dashed_types:
+                try:
+                    w = width_px
+                except Exception:
+                    w = 1.0
+                preset = {
+                    2: [4 * w, 2 * w],
+                    3: [1 * w, 1 * w],
+                    4: [4 * w, 2 * w, 1 * w, 2 * w],
+                    5: [4 * w, 2 * w, 1 * w, 2 * w, 1 * w, 2 * w],
+                }
+                dasharray = preset.get(pen_style)
+                if dasharray:
+                    layer_def["paint"]["line-dasharray"] = dasharray
+
             # Line offset (QGIS offset property)
             try:
                 offset = symbol_layer.offset()
+                offset_unit = None
+                for attr in ("offsetUnit", "offsetUnits"):
+                    if hasattr(symbol_layer, attr):
+                        u = getattr(symbol_layer, attr)
+                        offset_unit = u() if callable(u) else u
+                        break
                 if offset != 0:
-                    layer_def["paint"]["line-offset"] = offset
+                    layer_def["paint"]["line-offset"] = self._convert_length_to_pixels(offset, offset_unit)
             except:
                 pass
             
@@ -435,17 +546,33 @@ class QgisToMapLibreConverter:
         font = text_format.font()
 
         layer_def["layout"]["text-font"] = [font.family()]
-        layer_def["layout"]["text-size"] = font.pointSizeF()
+        # Convert QGIS font point size to pixels (MapLibre uses pixels). 1pt = 1/72in; at 96 DPI => px = pt * 96/72
+        layer_def["layout"]["text-size"] = font.pointSizeF() * (96.0 / 72.0)
         layer_def["layout"]["visibility"] = "visible"
         
         # Text style properties
-        layer_def["layout"]["text-allow-overlap"] = not label_settings.isObstacleForPolygon()
+        # text-allow-overlap depends on obstacle setting
+        try:
+            allow_overlap = not label_settings.obstacle
+        except AttributeError:
+            allow_overlap = True  # Default to allowing overlap if property doesn't exist
+        layer_def["layout"]["text-allow-overlap"] = allow_overlap
         layer_def["layout"]["text-ignore-placement"] = False
         layer_def["layout"]["text-optional"] = False
         layer_def["layout"]["text-padding"] = 0
         
         # Text justification
-        justification = label_settings.alignment
+        try:
+            # Try to get alignment from multiLineAlignment property
+            justification = label_settings.multiLineAlignment
+        except AttributeError:
+            try:
+                # Fallback to alignment property
+                justification = label_settings.alignment
+            except AttributeError:
+                # Default to center alignment if neither exists
+                justification = 1
+        
         layer_def["layout"]["text-justify"] = self._convert_text_justification(justification)
         
         # Text line height and letter spacing
@@ -474,11 +601,21 @@ class QgisToMapLibreConverter:
             layer_def["paint"]["text-halo-color"] = "rgba(255, 255, 255, 1.00)"
             layer_def["paint"]["text-halo-blur"] = 0
 
-        # Text offset
+        # Text offset (convert units if available)
         x_offset = label_settings.xOffset
         y_offset = label_settings.yOffset
+        # Try to detect offset unit on label settings
+        offset_unit = None
+        for attr in ("xOffsetUnit", "offsetUnit", "units"):
+            if hasattr(label_settings, attr):
+                u = getattr(label_settings, attr)
+                offset_unit = u() if callable(u) else u
+                break
         if x_offset != 0 or y_offset != 0:
-            layer_def["layout"]["text-offset"] = [x_offset, y_offset]
+            layer_def["layout"]["text-offset"] = [
+                self._convert_length_to_pixels(x_offset, offset_unit),
+                self._convert_length_to_pixels(y_offset, offset_unit),
+            ]
         else:
             layer_def["layout"]["text-offset"] = [0, 0]
 
@@ -611,9 +748,60 @@ class QgisToMapLibreConverter:
         """Convert QColor to MapLibre rgba format."""
         return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF():.2f})"
 
+    def _convert_length_to_pixels(self, value: float, unit_obj=None) -> float:
+        """Convert a length value from various QGIS units to pixels (assumes 96 DPI).
+
+        If unit_obj is an enum or string, attempts to infer unit from its string representation.
+        Falls back to treating the value as millimeters (common default in QGIS symbol sizes).
+        """
+        if value is None:
+            return value
+
+        # If unit object provided, try to get a descriptive string
+        unit_str = ""
+        try:
+            if unit_obj is not None:
+                # If it's callable (enum), try to call to get value/name
+                try:
+                    unit_str = str(unit_obj).lower()
+                except Exception:
+                    unit_str = ""
+        except Exception:
+            unit_str = ""
+
+        # Interpret unit strings heuristically
+        if "millimeter" in unit_str or "mm" in unit_str:
+            return value * 3.78
+        if "centimeter" in unit_str or "cm" in unit_str:
+            return value * 37.8
+        if "inch" in unit_str or "in" in unit_str:
+            return value * 96.0
+        if "point" in unit_str or "pt" in unit_str:
+            return value * (96.0 / 72.0)
+        if "pixel" in unit_str or "px" in unit_str:
+            return value
+
+        # Try to handle known QgsUnitTypes enums by name
+        try:
+            if unit_obj == QgsUnitTypes.RenderMillimeters:
+                return value * 3.78
+            if unit_obj == QgsUnitTypes.RenderCentimeters:
+                return value * 37.8
+            if unit_obj == QgsUnitTypes.RenderInches:
+                return value * 96.0
+            if unit_obj == QgsUnitTypes.RenderPoints:
+                return value * (96.0 / 72.0)
+            if unit_obj == QgsUnitTypes.RenderPixels:
+                return value
+        except Exception:
+            pass
+
+        # Fallback: assume millimeters
+        return value * 3.78
+
     def _convert_size(self, size: float) -> float:
         """Convert QGIS size (mm) to MapLibre size (pixels). 1mm ≈ 3.78 px at 96 DPI."""
-        return size * 3.78
+        return self._convert_length_to_pixels(size, None)
 
     def _convert_line_cap(self, cap_style) -> str:
         """Convert Qt pen cap style to MapLibre line-cap."""
