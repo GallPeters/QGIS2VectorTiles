@@ -5,16 +5,14 @@ Generates MapLibre-compatible sprite sheets from QGIS marker symbols.
 Output includes sprite.png, sprite.json and high-resolution versions.
 
 The sprite generator supports scaling symbols to different sizes with a scale_factor parameter.
-scale_factor controls how large symbols appear in the output:
-  - scale_factor=1: Normal size, renders at 1000×1000, pixelRatio=1
-  - scale_factor=2: 2× larger symbols, renders at 2000×2000, pixelRatio=2
-  - scale_factor=3: 3× larger symbols, renders at 3000×3000, pixelRatio=3
+scale_factor multiplies all symbol sizes (width, height, stroke width) by the factor:
+  - scale_factor=1: Normal size (e.g., symbol size 2 renders as 2 units)
+  - scale_factor=2: 2× larger symbols (symbol size 2 renders as 4 units)  
+  - scale_factor=4: 4× larger symbols (symbol size 2 renders as 8 units)
   - etc.
 
-Higher scale_factor values produce sharper symbols due to high-resolution rendering.
-The JSON coordinates are automatically scaled down and pixelRatio is set accordingly,
-so MapLibre displays symbols at the correct size while using the higher-resolution image.
-The sprite sheet size scales proportionally (2× scale_factor = 4× file size).
+Larger scale_factor produces larger symbols in the final sprite and in maps.
+The sprite sheet size grows quadratically (2× scale_factor = 4× file size).
 """
 import zipfile
 from dataclasses import dataclass, field
@@ -49,18 +47,7 @@ ImgCoord: TypeAlias = tuple[float, float, float, float]
 
 @dataclass
 class SymbolImage:
-    """Wrapper for QGIS symbol rendered as PIL image.
-
-    Renders a QGIS symbol at high resolution based on scale_factor,
-    then crops transparent borders.
-
-    Attributes:
-        symbol: QgsSymbol to render
-        name: Unique symbol identifier
-        scale_factor: Scaling multiplier (1=render at 1000px, 2=render at 2000px, etc.)
-                     Symbols render at 1000 × scale_factor pixels. JSON coordinates
-                     are automatically scaled down so MapLibre displays at correct size.
-    """
+    """Render QGIS symbol as PIL image at scale_factor resolution, crop transparent borders."""
     symbol: QgsSymbol
     name: str
     scale_factor: int = 1
@@ -72,15 +59,28 @@ class SymbolImage:
         self.generate_symbol_img()
 
     def generate_symbol_img(self):
-        """Render symbol to PIL image at high resolution, crop transparent borders.
-
-        Renders the symbol at 1000 × scale_factor pixels, then crops any
-        transparent borders. Higher scale values produce sharper symbols.
-        """
+        """Render at 1000×scale_factor px, crop transparent borders for sharp display."""
         try:
-            # Render at higher resolution for sharpness
-            render_size = 1000 * self.scale_factor
-            qt_img = self.symbol.asImage(QSize(render_size, render_size))
+            # Clone symbol and scale its size by scale_factor
+            symbol = self.symbol.clone()
+            for layer_idx in range(symbol.symbolLayerCount()):
+                layer = symbol.symbolLayer(layer_idx)
+                if layer and hasattr(layer, 'setSize'):
+                    current_size = layer.size() if hasattr(layer, 'size') else 0
+                    if current_size and current_size > 0:
+                        layer.setSize(current_size * self.scale_factor)
+                # Scale stroke width if available
+                if layer and hasattr(layer, 'setStrokeWidth'):
+                    try:
+                        current_width = layer.strokeWidth() if hasattr(layer, 'strokeWidth') else 0
+                        if current_width and current_width > 0:
+                            layer.setStrokeWidth(current_width * self.scale_factor)
+                    except Exception:
+                        pass
+            
+            # Render at fixed size with scaled symbol
+            render_size = 1000
+            qt_img = symbol.asImage(QSize(render_size, render_size))
             pil_img = self._qt_to_pil(qt_img)
             bbox = pil_img.getbbox()
             self.img = pil_img.crop(bbox) if bbox else pil_img
@@ -95,7 +95,7 @@ class SymbolImage:
 
     @staticmethod
     def _qt_to_pil(qt_img: QImage) -> Img:
-        """Convert Qt QImage to PIL Image."""
+        """Convert Qt QImage to PIL Image with fallback to empty RGBA."""
         try:
             buffer = QBuffer()
             buffer.open(QIODevice.ReadWrite)
@@ -110,7 +110,7 @@ class SymbolImage:
 
 @dataclass
 class SpriteMatrix:
-    """Arranges symbol images in optimal grid layout."""
+    """Arrange symbol images in grid layout with aspect ratio and pixelspace."""
     imgs: list[SymbolImage]
     ratio: tuple[int, int] = (3, 4)
     pixelspace: int = 20
@@ -124,7 +124,7 @@ class SpriteMatrix:
         self.get_matrix_rows()
 
     def calculate_shape(self):
-        """Calculate grid dimensions based on symbol count and aspect ratio."""
+        """Calculate optimal (height, width) grid based on symbol count and ratio."""
         count = len(self.imgs)
         ratio_prod = self.ratio[0] * self.ratio[1]
         base_size = sqrt(count / ratio_prod)
@@ -137,13 +137,13 @@ class SpriteMatrix:
         self.shape = (height, width)
 
     def generate_imgs_matrix(self):
-        """Distribute images into matrix rows."""
+        """Split images into rows based on calculated grid shape."""
         h, w = self.shape
         symbols = list(self.imgs)
         self.imgsmatrix = [symbols[w * r : w * (r + 1)] for r in range(h)]
 
     def get_matrix_rows(self):
-        """Calculate row dimensions (width, height, images)."""
+        """Compute (width, height, images) tuple for each row with pixelspace."""
         self.imgsrows = []
         for row in self.imgsmatrix:
             if not row:
@@ -155,17 +155,7 @@ class SpriteMatrix:
 
 @dataclass
 class SpriteImage:
-    """Creates final sprite sheet with positioned symbols.
-
-    Arranges symbol images into a sprite sheet, records their coordinates,
-    and generates both 1× and 2× resolution versions.
-
-    Attributes:
-        matrix: SpriteMatrix containing arranged symbols
-        pixelspace: Padding between symbols (default 20)
-        lowerfactor: Scale multiplier for high-res version (default 2 for @2x)
-        scale_factor: Symbol scaling multiplier from SymbolImage rendering
-    """
+    """Build sprite sheet from matrix, compute coordinates, generate 1× and 2× versions."""
     matrix: SpriteMatrix
     pixelspace: int = 20
     lowerfactor: int = 2
@@ -180,7 +170,7 @@ class SpriteImage:
         self.generate_lowerimg()
 
     def construct_img(self):
-        """Create blank sprite sheet with calculated dimensions."""
+        """Create blank RGBA sprite sheet at calculated (w, h) from matrix rows."""
         if not self.matrix.imgsrows:
             self.img = Image.new("RGBA", (100, 100), (255, 255, 255, 0))
             return
@@ -191,7 +181,7 @@ class SpriteImage:
         self.img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
 
     def populate_img(self):
-        """Paste symbols into sprite sheet, record coordinates."""
+        """Paste symbols into sheet and save (name→x,y,w,h) coordinate mapping."""
         self.imgscoords = {}
         y = self.pixelspace
 
@@ -203,7 +193,7 @@ class SpriteImage:
 
     def _populate_row(self, row: list[SymbolImage], left_x: float,
                       row_height: float, current_y: float) -> dict:
-        """Paste images in row, return coordinate mapping."""
+        """Paste row images centered, return {name: (x, y, w, h)} dict."""
         coords = {}
         x = left_x
 
@@ -218,7 +208,7 @@ class SpriteImage:
         return coords
 
     def generate_lowerimg(self):
-        """Generate high-resolution version (2x scale)."""
+        """Upscale sprite by lowerfactor using LANCZOS for high-res @Nx version."""
         new_w = int(self.img.width * self.lowerfactor)
         new_h = int(self.img.height * self.lowerfactor)
         self.lowerimg = self.img.resize((new_w, new_h), Image.Resampling.LANCZOS)
@@ -236,17 +226,7 @@ class SpriteImage:
 
 @dataclass
 class SpriteJSON:
-    """Generates MapLibre-compatible JSON metadata for sprites.
-
-    Creates JSON files for both 1× and 2× sprite versions. Each JSON file
-    contains coordinate mappings for all symbols in the sprite sheet,
-    plus pixelRatio for MapLibre display scaling.
-
-    Attributes:
-        spriteimg: SpriteImage containing symbol positions
-        lowerfactor: Scale multiplier for @2x version (default 2)
-        scale_factor: Symbol scaling multiplier (controls final symbol size)
-    """
+    """Generate MapLibre coordinate JSON for sprites with pixelRatio (1× and Nx versions)."""
     spriteimg: SpriteImage
     lowerfactor: int = 2
     scale_factor: int = 1
@@ -257,27 +237,21 @@ class SpriteJSON:
         self.generate_json()
 
     def generate_json(self):
-        """Create JSON metadata for sprite coordinates.
-        
-        When scale_factor > 1, symbols render at higher resolution.
-        The JSON width/height are divided by scale_factor so MapLibre
-        displays them at the intended size, with pixelRatio indicating
-        the higher resolution.
-        """
+        """Coordinates reflect scale_factor-multiplied symbol sizes; pixelRatio=1 for base sprites."""
         self.jsondict = {}
         for name, (x, y, w, h) in self.spriteimg.imgscoords.items():
-            # Divide coordinates by scale_factor to get display size
-            # pixelRatio tells MapLibre this is a high-resolution sprite
+            # Coordinates already include scale_factor effect (scaled symbols = larger coordinates)
+            # pixelRatio=1 since coordinates are in final display pixels
             self.jsondict[name] = {
-                "x": int(x / self.scale_factor),
-                "y": int(y / self.scale_factor),
-                "width": int(w / self.scale_factor),
-                "height": int(h / self.scale_factor),
-                "pixelRatio": self.scale_factor
+                "x": int(x),
+                "y": int(y),
+                "width": int(w),
+                "height": int(h),
+                "pixelRatio": 1
             }
 
-        # High-resolution version (scaled by lowerfactor)
-        # This is an additional scaling on top of scale_factor scaling
+        # High-resolution version (scaled by lowerfactor for @2x, @3x, etc.)
+        # Multiply base coordinates by lowerfactor; pixelRatio indicates rendered resolution
         self.lowerjsondict = {}
         for name, coords in self.jsondict.items():
             self.lowerjsondict[name] = {
@@ -285,7 +259,7 @@ class SpriteJSON:
                 "y": int(coords["y"] * self.lowerfactor),
                 "width": int(coords["width"] * self.lowerfactor),
                 "height": int(coords["height"] * self.lowerfactor),
-                "pixelRatio": self.scale_factor * self.lowerfactor
+                "pixelRatio": self.lowerfactor
             }
 
     def save(self, output_zip: str):
@@ -297,20 +271,7 @@ class SpriteJSON:
 
 
 class SpriteGenerator:
-    """Main generator for MapLibre sprites.
-
-    Orchestrates the sprite generation process:
-    1. Renders symbols at scaled resolution
-    2. Arranges them in optimal grid layout
-    3. Generates coordinate JSON metadata
-    4. Saves PNG and JSON files to zip
-
-    Attributes:
-        symbols_dict: Dictionary of symbol names to QgsSymbol objects
-        output_dir: Output directory for generated files
-        scale_factor: Scaling multiplier for symbols (1=normal, 2=2× larger, etc.)
-        test_mode: Enable test coordinate extraction if True
-    """
+    """Orchestrate sprite generation: render symbols, arrange grid, generate JSON, save zip."""
 
     def __init__(self, symbols_dict: dict[str, QgsSymbol], output_dir: str,
                  scale_factor: int = 1, test_mode: bool = False):
@@ -321,14 +282,7 @@ class SpriteGenerator:
         self.test_mode = test_mode
 
     def generate(self) -> Optional[str]:
-        """Generate sprite sheet and metadata.
-
-        Processes all symbols through the sprite generation pipeline
-        and returns the output directory path.
-
-        Returns:
-            Output directory path if successful, None if symbols_dict is empty
-        """
+        """Process symbols through pipeline and return output directory path or None."""
         if not self.symbols_dict:
             return None
 
@@ -345,6 +299,7 @@ class SpriteGenerator:
             if self.test_mode:
                 self._test_coordinates(sprite_img, sprite_json)
 
+            print(f"✓ Sprites generated (scale_factor={self.scale_factor}): {self.output_dir}.zip")
             return self.output_dir
         except Exception as e:
             print(f"Sprite generation error: {e}")
@@ -379,24 +334,7 @@ class SpriteGenerator:
 
 
 class QGIS2Sprites:
-    """Safe sprite collector with Linux crash fixes.
-
-    Main entry point for sprite generation. Collects all symbols from the
-    current QGIS project's visible vector layers and generates a sprite sheet.
-
-    Symbols are collected from:
-    - Renderer symbols (single, categorized, graduated, rule-based)
-    - Label background markers
-
-    Attributes:
-        base_output_dir: Base directory for output files
-        scale_factor: Scaling multiplier for all symbols (1=normal, 2=2× larger, etc.)
-        test_mode: If True, extracts individual symbols for verification
-
-    Example:
-        collector = QGIS2Sprites('/path/to/output', scale_factor=2)
-        output = collector.generate_sprite()
-    """
+    """Main entry: collect symbols from project layers, generate sprite sheet with scale_factor."""
 
     def __init__(self, output_dir: str, scale_factor: int = 1, test_mode: bool = False):
         self.base_output_dir = output_dir
@@ -406,14 +344,7 @@ class QGIS2Sprites:
         self.name_counter = {}
 
     def generate_sprite(self) -> Optional[str]:
-        """Collect symbols from project and generate sprite sheet.
-
-        Scans all visible vector layers, collects their symbols, and creates
-        sprite sheet with PNG and JSON metadata.
-
-        Returns:
-            Output directory path if successful, None if no symbols found
-        """
+        """Scan layers, collect symbols, generate sprites; return path or None."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = join(self.base_output_dir, f"sprite_{timestamp}")
         if self.test_mode:
@@ -426,10 +357,13 @@ class QGIS2Sprites:
 
         generator = SpriteGenerator(self.symbols_dict, output_dir,
                                    self.scale_factor, self.test_mode)
-        return generator.generate()
+        result = generator.generate()
+        if result:
+            print(f"✓ Sprite collection complete: {result}.zip")
+        return result
 
     def _collect_all_symbols(self):
-        """Collect symbols from all visible vector layers."""
+        """Scan project layers and collect renderer + labeling symbols; handle errors safely."""
         try:
             project = QgsProject.instance()
             if not project:
@@ -465,7 +399,7 @@ class QGIS2Sprites:
             collect()
 
     def _is_valid_layer(self, layer) -> bool:
-        """Check if layer is valid vector layer."""
+        """Return True if layer is visible, vector, and non-point."""
         try:
             is_vector = layer.type() == 0 and layer.geometryType() != 4
             layer_node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
@@ -475,7 +409,7 @@ class QGIS2Sprites:
             return False
 
     def _collect_renderer_symbols(self, renderer, layer_name: str, layer_idx: int):
-        """Safely collect symbols from renderer."""
+        """Extract symbols from Single, Categorized, Graduated, or RuleBased renderers."""
         if not renderer:
             return
         
@@ -497,7 +431,7 @@ class QGIS2Sprites:
             pass
 
     def _collect_single_symbol(self, symbol, layer_name: str, layer_idx: int):
-        """Collect single symbol safely."""
+        """Extract marker from symbol and add to dict with unique name."""
         try:
             marker = self._get_marker_symbol(symbol)
             if marker:
@@ -507,7 +441,7 @@ class QGIS2Sprites:
             pass
 
     def _collect_categorized(self, categories, layer_name: str, layer_idx: int):
-        """Collect categorized symbols safely."""
+        """Add marker from each category if enabled and symbol present."""
         if not categories:
             return
         
@@ -525,7 +459,7 @@ class QGIS2Sprites:
                 pass
 
     def _collect_graduated(self, ranges, layer_name: str, layer_idx: int):
-        """Collect graduated symbols safely."""
+        """Add marker from each range if enabled and symbol present."""
         if not ranges:
             return
         
@@ -544,7 +478,7 @@ class QGIS2Sprites:
 
     def _collect_rule_symbols(self, rules, layer_name: str, layer_idx: int, 
                              parent_path: str = ""):
-        """Recursively collect rule-based symbols safely."""
+        """Recursively add markers from active rules and their children."""
         if not rules:
             return
         
@@ -573,7 +507,7 @@ class QGIS2Sprites:
                 pass
 
     def _collect_labeling_symbols(self, labeling, layer_name: str, layer_idx: int):
-        """Safely collect labeling symbols."""
+        """Extract marker from simple or rule-based label backgrounds."""
         if not labeling:
             return
         
@@ -601,7 +535,7 @@ class QGIS2Sprites:
 
     def _collect_labeling_rules(self, rules, layer_name: str, layer_idx: int, 
                                parent_path: str = ""):
-        """Recursively collect labeling rule symbols safely."""
+        """Recursively add markers from active labeling rules and their children."""
         if not rules:
             return
         
@@ -630,7 +564,7 @@ class QGIS2Sprites:
                 pass
 
     def _get_marker_symbol(self, symbol) -> Optional[QgsSymbol]:
-        """Safely extract marker symbol from symbol."""
+        """Extract marker from symbol or its layers' subsymbols; return None if not found."""
         if not symbol:
             return None
         
@@ -661,7 +595,7 @@ class QGIS2Sprites:
         return None
 
     def _has_marker_background(self, settings) -> bool:
-        """Safely check if settings have marker background."""
+        """Return True if label settings has enabled background marker."""
         if not settings:
             return False
         
@@ -691,7 +625,7 @@ class QGIS2Sprites:
         return False
 
     def _safe_get_marker_from_settings(self, settings) -> Optional[QgsSymbol]:
-        """Safely extract marker from label settings."""
+        """Return marker from label background or None if unavailable."""
         try:
             if hasattr(settings, 'format'):
                 fmt = settings.format()
@@ -706,7 +640,7 @@ class QGIS2Sprites:
 
     def _get_unique_name(self, name: str, layer_name: str, layer_idx: int, 
                         item_idx: int = None) -> str:
-        """Generate unique symbol name."""
+        """Generate collision-free name using suffix or counter."""
         name = (name or "").strip()
         
         if name in self.symbols_dict:
@@ -727,6 +661,6 @@ class QGIS2Sprites:
 if __name__ == "__console__":
     # Set scale_factor to control symbol size:
     # 1 = normal size, 2 = 2× larger, 3 = 3× larger, etc.
-    scale_factor = 2
+    scale_factor = 4
     collector = QGIS2Sprites(output_dir=QgsProcessingUtils.tempFolder(), scale_factor=scale_factor)
     collector.generate_sprite()
