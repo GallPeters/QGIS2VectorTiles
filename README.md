@@ -1,6 +1,9 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
  
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (.mbtiles or XYZ), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json and matching sprites).
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a lightweight package which includes:
+-  A single vector tiles source (.mbtiles or XYZ).
+-  A single vector tiles layer (.qlr).
+- A client-side compatible Maplibre/Mapbox style package (style.json).
 
 ## Demo
 
