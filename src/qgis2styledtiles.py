@@ -23,7 +23,7 @@ from uuid import uuid4
 from processing import run
 from osgeo import gdal, ogr, osr
 from qgis.PyQt.QtCore import qVersion
-from qgis.gui import iface
+from qgis.utils import iface
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
@@ -57,6 +57,7 @@ from qgis.core import (
     Qgis,
     QgsExpression,
 )
+from .qgis2maplibre import QgisMapLibreStyleExporter
 
 # Import by QT version
 if int(qVersion()[0]) == 5:
@@ -66,16 +67,9 @@ else:
     from PyQt6.QtXml import QDomDocument
     from PyQt6.QtCore import QVariant
 
-# Import by run environment
-if __name__ == "__console__":
-    _PLUGIN_DIR = join(
-        QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles"
-    )
-    _CONF = join(_PLUGIN_DIR, "resources", "conf.toml")
-else:
-    from .settings import _CONF
 
-# Constants
+_PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
+_CONF = join(_PLUGIN_DIR, "resources", "conf.toml")
 _TILES_CONF = load(open(_CONF, "rb"))
 _TILING_SCHEME = _TILES_CONF["TILING_SCHEME"]
 
@@ -383,9 +377,12 @@ class TilesStyler:
 
     def _save_style(self):
         """Save layer style to QLR file."""
-        makedirs(self.output_dir, exist_ok=True)
-        qlr_path = join(self.output_dir, "tiles.qlr")
-        layer = QgsProject.instance().layerTreeRoot().findLayer(self.tiles_layer.id())
+        style_dir = join(self.output_dir, "style")
+        makedirs(style_dir, exist_ok=True)
+        qlr_path = join(style_dir, "tiles.qlr")
+        layer = QgsProject.instance().layerTreeRoot().findLayer(
+            self.tiles_layer.id()
+        )
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [layer])
 
 
@@ -543,7 +540,7 @@ class RulesExporter:
         """Export all rules to datasets."""
         output_datases = self._export_base_layers()
         total_datasets = len(output_datases)
-        for index, flat_rules in enumerate(output_datases.items()):
+        for index, flat_rules in enumerate(output_datases.values()):
             current_rule = f"{index + 1}/{total_datasets}"
             self.feedback.pushInfo(f". Exporting rule {current_rule}...")
             if self._export_rule(flat_rules):
@@ -560,7 +557,7 @@ class RulesExporter:
             output_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
             if not exists(output_path):
                 extent_wkt = self.extent.asWktCoordinates().replace(",", "")
-                output_crs = f'EPSG: {_TILING_SCHEME["EPSG_CRS"]}'
+                output_crs = f'EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
                 base_options = f"-dim XY -explodecollections -t_srs {output_crs}"
                 spat_options = f"-spat {extent_wkt} -spat_srs {output_crs}"
                 options = f"{base_options} {spat_options}"
@@ -1328,8 +1325,12 @@ class QGIS2StyledTiles:
                     self._log(f". Successfully generated tiles ({tiles_time} minutes).")
 
             self._log(". Loading and styling tiles...")
-            self._sytle_tiles(rules, temp_dir, tiles_uri)
+            styled_layer = self._sytle_tiles(rules, temp_dir, tiles_uri)
             self._log(". Successfully loaded and styled tiles.")
+
+            self._log(". Exporting tiles style to MapLibre style package...")
+            self._export_maplibre_style(temp_dir, styled_layer)
+            self._log(". Successfully exported MapLibre style package.")
 
             total_time = self._elapsed_minutes(start_time, perf_counter())
             self._log(f". Process completed successfully ({total_time} minutes).")
@@ -1395,10 +1396,17 @@ class QGIS2StyledTiles:
         tiles_uri = generator.generate()
         return tiles_uri
 
-    def _sytle_tiles(self, rules, temp_dir, tiles_uri):
+    def _sytle_tiles(self, rules, temp_dir, tiles_uri) -> Optional[QgsVectorTileLayer]:
         """Style tiles."""
         styler = TilesStyler(rules, temp_dir, tiles_uri)
-        styler.apply_styling()
+        styled_layer = styler.apply_styling()
+        return styled_layer
+
+    def _export_maplibre_style(self, temp_dir, styled_layer):
+        """Export MapLibre style."""
+        print(temp_dir)
+        exporter = QgisMapLibreStyleExporter(temp_dir, styled_layer)
+        exporter.export()
 
     def _log(self, message: str):
         """Log message to feedback or console."""

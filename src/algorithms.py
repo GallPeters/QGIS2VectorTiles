@@ -1,3 +1,7 @@
+"""QGIS Processing Algorithms for QGIS2VectorTiles plugin."""
+
+from os.path import join
+from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsProcessingAlgorithm,
@@ -8,10 +12,8 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-
-from .qgis2styledtiles import QGIS2StyledTiles
-from .qgis2sprites import QGIS2Sprites
-from .settings import _ICON
+from .qgis2styledtiles import QGIS2StyledTiles, _PLUGIN_DIR
+_ICON = QIcon(join(_PLUGIN_DIR, "resources", "icon.png"))
 
 
 
@@ -23,7 +25,7 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
     """
 
     # Parameter names (constants for consistency)
-    OUTPUT_CONTENT = 'OUTPUT_CONTENT'
+    OUTPUT_CONTENT = "OUTPUT_CONTENT"
     MIN_ZOOM = "MIN_ZOOM"
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
@@ -86,13 +88,13 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         Returns a localised short helper string for the algorithm.
         """
         return self.tr(
-            "Generates MBTiles or XYZ Directory which contains vector tiles from all visible project layers while preserving "
+            "Generates MBTiles or XYZ Directory which contains vector tiles from all visible project layers while preserving "  # pylint: disable=C0301
             "their original styling. The generated tiles are automatically loaded "
-            "back into the project with identical appearance to the source layers." 
+            "back into the project with identical appearance to the source layers."
             "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
         )
 
-    def initAlgorithm(self, config=None):
+    def initAlgorithm(self, config=None):  # pylint: disable=W0613
         """
         Define the inputs and outputs of the algorithm.
         """
@@ -171,7 +173,7 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
                 optional=False,
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterEnum(
                 self.POLYGONS_LABELS_BASE,
@@ -185,10 +187,8 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         # Output directory parameter
         self.addParameter(
             QgsProcessingParameterFolderDestination(
-                self.OUTPUT_DIR,
-                self.tr("Output Directory"),
-                optional=False
-                            )
+                self.OUTPUT_DIR, self.tr("Output Directory"), optional=False
+            )
         )
 
     def checkParameterValues(self, parameters, context):
@@ -222,7 +222,7 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         """
 
         # Extract parameter values
-        output_content_index =  self.parameterAsInt(parameters, self.OUTPUT_CONTENT, context)
+        output_content_index = self.parameterAsInt(parameters, self.OUTPUT_CONTENT, context)
         output_type_index = self.parameterAsInt(parameters, self.OUTPUT_TYPE, context)
         output_type = ["XYZ", "MBTiles"][output_type_index]
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
@@ -235,7 +235,7 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         include_required_fields_only = self.parameterAsBool(
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
-        POLYGONS_LABELS_BASE = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
+        polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
 
         try:
             # Your existing MBTiles generator class would be called here
@@ -247,161 +247,18 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
-                output_content = output_content_index,
-                cent_source=POLYGONS_LABELS_BASE,
-                feedback=feedback
+                output_content=output_content_index,
+                cent_source=polygon_labels_base,
+                feedback=feedback,
             )
 
             # Run the generation process
             tiles_generator.convert_project_to_vector_tiles()
             feedback.pushInfo(f"{output_type} generation completed successfully")
 
-        except Exception as e:
+        except (NameError, ValueError, AttributeError, TypeError) as e:
             feedback.reportError(f"Error during {output_type} generation: {str(e)}")
             return {}
 
         # Return empty results dictionary (modify as needed for your use case)
         return {}
-
-
-
-
-class QGIS2SpritesAlgorithm(QgsProcessingAlgorithm):
-    """QGIS Processing Algorithm for generating MapLibre sprites.
-
-    Provides a Processing Toolbox interface for sprite generation with
-    user-configurable symbol scaling. Collects all symbols from visible
-    vector layers and generates sprite sheets with variable scaling.
-
-    Parameters:
-        OUTPUT_DIR: Output directory for sprite PNG and JSON files
-        SCALE_FACTOR: Symbol scaling multiplier (1=normal size, 2=2× larger, etc.)
-                     Higher values produce sharper symbols due to high-resolution rendering
-
-    Usage:
-        Run from Processing Toolbox or Python console with desired scale_factor.
-        Output includes sprite.png, sprite@2x.png, sprite.json, and sprite@2x.json
-    """
-
-    # Parameter names (constants for consistency)
-    OUTPUT_DIR = "OUTPUT_DIR"
-    SCALE_FACTOR = "SCALE_FACTOR"
-
-    def __init__(self):
-        """Initialize the algorithm"""
-        super().__init__()
-
-    def tr(self, string):
-        """
-        Returns a translatable string with the self.tr() function.
-        """
-        return QCoreApplication.translate("Processing", string)
-
-    def createInstance(self):
-        """
-        Returns a new instance of the algorithm. Required by QGIS Processing framework.
-        """
-        return QGIS2SpritesAlgorithm()
-
-    def name(self):
-        """
-        Returns the algorithm name, used for identifying the algorithm.
-        This string should be fixed for the algorithm, and must not be localized.
-        """
-        return "QGIS2Sprites_action"
-
-    def displayName(self):
-        """
-        Returns the translated algorithm name, which should be used for any
-        user-visible display of the algorithm name.
-        """
-        return self.tr("QGIS2Sprites")
-
-    def group(self):
-        """
-        Returns the name of the group this algorithm belongs to.
-        """
-        return None  # No inner group as requested
-
-    def groupId(self):
-        """
-        Returns the unique ID of the group this algorithm belongs to.
-        """
-        return None  # No inner group as requested
-
-    def icon(self):
-        """
-        Returns the algorithm icon.
-        """
-        return _ICON
-
-    def shortHelpString(self):
-        """
-        Returns a localised short helper string for the algorithm.
-        """
-        return self.tr(
-            "Generates a MapLibre sprite from all marker symbols in the currenr project." \
-            "The sprite will include all renderer and labeling background marker symbols of all current project's visible vector layers."
-            "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
-        )
-
-    def initAlgorithm(self, config=None):
-        """Define the inputs and outputs of the algorithm.
-
-        Parameters:
-            config: Optional configuration dictionary
-        """
-        # Output directory parameter
-        self.addParameter(
-            QgsProcessingParameterFolderDestination(
-                self.OUTPUT_DIR,
-                self.tr("Output Directory"),
-                optional=False            )
-        )
-
-        # Symbol scaling factor parameter
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.SCALE_FACTOR,
-                self.tr("Symbol Scale Factor"),
-                type=QgsProcessingParameterNumber.Integer,
-                defaultValue=1,
-                minValue=1,
-                maxValue=4,
-                optional=False,
-                help_text=self.tr("Scaling multiplier for symbol size: 1=normal, 2=2× larger, 3=3× larger, etc.")
-            )
-        )
-
-    def processAlgorithm(self, parameters, context, feedback):
-        """Main processing method for sprite generation.
-
-        Args:
-            parameters: Dictionary containing parameter values
-            context: QgsProcessingContext object
-            feedback: QgsProcessingFeedback object for progress reporting
-
-        Returns:
-            Dictionary with results (empty dict for sprite generation)
-        """
-
-        # Extract parameter values
-        output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
-        scale_factor = self.parameterAsInt(parameters, self.SCALE_FACTOR, context)
-
-        try:
-            # Generate sprites with specified scale factor
-            sprite_generator = QGIS2Sprites(output_dir, scale_factor=scale_factor)
-            sprite_generator.generate_sprite()
-
-            # Provide feedback to user
-            feedback.pushInfo(f"Sprite generation completed successfully with {scale_factor}× scale")
-            feedback.pushInfo(f"Output saved to: {output_dir}")
-
-        except Exception as e:
-            feedback.reportError(f"Error during sprite generation: {str(e)}")
-            return {}
-
-        # Return empty results dictionary
-        return {}
-

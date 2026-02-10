@@ -7,30 +7,37 @@ Output includes sprite.png, sprite.json and high-resolution versions.
 The sprite generator supports scaling symbols to different sizes with a scale_factor parameter.
 scale_factor multiplies all symbol sizes (width, height, stroke width) by the factor:
   - scale_factor=1: Normal size (e.g., symbol size 2 renders as 2 units)
-  - scale_factor=2: 2x larger symbols (symbol size 2 renders as 4 units)  
+  - scale_factor=2: 2x larger symbols (symbol size 2 renders as 4 units)
   - scale_factor=4: 4x larger symbols (symbol size 2 renders as 8 units)
   - etc.
 
 Larger scale_factor produces larger symbols in the final sprite and in maps.
 The sprite sheet size grows quadratically (2x scale_factor = 4x file size).
 """
-import zipfile
+
+from io import BytesIO
 from dataclasses import dataclass, field
 from json import dumps
 from math import sqrt, ceil
 from os import makedirs
-from os.path import join, basename
-from io import BytesIO
+from os.path import join
 from typing import Optional, TypeAlias
 from datetime import datetime
 from gc import collect
-
+from PIL import Image
 from qgis.core import (
-    QgsProcessingUtils, QgsSymbol, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
-    QgsProject, QgsVectorLayerSimpleLabeling, QgsSingleSymbolRenderer,
-    QgsCategorizedSymbolRenderer, QgsGraduatedSymbolRenderer
+    QgsProcessingUtils,
+    QgsSymbol,
+    QgsRuleBasedRenderer,
+    QgsRuleBasedLabeling,
+    QgsProject,
+    QgsVectorLayerSimpleLabeling,
+    QgsSingleSymbolRenderer,
+    QgsCategorizedSymbolRenderer,
+    QgsGraduatedSymbolRenderer,
 )
 from qgis.PyQt.QtCore import qVersion
+
 qt_version = int(qVersion()[0])
 if qt_version == 5:
     from PyQt5.QtCore import QSize, QBuffer, QIODevice
@@ -38,7 +45,6 @@ if qt_version == 5:
 else:
     from PyQt6.QtCore import QSize, QBuffer, QIODevice
     from PyQt6.QtGui import QImage
-from PIL import Image
 
 Img: TypeAlias = Image.Image
 MatrixShape: TypeAlias = tuple[int, int]
@@ -48,6 +54,7 @@ ImgCoord: TypeAlias = tuple[float, float, float, float]
 @dataclass
 class SymbolImage:
     """Render QGIS symbol as PIL image at scale_factor resolution, crop transparent borders."""
+
     symbol: QgsSymbol
     name: str
     scale_factor: int = 1
@@ -65,19 +72,19 @@ class SymbolImage:
             symbol = self.symbol.clone()
             for layer_idx in range(symbol.symbolLayerCount()):
                 layer = symbol.symbolLayer(layer_idx)
-                if layer and hasattr(layer, 'setSize'):
-                    current_size = layer.size() if hasattr(layer, 'size') else 0
+                if layer and hasattr(layer, "setSize"):
+                    current_size = layer.size() if hasattr(layer, "size") else 0
                     if current_size and current_size > 0:
                         layer.setSize(current_size * self.scale_factor)
                 # Scale stroke width if available
-                if layer and hasattr(layer, 'setStrokeWidth'):
+                if layer and hasattr(layer, "setStrokeWidth"):
                     try:
-                        current_width = layer.strokeWidth() if hasattr(layer, 'strokeWidth') else 0
+                        current_width = layer.strokeWidth() if hasattr(layer, "strokeWidth") else 0
                         if current_width and current_width > 0:
                             layer.setStrokeWidth(current_width * self.scale_factor)
-                    except Exception:
+                    except (RuntimeError, AttributeError):
                         pass
-            
+
             # Render at fixed size with scaled symbol
             render_size = 1000
             qt_img = symbol.asImage(QSize(render_size, render_size))
@@ -104,13 +111,14 @@ class SymbolImage:
             buffer.close()
             bio.seek(0)
             return Image.open(bio)
-        except Exception:
+        except (OSError, RuntimeError):
             return Image.new("RGBA", (10, 10), (255, 255, 255, 0))
 
 
 @dataclass
 class SpriteMatrix:
     """Arrange symbol images in grid layout with aspect ratio and pixelspace."""
+
     imgs: list[SymbolImage]
     ratio: tuple[int, int] = (3, 4)
     pixelspace: int = 20
@@ -128,10 +136,10 @@ class SpriteMatrix:
         count = len(self.imgs)
         ratio_prod = self.ratio[0] * self.ratio[1]
         base_size = sqrt(count / ratio_prod)
-        
+
         height = ceil(base_size * self.ratio[0])
         width = ceil(base_size * self.ratio[1])
-        
+
         if width * (height - 1) >= count:
             height -= 1
         self.shape = (height, width)
@@ -156,6 +164,7 @@ class SpriteMatrix:
 @dataclass
 class SpriteImage:
     """Build sprite sheet from matrix, compute coordinates, generate 1× and 2× versions."""
+
     matrix: SpriteMatrix
     pixelspace: int = 20
     lowerfactor: int = 2
@@ -191,8 +200,9 @@ class SpriteImage:
             self.imgscoords.update(row_coords)
             y += row_height
 
-    def _populate_row(self, row: list[SymbolImage], left_x: float,
-                      row_height: float, current_y: float) -> dict:
+    def _populate_row(
+        self, row: list[SymbolImage], left_x: float, row_height: float, current_y: float
+    ) -> dict:
         """Paste row images centered, return {name: (x, y, w, h)} dict."""
         coords = {}
         x = left_x
@@ -213,25 +223,20 @@ class SpriteImage:
         new_h = int(self.img.height * self.lowerfactor)
         self.lowerimg = self.img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    def save(self, output_zip: str):
-        """Save sprite images to zip."""
+    def save(self, output_dir: str):
+        """Save sprite images to directory."""
         try:
-            with zipfile.ZipFile(output_zip, "w") as zf:
-                bio1 = BytesIO()
-                self.img.save(bio1, format='PNG')
-                zf.writestr("sprite.png", bio1.getvalue())
-                
-                bio2 = BytesIO()
-                self.lowerimg.save(bio2, format='PNG')
-                zf.writestr(f"sprite@{self.lowerfactor}x.png", bio2.getvalue())
-                print(f"    ✓ Sprite images written to {output_zip}")
-        except Exception as e:
-            print(f"    ✗ Error saving sprite images: {e}")
+            makedirs(output_dir, exist_ok=True)
+            self.img.save(join(output_dir, "sprite.png"))
+            self.lowerimg.save(join(output_dir, f"sprite@{self.lowerfactor}x.png"))
+        except (OSError, RuntimeError):
+            pass
 
 
 @dataclass
 class SpriteJSON:
     """Generate MapLibre coordinate JSON for sprites with pixelRatio (1× and Nx versions)."""
+
     spriteimg: SpriteImage
     lowerfactor: int = 2
     scale_factor: int = 1
@@ -242,7 +247,8 @@ class SpriteJSON:
         self.generate_json()
 
     def generate_json(self):
-        """Coordinates reflect scale_factor-multiplied symbol sizes; pixelRatio=1 for base sprites."""
+        """Coordinates reflects scale_factor-multiplied symbol
+        sizes; pixelRatio=1 for base sprites."""
         self.jsondict = {}
         for name, (x, y, w, h) in self.spriteimg.imgscoords.items():
             # Coordinates already include scale_factor effect (scaled symbols = larger coordinates)
@@ -252,7 +258,7 @@ class SpriteJSON:
                 "y": int(y),
                 "width": int(w),
                 "height": int(h),
-                "pixelRatio": 1
+                "pixelRatio": 1,
             }
 
         # High-resolution version (scaled by lowerfactor for @2x, @3x, etc.)
@@ -264,26 +270,33 @@ class SpriteJSON:
                 "y": int(coords["y"] * self.lowerfactor),
                 "width": int(coords["width"] * self.lowerfactor),
                 "height": int(coords["height"] * self.lowerfactor),
-                "pixelRatio": self.lowerfactor
+                "pixelRatio": self.lowerfactor,
             }
 
-    def save(self, output_zip: str):
-        """Save JSON metadata to zip."""
+    def save(self, output_dir: str):
+        """Save JSON metadata to directory."""
         try:
-            with zipfile.ZipFile(output_zip, "a") as zf:
-                zf.writestr("sprite.json", dumps(self.jsondict, indent=2))
-                zf.writestr(f"sprite@{self.lowerfactor}x.json", 
-                           dumps(self.lowerjsondict, indent=2))
-                print(f"    ✓ JSON coordinates written to {output_zip}")
-        except Exception as e:
-            print(f"    ✗ Error saving JSON: {e}")
+            makedirs(output_dir, exist_ok=True)
+            with open(join(output_dir, "sprite.json"), "w", encoding="utf8") as f:
+                f.write(dumps(self.jsondict, indent=2))
+            with open(
+                join(output_dir, f"sprite@{self.lowerfactor}x.json"), "w", encoding="utf8"
+            ) as f:
+                f.write(dumps(self.lowerjsondict, indent=2))
+        except (OSError, RuntimeError):
+            pass
 
 
 class SpriteGenerator:
-    """Orchestrate sprite generation: render symbols, arrange grid, generate JSON, save zip."""
+    """Orchestrate sprite generation: render, arrange, generate JSON, save."""
 
-    def __init__(self, symbols_dict: dict[str, QgsSymbol], output_dir: str,
-                 scale_factor: int = 1, test_mode: bool = False):
+    def __init__(
+        self,
+        symbols_dict: dict[str, QgsSymbol],
+        output_dir: str,
+        scale_factor: int = 1,
+        test_mode: bool = False,
+    ):
         self.symbols_dict = symbols_dict
         self.output_dir = output_dir
         self.scale_factor = scale_factor
@@ -293,73 +306,63 @@ class SpriteGenerator:
     def generate(self) -> Optional[str]:
         """Process symbols through pipeline and return output directory path or None."""
         if not self.symbols_dict:
-            print(f"  ✗ No symbols in symbols_dict")
             return None
 
         try:
-            print(f"  Creating SymbolImage objects for {len(self.symbols_dict)} symbols...")
-            imgs = [SymbolImage(sym, name, self.scale_factor)
-                   for name, sym in self.symbols_dict.items()]
-            print(f"  ✓ Created {len(imgs)} SymbolImage objects")
-            for img in imgs:
-                print(f"    - {img.name}: {img.width}x{img.height}px")
-            
-            print(f"  Creating SpriteMatrix...")
-            matrix = SpriteMatrix(imgs)
-            print(f"  ✓ Matrix shape: {matrix.shape}")
-            
-            print(f"  Creating SpriteImage...")
-            sprite_img = SpriteImage(matrix, lowerfactor=self.lower_factor,
-                                    scale_factor=self.scale_factor)
-            print(f"  ✓ Sprite image: {sprite_img.img.width}x{sprite_img.img.height}px")
-            
-            print(f"  Creating SpriteJSON...")
-            sprite_json = SpriteJSON(sprite_img, lowerfactor=self.lower_factor,
-                                    scale_factor=self.scale_factor)
-            print(f"  ✓ JSON coordinates: {len(sprite_json.jsondict)} entries")
+            imgs = [
+                SymbolImage(sym, name, self.scale_factor)
+                for name, sym in self.symbols_dict.items()
+            ]
 
-            print(f"  Saving sprite files to zip...")
+            matrix = SpriteMatrix(imgs)
+
+            sprite_img = SpriteImage(
+                matrix, lowerfactor=self.lower_factor, scale_factor=self.scale_factor
+            )
+
+            sprite_json = SpriteJSON(
+                sprite_img, lowerfactor=self.lower_factor, scale_factor=self.scale_factor
+            )
+
             self._save_files(sprite_img, sprite_json)
-            print(f"  ✓ Files saved")
-            
+
             if self.test_mode:
                 self._test_coordinates(sprite_img, sprite_json)
 
-            print(f"✓ Sprites generated (scale_factor={self.scale_factor}): {self.output_dir}.zip")
             return self.output_dir
-        except Exception as e:
-            import traceback
-            print(f"✗ Sprite generation error: {e}")
-            traceback.print_exc()
+        except (RuntimeError, AttributeError, KeyError, ValueError, OSError):
             return None
 
     def _save_files(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
-        """Save sprite images and JSON to zip."""
-        zip_path = f'{self.output_dir}.zip' if not self.test_mode else \
-                   join(self.output_dir, f'{basename(self.output_dir)}.zip')
-        print(f"    Creating zip at: {zip_path}")
-        sprite_img.save(zip_path)
-        sprite_json.save(zip_path)
-        print(f"    ✓ Zip saved")
+        """Save sprite images and JSON to directory."""
+        sprite_dir = join(self.output_dir, "sprite")
+        sprite_img.save(sprite_dir)
+        sprite_json.save(sprite_dir)
 
     def _test_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
         """Extract individual symbols to verify coordinates."""
         for res_name, sprite, coords in [
             ("1x", sprite_img.img, sprite_json.jsondict),
-            (f"{self.lower_factor}x", sprite_img.lowerimg, sprite_json.lowerjsondict)
+            (f"{self.lower_factor}x", sprite_img.lowerimg, sprite_json.lowerjsondict),
         ]:
             test_dir = join(self.output_dir, f"test_{res_name}")
             makedirs(test_dir, exist_ok=True)
-            
+
             for name, c in coords.items():
                 try:
                     x, y, w, h = int(c["x"]), int(c["y"]), int(c["width"]), int(c["height"])
-                    if x >= 0 and y >= 0 and w > 0 and h > 0 and \
-                       x + w <= sprite.width and y + h <= sprite.height:
+                    if (
+                        x >= 0
+                        and y >= 0
+                        and w > 0
+                        and h > 0
+                        and x + w <= sprite.width
+                        and y + h <= sprite.height
+                    ):
                         symbol_img = sprite.crop((x, y, x + w, y + h))
-                        safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in name)
+                        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
                         symbol_img.save(join(test_dir, f"{safe_name}.png"))
-                except Exception:
+                except (KeyError, ValueError, OSError):
                     pass
 
 
@@ -385,11 +388,10 @@ class QGIS2Sprites:
         if not self.symbols_dict:
             return None
 
-        generator = SpriteGenerator(self.symbols_dict, output_dir,
-                                   self.scale_factor, self.test_mode)
+        generator = SpriteGenerator(
+            self.symbols_dict, output_dir, self.scale_factor, self.test_mode
+        )
         result = generator.generate()
-        if result:
-            print(f"✓ Sprite collection complete: {result}.zip")
         return result
 
     def _collect_all_symbols(self):
@@ -398,31 +400,31 @@ class QGIS2Sprites:
             project = QgsProject.instance()
             if not project:
                 return
-            
+
             layers = project.mapLayers().values()
             if not layers:
                 return
-            
+
             for layer_idx, layer in enumerate(layers):
                 if not self._is_valid_layer(layer):
                     continue
-                
+
                 layer_name = layer.name() or f"layer_{layer_idx}"
-                
+
                 # Collect renderer symbols
                 try:
                     if layer.renderer():
                         self._collect_renderer_symbols(layer.renderer(), layer_name, layer_idx)
                 except (RuntimeError, AttributeError):
                     pass
-                
+
                 # Collect labeling symbols
                 try:
-                    if hasattr(layer, 'labeling') and layer.labeling():
+                    if hasattr(layer, "labeling") and layer.labeling():
                         self._collect_labeling_symbols(layer.labeling(), layer_name, layer_idx)
                 except (RuntimeError, AttributeError):
                     pass
-        
+
         except (RuntimeError, AttributeError, TypeError):
             pass
         finally:
@@ -442,7 +444,7 @@ class QGIS2Sprites:
         """Extract symbols from Single, Categorized, Graduated, or RuleBased renderers."""
         if not renderer:
             return
-        
+
         try:
             if isinstance(renderer, QgsSingleSymbolRenderer):
                 self._collect_single_symbol(renderer.symbol(), layer_name, layer_idx)
@@ -474,7 +476,7 @@ class QGIS2Sprites:
         """Add marker from each category if enabled and symbol present."""
         if not categories:
             return
-        
+
         for cat_idx, category in enumerate(categories):
             try:
                 if category and category.renderState():
@@ -483,7 +485,9 @@ class QGIS2Sprites:
                         marker = self._get_marker_symbol(symbol)
                         if marker:
                             label = category.label() or f"{layer_name}_{cat_idx}"
-                            unique_name = self._get_unique_name(label, layer_name, layer_idx, cat_idx)
+                            unique_name = self._get_unique_name(
+                                label, layer_name, layer_idx, cat_idx
+                            )
                             self.symbols_dict[unique_name] = marker.clone()
             except (RuntimeError, AttributeError, TypeError):
                 pass
@@ -492,7 +496,7 @@ class QGIS2Sprites:
         """Add marker from each range if enabled and symbol present."""
         if not ranges:
             return
-        
+
         for range_idx, range_item in enumerate(ranges):
             try:
                 if range_item and range_item.renderState():
@@ -501,17 +505,18 @@ class QGIS2Sprites:
                         marker = self._get_marker_symbol(symbol)
                         if marker:
                             label = range_item.label() or f"{layer_name}_{range_idx}"
-                            unique_name = self._get_unique_name(label, layer_name, layer_idx, range_idx)
+                            unique_name = self._get_unique_name(
+                                label, layer_name, layer_idx, range_idx
+                            )
                             self.symbols_dict[unique_name] = marker.clone()
             except (RuntimeError, AttributeError, TypeError):
                 pass
 
-    def _collect_rule_symbols(self, rules, layer_name: str, layer_idx: int, 
-                             parent_path: str = ""):
+    def _collect_rule_symbols(self, rules, layer_name: str, layer_idx: int, parent_path: str = ""):
         """Recursively add markers from active rules and their children."""
         if not rules:
             return
-        
+
         for rule_idx, rule in enumerate(rules):
             try:
                 if rule and rule.active():
@@ -521,9 +526,11 @@ class QGIS2Sprites:
                         if marker:
                             label = rule.label() or f"{layer_name}_{rule_idx}"
                             name = f"{parent_path}_{label}" if parent_path else label
-                            unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
+                            unique_name = self._get_unique_name(
+                                name, layer_name, layer_idx, rule_idx
+                            )
                             self.symbols_dict[unique_name] = marker.clone()
-                
+
                 # Process children recursively
                 try:
                     children = rule.children()
@@ -540,7 +547,7 @@ class QGIS2Sprites:
         """Extract marker from simple or rule-based label backgrounds."""
         if not labeling:
             return
-        
+
         try:
             if isinstance(labeling, QgsVectorLayerSimpleLabeling):
                 try:
@@ -548,11 +555,13 @@ class QGIS2Sprites:
                     if settings and self._has_marker_background(settings):
                         marker = self._safe_get_marker_from_settings(settings)
                         if marker:
-                            unique_name = self._get_unique_name(f"{layer_name}_label", layer_name, layer_idx)
+                            unique_name = self._get_unique_name(
+                                f"{layer_name}_label", layer_name, layer_idx
+                            )
                             self.symbols_dict[unique_name] = marker.clone()
                 except (RuntimeError, AttributeError):
                     pass
-            
+
             elif isinstance(labeling, QgsRuleBasedLabeling):
                 try:
                     root = labeling.rootRule()
@@ -563,12 +572,13 @@ class QGIS2Sprites:
         except (RuntimeError, AttributeError, TypeError):
             pass
 
-    def _collect_labeling_rules(self, rules, layer_name: str, layer_idx: int, 
-                               parent_path: str = ""):
+    def _collect_labeling_rules(
+        self, rules, layer_name: str, layer_idx: int, parent_path: str = ""
+    ):
         """Recursively add markers from active labeling rules and their children."""
         if not rules:
             return
-        
+
         for rule_idx, rule in enumerate(rules):
             try:
                 if rule and rule.active():
@@ -578,9 +588,11 @@ class QGIS2Sprites:
                         if marker:
                             label = rule.description() or f"{layer_name}_label_{rule_idx}"
                             name = f"{parent_path}_{label}" if parent_path else label
-                            unique_name = self._get_unique_name(name, layer_name, layer_idx, rule_idx)
+                            unique_name = self._get_unique_name(
+                                name, layer_name, layer_idx, rule_idx
+                            )
                             self.symbols_dict[unique_name] = marker.clone()
-                
+
                 # Process children
                 try:
                     children = rule.children()
@@ -597,23 +609,26 @@ class QGIS2Sprites:
         """Extract marker from symbol or its layers' subsymbols; return None if not found."""
         if not symbol:
             return None
-        
+
         try:
             # Check if already marker
-            if hasattr(symbol, 'type') and symbol.type() == QgsSymbol.SymbolType.Marker:
+            if hasattr(symbol, "type") and symbol.type() == QgsSymbol.SymbolType.Marker:
                 return symbol
-            
+
             # Check symbol layers
-            if hasattr(symbol, 'symbolLayers'):
+            if hasattr(symbol, "symbolLayers"):
                 try:
                     layers = symbol.symbolLayers()
                     if layers:
                         for layer in layers:
-                            if layer and hasattr(layer, 'subSymbol'):
+                            if layer and hasattr(layer, "subSymbol"):
                                 try:
                                     subsym = layer.subSymbol()
-                                    if subsym and hasattr(subsym, 'type') and \
-                                       subsym.type() == QgsSymbol.SymbolType.Marker:
+                                    if (
+                                        subsym
+                                        and hasattr(subsym, "type")
+                                        and subsym.type() == QgsSymbol.SymbolType.Marker
+                                    ):
                                         return subsym
                                 except (RuntimeError, AttributeError):
                                     continue
@@ -621,69 +636,70 @@ class QGIS2Sprites:
                     pass
         except (RuntimeError, AttributeError, TypeError):
             pass
-        
+
         return None
 
     def _has_marker_background(self, settings) -> bool:
-        """Return True if label settings has enabled background marker."""
+        """Return True if label settings hnabled background marker."""
         if not settings:
             return False
-        
+
         try:
-            if not hasattr(settings, 'format'):
+            if not hasattr(settings, "format"):
                 return False
             fmt = settings.format()
-            if not fmt or not hasattr(fmt, 'background'):
+            if not fmt or not hasattr(fmt, "background"):
                 return False
-            
+
             bg = fmt.background()
-            if not bg or not hasattr(bg, 'enabled'):
+            if not bg or not hasattr(bg, "enabled"):
                 return False
-            
+
             if not bg.enabled():
                 return False
-            
-            if not hasattr(bg, 'markerSymbol'):
+
+            if not hasattr(bg, "markerSymbol"):
                 return False
-            
+
             marker = bg.markerSymbol()
-            if marker and hasattr(marker, 'type'):
+            if marker and hasattr(marker, "type"):
                 return marker.type() == QgsSymbol.SymbolType.Marker
         except (RuntimeError, AttributeError, TypeError):
             pass
-        
+
         return False
 
     def _safe_get_marker_from_settings(self, settings) -> Optional[QgsSymbol]:
         """Return marker from label background or None if unavailable."""
         try:
-            if hasattr(settings, 'format'):
+            if hasattr(settings, "format"):
                 fmt = settings.format()
-                if fmt and hasattr(fmt, 'background'):
+                if fmt and hasattr(fmt, "background"):
                     bg = fmt.background()
-                    if bg and hasattr(bg, 'markerSymbol'):
+                    if bg and hasattr(bg, "markerSymbol"):
                         return bg.markerSymbol()
         except (RuntimeError, AttributeError):
             pass
-        
+
         return None
 
-    def _get_unique_name(self, name: str, layer_name: str, layer_idx: int, 
-                        item_idx: int = None) -> str:
+    def _get_unique_name(
+        self, name: str, layer_name: str, layer_idx: int, item_idx: int = None
+    ) -> str:
         """Generate collision-free name using suffix or counter."""
         name = (name or "").strip()
-        
+
         if name in self.symbols_dict:
             suffix = f"{layer_name}_{item_idx}" if item_idx else layer_name or f"layer_{layer_idx}"
             name = f"{name}_{suffix}"
-        
+
         if not name or name in self.symbols_dict:
             base = name or (layer_name or f"layer_{layer_idx}") + "_symbol"
             if base not in self.name_counter:
                 self.name_counter[base] = 0
             self.name_counter[base] += 1
             name = f"{base}_{self.name_counter[base]}"
-        
+
         return name
 
 
@@ -691,6 +707,6 @@ class QGIS2Sprites:
 if __name__ == "__console__":
     # Set scale_factor to control symbol size:
     # 1 = normal size, 2 = 2× larger, 3 = 3× larger, etc.
-    scale_factor = 4
-    collector = QGIS2Sprites(output_dir=QgsProcessingUtils.tempFolder(), scale_factor=scale_factor)
+    SCALE_FACTOR = 4
+    collector = QGIS2Sprites(output_dir=QgsProcessingUtils.tempFolder(), scale_factor=SCALE_FACTOR)
     collector.generate_sprite()

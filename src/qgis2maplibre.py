@@ -1,33 +1,28 @@
 """Convert QGIS Vector Tile Layer styles to MapLibre GL JSON style format."""
 
+import json
+import os
+from typing import Dict, Any, Optional
+from qgis.PyQt.QtGui import QColor
 from qgis.core import (
-    QgsProject,
     QgsVectorTileLayer,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicLabeling,
     QgsSymbol,
     QgsPalLayerSettings,
-    QgsSimpleMarkerSymbolLayer,
     QgsSimpleLineSymbolLayer,
     QgsSimpleFillSymbolLayer,
-    QgsSvgMarkerSymbolLayer,
-        QgsUnitTypes,
+    QgsProcessingUtils,
+    QgsUnitTypes,
     QgsProperty,
-    QgsWkbTypes,
     QgsSymbolLayer,
 )
-from qgis.PyQt.QtGui import QColor
-import json
-import os
-from typing import Dict, Any, Union, Optional
-from datetime import datetime
-from qgis2sprites import SpriteGenerator
-import zipfile
-from pathlib import Path
+from qgis.utils import iface
+from .qgis2sprites import SpriteGenerator
 
 
-class QgisToMapLibreConverter:
-    """Converts QGIS Vector Tile Layer styles to MapLibre GL style JSON."""
+class QgisMapLibreStyleExporter:
+    """Export QGIS Vector Tile Layer styles to MapLibre GL style JSON."""
 
     def __init__(self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None):
         """Initialize converter with output directory and optional QgsVectorTileLayer."""
@@ -38,16 +33,13 @@ class QgisToMapLibreConverter:
         # Get layer (use active layer if not provided)
         if layer is None:
             try:
-                from qgis.utils import iface
 
                 if iface and iface.activeLayer():
                     layer = iface.activeLayer()
                 else:
                     raise ValueError("No active layer found and no layer provided")
-            except ImportError:
-                raise ValueError(
-                    "Cannot access active layer (iface not available). Please provide a layer explicitly."
-                )
+            except (ImportError, ValueError) as e:
+                raise e
 
         if not isinstance(layer, QgsVectorTileLayer):
             raise ValueError(f"Layer must be a QgsVectorTileLayer, got {type(layer).__name__}")
@@ -63,7 +55,7 @@ class QgisToMapLibreConverter:
             "layers": [],
         }
 
-    def convert(self) -> Dict[str, Any]:
+    def export(self) -> Dict[str, Any]:
         """Convert all styles from QgsVectorTileLayer to MapLibre GL style."""
         # Add source for the layer
         source_url = self.layer.source()
@@ -76,28 +68,19 @@ class QgisToMapLibreConverter:
             ),
         }
 
-        print(f"🔄 Converting layer: {self.layer.name()}")
-        
         # Extract renderer styles
         renderer = self.layer.renderer()
         if isinstance(renderer, QgsVectorTileBasicRenderer):
-            styles_count = len(renderer.styles())
-            print(f"  Renderer styles: {styles_count}")
-            for style_index, style in enumerate(renderer.styles()):
-                self._convert_renderer_style(style, style_index)
+            for style in renderer.styles():
+                self._convert_renderer_style(style)
 
         # Extract labeling styles
         labeling = self.layer.labeling()
         if isinstance(labeling, QgsVectorTileBasicLabeling):
-            styles_count = len(labeling.styles())
-            print(f"  Labeling styles: {styles_count}")
-            for style_index, style in enumerate(labeling.styles()):
-                self._convert_labeling_style(style, style_index)
+            for style in labeling.styles():
+                self._convert_labeling_style(style)
 
-        print(f"📦 Markers collected: {len(self.marker_symbols)} total")
-        for name in self.marker_symbols:
-            print(f"    - {name}")
-        
+        self.save_to_file()
         return self.style
 
     def _get_symbol_type_code(self, symbol_type) -> str:
@@ -111,7 +94,7 @@ class QgisToMapLibreConverter:
         else:
             return "symbol"
 
-    def _convert_renderer_style(self, style, style_index: int):
+    def _convert_renderer_style(self, style):
         """Convert a single renderer style from QgsVectorTileBasicRendererStyle."""
         layer_name = style.layerName()
         symbol = style.symbol()
@@ -121,14 +104,16 @@ class QgisToMapLibreConverter:
         if not enabled or not symbol:
             return
 
-        # Generate style name based on layer name and symbol type (no index - allows merging across zoom levels)
+        # Generate style name based on layer name and symbol type
+        #  (no index - allows merging across zoom levels)
         symbol_type_code = self._get_symbol_type_code(symbol.type())
         style_name = f"{layer_name}_{symbol_type_code}"
 
-        # Convert the symbol with zoom levels, using generated layer ID and layer_name as source-layer
+        # Convert the symbol with zoom levels, using generated layer ID
+        #  and layer_name as source-layer
         self._convert_symbol(symbol, style_name, layer_name, self.source_name, min_zoom, max_zoom)
 
-    def _convert_labeling_style(self, style, style_index: int):
+    def _convert_labeling_style(self, style):
         """Convert a single labeling style from QgsVectorTileBasicLabelingStyle."""
         layer_name = style.layerName()
         label_settings = style.labelSettings()
@@ -142,7 +127,8 @@ class QgisToMapLibreConverter:
         # Generate style name for labels (no index - allows merging across zoom levels)
         style_name = f"{layer_name}_label"
 
-        # Convert the label settings with zoom levels, using generated layer ID and layer_name as source-layer
+        # Convert the label settings with zoom levels, using generated layer ID
+        #  and layer_name as source-layer
         self._convert_label(
             label_settings, style_name, layer_name, self.source_name, min_zoom, max_zoom
         )
@@ -175,23 +161,11 @@ class QgisToMapLibreConverter:
                 )
             elif symbol_type == QgsSymbol.Line:
                 self._convert_line_symbol(
-                    symbol_layer,
-                    symbol,
-                    style_name,
-                    source_layer_name,
-                    source_name,
-                    min_zoom,
-                    max_zoom,
+                    symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
                 )
             elif symbol_type == QgsSymbol.Fill:
                 self._convert_fill_symbol(
-                    symbol_layer,
-                    symbol,
-                    style_name,
-                    source_layer_name,
-                    source_name,
-                    min_zoom,
-                    max_zoom,
+                    symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
                 )
 
     def _convert_marker_symbol(
@@ -213,20 +187,18 @@ class QgisToMapLibreConverter:
             "paint": {},
             "layout": {},
         }
-        
+
         # Add zoom levels if specified
         if min_zoom >= 0:
             layer_def["minzoom"] = min_zoom
         if max_zoom >= 0:
             layer_def["maxzoom"] = max_zoom
 
-
         # Collect marker for sprite generation
         marker_name = f"marker_{self.marker_counter}"
-        print(f"    ✓ marker detected: {marker_name}")
         self.marker_counter += 1
         self.marker_symbols[marker_name] = symbol.clone()
-        
+
         # Use sprite-based icon
         layer_def["type"] = "symbol"
         layer_def["layout"]["icon-image"] = marker_name  # Reference marker from sprites
@@ -242,7 +214,7 @@ class QgisToMapLibreConverter:
                 break
         icon_px = self._convert_length_to_pixels(size, size_unit)
         layer_def["layout"]["icon-size"] = icon_px / 24.0  # Normalize to sprite size
-        
+
         # Icon additional properties
         layer_def["layout"]["icon-rotation-alignment"] = "map"
         layer_def["layout"]["icon-pitch-alignment"] = "viewport"
@@ -263,7 +235,6 @@ class QgisToMapLibreConverter:
     def _convert_line_symbol(
         self,
         symbol_layer: QgsSymbolLayer,
-        symbol: QgsSymbol,
         style_name: str,
         source_layer_name: str,
         source_name: str,
@@ -279,7 +250,7 @@ class QgisToMapLibreConverter:
             "paint": {},
             "layout": {},
         }
-        
+
         # Add zoom levels if specified
         if min_zoom >= 0:
             layer_def["minzoom"] = min_zoom
@@ -310,7 +281,7 @@ class QgisToMapLibreConverter:
             layer_def["layout"]["line-cap"] = self._convert_line_cap(pen_cap_style)
             layer_def["layout"]["line-join"] = self._convert_line_join(pen_join_style)
             layer_def["layout"]["visibility"] = "visible"
-            
+
             # Line miter and round limits
             layer_def["layout"]["line-miter-limit"] = 2.0  # Default MapLibre value
             layer_def["layout"]["line-round-limit"] = 1.05  # Default MapLibre value
@@ -322,7 +293,7 @@ class QgisToMapLibreConverter:
             dash_vector = None
             try:
                 dash_vector = symbol_layer.customDashVector()
-            except Exception:
+            except (RuntimeError, AttributeError):
                 dash_vector = None
 
             # Detect if a custom dash pattern is explicitly enabled in the
@@ -340,7 +311,7 @@ class QgisToMapLibreConverter:
                     custom_dash_enabled = bool(symbol_layer.isCustomDash())
                 else:
                     custom_dash_enabled = False
-            except Exception:
+            except (RuntimeError, AttributeError):
                 custom_dash_enabled = False
 
             # Get pen style from the symbol layer. QGIS/Qt pen style values:
@@ -355,7 +326,7 @@ class QgisToMapLibreConverter:
                 elif hasattr(symbol_layer, "pen_style"):
                     v = getattr(symbol_layer, "pen_style")
                     pen_style = v() if callable(v) else v
-            except Exception:
+            except (RuntimeError, AttributeError):
                 pen_style = None
 
             # Fixed dashed types (2-5) use QGIS-defined presets; custom (6)
@@ -381,7 +352,7 @@ class QgisToMapLibreConverter:
             elif pen_style in fixed_dashed_types:
                 try:
                     w = width_px
-                except Exception:
+                except (RuntimeError, ValueError):
                     w = 1.0
                 preset = {
                     2: [4 * w, 2 * w],
@@ -403,10 +374,11 @@ class QgisToMapLibreConverter:
                         offset_unit = u() if callable(u) else u
                         break
                 if offset != 0:
-                    layer_def["paint"]["line-offset"] = self._convert_length_to_pixels(offset, offset_unit)
-            except:
+                    px = self._convert_length_to_pixels(offset, offset_unit)
+                    layer_def["paint"]["line-offset"] = px
+            except (RuntimeError, AttributeError):
                 pass
-            
+
             # Line additional properties
             layer_def["paint"]["line-blur"] = 0  # Default blur
             layer_def["paint"]["line-gap-width"] = 0  # Default gap
@@ -425,7 +397,6 @@ class QgisToMapLibreConverter:
     def _convert_fill_symbol(
         self,
         symbol_layer: QgsSymbolLayer,
-        symbol: QgsSymbol,
         style_name: str,
         source_layer_name: str,
         source_name: str,
@@ -441,7 +412,7 @@ class QgisToMapLibreConverter:
             "paint": {},
             "layout": {},
         }
-        
+
         # Add zoom levels if specified
         if min_zoom >= 0:
             layer_def["minzoom"] = min_zoom
@@ -457,7 +428,7 @@ class QgisToMapLibreConverter:
             layer_def["paint"]["fill-color"] = self._qcolor_to_maplibre(fill_color)
             layer_def["paint"]["fill-opacity"] = fill_color.alphaF()
             layer_def["layout"]["visibility"] = "visible"
-            
+
             # Fill additional properties
             layer_def["paint"]["fill-antialias"] = True  # Default antialias enabled
             layer_def["paint"]["fill-translate"] = [0, 0]  # Default no translation
@@ -497,7 +468,7 @@ class QgisToMapLibreConverter:
             "paint": {},
             "layout": {},
         }
-        
+
         # Add zoom levels if specified
         if min_zoom >= 0:
             layer_def["minzoom"] = min_zoom
@@ -514,10 +485,11 @@ class QgisToMapLibreConverter:
         font = text_format.font()
 
         layer_def["layout"]["text-font"] = [font.family()]
-        # Convert QGIS font point size to pixels (MapLibre uses pixels). 1pt = 1/72in; at 96 DPI => px = pt * 96/72
+        # Convert QGIS font point size to pixels (MapLibre uses pixels).
+        #  1pt = 1/72in; at 96 DPI => px = pt * 96/72
         layer_def["layout"]["text-size"] = font.pointSizeF() * (96.0 / 72.0)
         layer_def["layout"]["visibility"] = "visible"
-        
+
         # Text style properties
         # text-allow-overlap depends on obstacle setting
         try:
@@ -528,7 +500,7 @@ class QgisToMapLibreConverter:
         layer_def["layout"]["text-ignore-placement"] = False
         layer_def["layout"]["text-optional"] = False
         layer_def["layout"]["text-padding"] = 0
-        
+
         # Text justification
         try:
             # Try to get alignment from multiLineAlignment property
@@ -540,16 +512,16 @@ class QgisToMapLibreConverter:
             except AttributeError:
                 # Default to center alignment if neither exists
                 justification = 1
-        
+
         layer_def["layout"]["text-justify"] = self._convert_text_justification(justification)
-        
+
         # Text line height and letter spacing
         layer_def["layout"]["text-line-height"] = 1.2
         layer_def["layout"]["text-letter-spacing"] = 0  # Default no extra spacing
-        
+
         # Text transform
         layer_def["layout"]["text-transform"] = "none"  # Default no transform
-        
+
         # Text max width (wrap text)
         layer_def["layout"]["text-max-width"] = 10  # Default wrap at 10em
 
@@ -596,7 +568,7 @@ class QgisToMapLibreConverter:
             layer_def["layout"]["text-rotate"] = label_settings.angleOffset
         else:
             layer_def["layout"]["text-rotate"] = 0
-        
+
         # Text rotation alignment
         layer_def["layout"]["text-rotation-alignment"] = "map"
         layer_def["layout"]["text-pitch-alignment"] = "viewport"
@@ -634,7 +606,7 @@ class QgisToMapLibreConverter:
         if background.enabled():
             # Try to extract marker from background
             try:
-                if hasattr(background, 'markerSymbol'):
+                if hasattr(background, "markerSymbol"):
                     marker = background.markerSymbol()
                     if marker and marker.type() == QgsSymbol.Marker:
                         marker_name = f"marker_{self.marker_counter}"
@@ -645,9 +617,9 @@ class QgisToMapLibreConverter:
                         layer_def["layout"]["icon-image"] = style_name
                 else:
                     layer_def["layout"]["icon-image"] = style_name
-            except Exception:
+            except (RuntimeError, AttributeError):
                 layer_def["layout"]["icon-image"] = style_name
-            
+
             layer_def["layout"]["icon-text-fit"] = "both"
             layer_def["layout"]["icon-text-fit-padding"] = [4, 2, 4, 2]
             layer_def["layout"]["icon-anchor"] = "center"
@@ -665,7 +637,7 @@ class QgisToMapLibreConverter:
                 layer_def["paint"]["icon-halo-blur"] = 0
                 layer_def["paint"]["icon-translate"] = [0, 0]
                 layer_def["paint"]["icon-translate-anchor"] = "map"
-            except:
+            except (OSError, RuntimeError):
                 pass
         else:
             # Default icon properties even without background
@@ -731,10 +703,11 @@ class QgisToMapLibreConverter:
         return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF():.2f})"
 
     def _convert_length_to_pixels(self, value: float, unit_obj=None) -> float:
-        """Convert a length value from various QGIS units to pixels (assumes 96 DPI).
+        """Convert a length value from various QGIS units to pixels.
 
-        If unit_obj is an enum or string, attempts to infer unit from its string representation.
-        Falls back to treating the value as millimeters (common default in QGIS symbol sizes).
+        Assumes 96 DPI. If unit_obj is an enum or string, attempts to infer
+        unit from its string representation. Falls back to treating the value
+        as millimeters (common default in QGIS symbol sizes).
         """
         if value is None:
             return value
@@ -746,9 +719,9 @@ class QgisToMapLibreConverter:
                 # If it's callable (enum), try to call to get value/name
                 try:
                     unit_str = str(unit_obj).lower()
-                except Exception:
+                except (OSError, RuntimeError):
                     unit_str = ""
-        except Exception:
+        except (OSError, RuntimeError):
             unit_str = ""
 
         # Interpret unit strings heuristically
@@ -775,14 +748,17 @@ class QgisToMapLibreConverter:
                 return value * (96.0 / 72.0)
             if unit_obj == QgsUnitTypes.RenderPixels:
                 return value
-        except Exception:
+        except (RuntimeError, AttributeError):
             pass
 
         # Fallback: assume millimeters
         return value * 3.78
 
     def _convert_size(self, size: float) -> float:
-        """Convert QGIS size (mm) to MapLibre size (pixels). 1mm ≈ 3.78 px at 96 DPI."""
+        """Convert QGIS size (mm) to MapLibre pixels.
+
+        1mm ≈ 3.78 px at 96 DPI.
+        """
         return self._convert_length_to_pixels(size, None)
 
     def _convert_line_cap(self, cap_style) -> str:
@@ -834,9 +810,9 @@ class QgisToMapLibreConverter:
         """Convert QGIS text alignment to MapLibre text-justify."""
         # QgsPalLayerSettings alignment: 0=Left, 1=Center, 2=Right, 3=Justify
         justify_map = {
-            0: "left",    # Left
+            0: "left",  # Left
             1: "center",  # Center
-            2: "right",   # Right
+            2: "right",  # Right
             3: "center",  # Justify (MapLibre doesn't have justify, use center)
         }
         return justify_map.get(alignment, "left")
@@ -847,97 +823,38 @@ class QgisToMapLibreConverter:
 
     def save_to_file(self, filename: str = "style.json", indent: int = 2):
         """Save style and sprites to same directory; add sprite source to style.json."""
-        # Create subdirectory with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        style_subdir = f"style_{timestamp}"
+        # Create style subdirectory
+        style_subdir = "style"
         full_output_dir = os.path.join(self.output_dir, style_subdir)
 
         if not os.path.exists(full_output_dir):
             os.makedirs(full_output_dir)
 
-        print(f"\n💾 Saving output to: {full_output_dir}")
-        
         # Generate sprites if markers were collected
         if self.marker_symbols:
-            print(f"✓ {len(self.marker_symbols)} markers collected for sprite generation")
-            import shutil
-            sprite_temp_dir = os.path.join(full_output_dir, "_sprite_temp")
-            if not os.path.exists(sprite_temp_dir):
-                os.makedirs(sprite_temp_dir)
-            
-            print(f"  Generating sprites...")
-            sprite_gen = SpriteGenerator(self.marker_symbols, sprite_temp_dir, 
-                                        scale_factor=1, test_mode=False)
+            sprite_gen = SpriteGenerator(
+                self.marker_symbols, full_output_dir,
+                scale_factor=1, test_mode=False
+            )
             sprite_output_dir = sprite_gen.generate()
-            
-            print(f"  SpriteGenerator returned: {sprite_output_dir}")
-            
+
             if sprite_output_dir:
-                zip_path = f"{sprite_temp_dir}.zip"
-                print(f"  Looking for zip at: {zip_path}")
-                print(f"  Zip exists: {os.path.exists(zip_path)}")
-                
-                if os.path.exists(zip_path):
-                    print(f"  Extracting to: {full_output_dir}")
-                    try:
-                        with zipfile.ZipFile(zip_path, 'r') as zf:
-                            files = zf.namelist()
-                            print(f"  Files in zip: {files}")
-                            zf.extractall(full_output_dir)
-                        print(f"  ✓ Sprites extracted successfully")
-                        
-                        # Verify files exist
-                        for fname in ["sprite.json", "sprite.png"]:
-                            fpath = os.path.join(full_output_dir, fname)
-                            print(f"    {fname}: {'✓ exists' if os.path.exists(fpath) else '✗ missing'}")
-                        
-                        # Cleanup temp dir and zip
-                        try:
-                            os.remove(zip_path)
-                            shutil.rmtree(sprite_temp_dir, ignore_errors=True)
-                        except Exception as e:
-                            print(f"  Cleanup warning: {e}")
-                    except Exception as e:
-                        print(f"  ✗ Error extracting sprites: {e}")
-                else:
-                    print(f"  ✗ Zip file not found at: {zip_path}")
-                    print(f"  Checking temp dir: {sprite_temp_dir}")
-                    if os.path.exists(sprite_temp_dir):
-                        print(f"    Contents: {os.listdir(sprite_temp_dir)}")
-                    print(f"  Parent dir: {full_output_dir}")
-                    print(f"    Contents: {os.listdir(full_output_dir)}")
-                
                 # Add sprite source to style
                 self.style["sources"]["sprites"] = {
                     "type": "sprite",
                     "tiles": ["sprite"]
                 }
-            else:
-                print(f"  ✗ SpriteGenerator.generate() returned None or empty")
-        else:
-            print(f"⚠ No markers collected - sprite generation skipped")
 
         # Save style.json
         filepath = os.path.join(full_output_dir, filename)
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf8") as f:
             json.dump(self.style, f, indent=indent)
-        
-        print(f"✓ Style saved to: {filepath}")
-        return filepath
 
-    def run(self, filename: str = "style.json", indent: int = 2) -> str:
-        """Convert the layer styles and save to file."""
-        self.convert()
-        return self.save_to_file(filename, indent)
+        return filepath
 
 
 # Example usage - run in QGIS Python console
 if __name__ == "__console__":
     # Convert active layer to MapLibre style
-    from pathlib import Path
-
-    converter = QgisToMapLibreConverter(
-        output_dir=r"C:\Users\P0026701\OneDrive - Ness Israel\Desktop\09_02_2026_10_20_06_890302"
-    )
-    output_file = converter.run()
-    print(f"Style saved successfully to: {output_file}")
+    exporter = QgisMapLibreStyleExporter(output_dir=QgsProcessingUtils.tempFolder())
+    output_file = exporter.export()
