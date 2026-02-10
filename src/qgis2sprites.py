@@ -7,18 +7,18 @@ Output includes sprite.png, sprite.json and high-resolution versions.
 The sprite generator supports scaling symbols to different sizes with a scale_factor parameter.
 scale_factor multiplies all symbol sizes (width, height, stroke width) by the factor:
   - scale_factor=1: Normal size (e.g., symbol size 2 renders as 2 units)
-  - scale_factor=2: 2× larger symbols (symbol size 2 renders as 4 units)  
-  - scale_factor=4: 4× larger symbols (symbol size 2 renders as 8 units)
+  - scale_factor=2: 2x larger symbols (symbol size 2 renders as 4 units)  
+  - scale_factor=4: 4x larger symbols (symbol size 2 renders as 8 units)
   - etc.
 
 Larger scale_factor produces larger symbols in the final sprite and in maps.
-The sprite sheet size grows quadratically (2× scale_factor = 4× file size).
+The sprite sheet size grows quadratically (2x scale_factor = 4x file size).
 """
 import zipfile
 from dataclasses import dataclass, field
 from json import dumps
 from math import sqrt, ceil
-from os import makedirs, listdir
+from os import makedirs
 from os.path import join, basename
 from io import BytesIO
 from typing import Optional, TypeAlias
@@ -26,7 +26,7 @@ from datetime import datetime
 from gc import collect
 
 from qgis.core import (
-    QgsSymbol, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
+    QgsProcessingUtils, QgsSymbol, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsPalLayerSettings,
     QgsProject, QgsVectorLayerSimpleLabeling, QgsSingleSymbolRenderer,
     QgsCategorizedSymbolRenderer, QgsGraduatedSymbolRenderer
 )

@@ -20,15 +20,16 @@ from urllib.request import pathname2url
 from shutil import rmtree
 from uuid import uuid4
 
-from osgeo import gdal, ogr, osr
 from processing import run
-from qgis.PyQt.QtGui import QIcon
+from osgeo import gdal, ogr, osr
 from qgis.PyQt.QtCore import qVersion
+from qgis.gui import iface
 from qgis.core import (
     QgsProject,
     QgsRuleBasedRenderer,
     QgsRuleBasedLabeling,
     QgsPalLayerSettings,
+    QgsProcessingException,
     QgsVectorLayer,
     QgsLayerDefinition,
     QgsVectorTileLayer,
@@ -48,9 +49,6 @@ from qgis.core import (
     QgsLineSymbol,
     QgsFillSymbol,
     QgsTextFormat,
-    QgsPropertyCollection,
-    QgsFeatureRequest,
-    QgsLayerTree,
     QgsProcessingUtils,
     QgsProcessingFeedback,
     QgsApplication,
@@ -152,6 +150,8 @@ class DataDefinedPropertiesFetcher:
                     props_defintions = getattr(qgis_object, "propertyDefinitions")()
                 else:
                     props_defintions = None
+                if not props_defintions:
+                    continue
                 self._get_properties(qgis_subobjects, props_defintions)
             except (NameError, ValueError, AttributeError, TypeError):
                 continue
@@ -160,17 +160,17 @@ class DataDefinedPropertiesFetcher:
         """Get data defined property properties from qgis object"""
         for qgis_subobject in qgis_subobjects:
             if hasattr(qgis_subobject, "dataDefinedProperties"):
-                self._get_propertys_from_subobjects(qgis_subobject)
+                self._get_propertys_from_subobjects(qgis_subobject, props_defintions)
             self._fetch_ddp(qgis_subobject)
 
-    def _get_propertys_from_subobjects(self, qgis_subobject):
-        """Get data defined properties from subobjects of qgis object"""
+    def _get_propertys_from_subobjects(self, qgis_subobject, props_defintions):
+        """Get data defined properties from` subobjects of qgis object"""
         props_collection = qgis_subobject.dataDefinedProperties()
         for key in props_collection.propertyKeys():
             prop = props_collection.property(key)
             if not prop or not prop.isActive():
                 continue
-            if prop.propertyType() not in [2,3]:
+            if prop.propertyType() not in [2, 3]:
                 continue
             # Convert field property to expression property
             if prop.propertyType() == 2:
@@ -178,9 +178,10 @@ class DataDefinedPropertiesFetcher:
                 exp_prop.setExpressionString(prop.asExpression())
                 props_collection.setProperty(key, exp_prop)
                 prop = props_collection.property(key)
-            prop_type = qgis_subobject.propertyDefinitions().get(key).dataType()
+            prop_type = props_defintions.get(key).dataType() if props_defintions else None
             field_type = self.TYPES_MAP.get(prop_type)
             self.dd_properties.append((prop, field_type))
+
 
 class ZoomLevels:
     """Manages zoom level scales and conversions for web mapping standards."""
@@ -218,11 +219,6 @@ class FlattenedRule:
     layer: QgsVectorLayer
     output_dataset: Optional[str] = ""
 
-    def __post_init__(self):
-        """Construct rule's name"""
-        lyr_name = self.layer.name()
-        rule_type = "renderer" if isinstance(self.rule, QgsRuleBasedRenderer.Rule) else "labeling"
-
     def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""
         desc = self.rule.description()
@@ -251,7 +247,7 @@ class FlattenedRule:
         if i >= 0:
             self.output_dataset = self.output_dataset.replace(desc[i : i + 3], "s00")
 
-    def _get_description(self):
+    def get_description(self):
         """Construct rule description for labeling or renderer rule."""
         lyr_name = self.layer.name() or self.layer.id()
         rule_type = "renderer" if self.get_attr("t") == 0 else "labeling"
@@ -547,7 +543,7 @@ class RulesExporter:
         """Export all rules to datasets."""
         output_datases = self._export_base_layers()
         total_datasets = len(output_datases)
-        for index, (output_dataset, flat_rules) in enumerate(output_datases.items()):
+        for index, flat_rules in enumerate(output_datases.items()):
             current_rule = f"{index + 1}/{total_datasets}"
             self.feedback.pushInfo(f". Exporting rule {current_rule}...")
             if self._export_rule(flat_rules):
@@ -564,7 +560,10 @@ class RulesExporter:
             output_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
             if not exists(output_path):
                 extent_wkt = self.extent.asWktCoordinates().replace(",", "")
-                options = f'-dim XY -explodecollections -t_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]} -spat {extent_wkt} -spat_srs EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
+                output_crs = f'EPSG: {_TILING_SCHEME["EPSG_CRS"]}'
+                base_options = f"-dim XY -explodecollections -t_srs {output_crs}"
+                spat_options = f"-spat {extent_wkt} -spat_srs {output_crs}"
+                options = f"{base_options} {spat_options}"
                 params = {"INPUT": flat_rule.layer, "OPTIONS": options, "OUTPUT": output_path}
                 self._run_alg("convertformat", "gdal", **params)
         return output_datases
@@ -618,7 +617,7 @@ class RulesExporter:
         """Apply field mapping and geometry transformation."""
         field_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
         field_mapping.extend(fields)
-        rule_description = f"'{flat_rule._get_description()}'"
+        rule_description = f"'{flat_rule.get_description()}'"
         field_mapping.append((10, rule_description, f"{self.FIELD_PREFIX}_description"))
         if self.include_required_fields_only != 0:
             all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in layer.fields()]
@@ -668,7 +667,7 @@ class RulesExporter:
 
         else:
             polygons = "@geometry"
-        centroids = f"with_variable('source', {polygons}, if(intersects(centroid(@source), @source), centroid(@source),  point_on_surface(@source)))"
+        centroids = f"with_variable('source', {polygons}, if(intersects(centroid(@source), @source), centroid(@source),  point_on_surface(@source)))"  # pylint: disable=C0301
         return centroids
 
     def _add_label_expression_field(self, flat_rule: FlattenedRule, fields: dict) -> dict:
@@ -689,7 +688,7 @@ class RulesExporter:
         else:
             transformation = self._get_renderer_transformation(flat_rule)
         extent_wkt = self.extent.asWktPolygon()
-        clipped_geom = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{extent_wkt}')), if(not is_empty_or_null(@clip), @clip, NULL))"
+        clipped_geom = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{extent_wkt}')), if(not is_empty_or_null(@clip), @clip, NULL))"  # pylint: disable=C0301
         transformation[1] = clipped_geom
         return tuple(transformation)
 
@@ -761,7 +760,7 @@ class RulesExporter:
         sleep(0.25)  # Avoid processing crashes due to rapid temp file creation
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
-        output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]
+        output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]  # pylint: disable=E1136
 
         if isinstance(output, str):
             output = QgsVectorLayer(output)
@@ -1108,7 +1107,7 @@ class RulesFlattener:
                 symbol_type = 0
             else:
                 symbol_type = symbol_layer.type()
-            
+
             rule_clone.set_attr("c", symbol_type)
             rule_clone.set_attr("s", layer_idx)
 
@@ -1310,9 +1309,7 @@ class QGIS2StyledTiles:
 
             flatten_finish_time = perf_counter()
             flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
-            self._log(
-                f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes)."
-            )
+            self._log(f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes).")
             output = tiles_uri = layers = None
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
@@ -1320,9 +1317,7 @@ class QGIS2StyledTiles:
                 layers, rules = self._export_rules(rules)
                 export_finish_time = perf_counter()
                 export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
-                self._log(
-                    f". Successfully exported {len(layers)} layers ({export_time} minutes)."
-                )
+                self._log(f". Successfully exported {len(layers)} layers ({export_time} minutes).")
 
                 # Step 3: Generate and style tiles
                 if self._has_features(layers):
@@ -1334,14 +1329,14 @@ class QGIS2StyledTiles:
 
             self._log(". Loading and styling tiles...")
             self._sytle_tiles(rules, temp_dir, tiles_uri)
-            self._log(f". Successfully loaded and styled tiles.")
+            self._log(". Successfully loaded and styled tiles.")
 
             total_time = self._elapsed_minutes(start_time, perf_counter())
             self._log(f". Process completed successfully ({total_time} minutes).")
             self._clear_project()
             return output
 
-        except Exception as e:
+        except QgsProcessingException as e:
             self._log(f". Error during conversion: {e}")
 
     def _clear_project(self):
@@ -1420,7 +1415,5 @@ class QGIS2StyledTiles:
 
 # Main execution for QGIS console
 if __name__ == "__console__":
-    from qgis.utils import iface
-
     adapter = QGIS2StyledTiles(output_dir=QgsProcessingUtils.tempFolder())
     adapter.convert_project_to_vector_tiles()
