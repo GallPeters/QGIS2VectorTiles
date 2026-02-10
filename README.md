@@ -24,16 +24,16 @@ Generate a MapLibre/Mapbox client-side compatible style which can be used with M
 
 1. Converts renderers and labelings to a rule-based type.
 2. Flattens nested rules to stand alone rules using properties inheritance which includes:
-   1.  Filter expressions.
-   2.  Zoom levels ranges.
-   3.  Symbol layers (for renderer rules).
+   -   Filter expressions.
+   -  Zoom levels ranges.
+   -  Symbol layers (for renderer rules).
 3. Splits rules by:
-   1.  Zoom levels (if @map_scale varaiable is being used).
-   2.  Symbol layers (for renderer rules)
-   3.  Match renderer rules (for labeling rules)
+   -  Zoom levels (if @map_scale varaiable is being used).
+   -  Symbol layers (for renderer rules)
+   -  Match renderer rules (for labeling rules)
 4. Exports each rule as a separate dataset while:
-   1. Calculating expression based fields (label expressions, data-driven properties etc).
-   2. Transform geometry if required (e.g. geometry generators, centroids for polygons labels and centroid fill symbol layers, lines for polygons etc.)
+   - Calculating expression based fields (label expressions, data-driven properties etc).
+   - Transform geometry if required (e.g. geometry generators, centroids for polygons labels and centroid fill symbol layers, lines for polygons etc.)
 5. Generates vector tiles using (amazingly fast) GDAL MVT driver
 6. Loads styled tiles back into QGIS as QgsVectorTileLayer.
 7. Export QgsVectorTileLayer flat style into client-side compatible style.json while generting sprites for marker symbol layers and labeling markers symbol backgrounds.
