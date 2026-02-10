@@ -1,4 +1,2 @@
 __pycache__
-_temp/*
-!_temp/
-!_temp/.gitkeep
+.vscode
