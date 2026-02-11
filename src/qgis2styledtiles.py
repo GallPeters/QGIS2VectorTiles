@@ -104,9 +104,11 @@ class DataDefinedPropertiesFetcher:
         QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
         QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool,
     }
+    FIELD_PREFIX = "q2vt"
 
-    def __init__(self, qgis_object):
+    def __init__(self, qgis_object, min_zoom):
         self.qgis_object = qgis_object
+        self.min_zoom = min_zoom
         self.dd_properties = []
 
     def fetch(self):
@@ -164,17 +166,34 @@ class DataDefinedPropertiesFetcher:
             prop = props_collection.property(key)
             if not prop or not prop.isActive():
                 continue
-            if prop.propertyType() not in [2, 3]:
+            prop_type = prop.propertyType()
+            if prop_type not in [2, 3]:
                 continue
-            # Convert field property to expression property
-            if prop.propertyType() == 2:
-                exp_prop = QgsProperty()
-                exp_prop.setExpressionString(prop.asExpression())
-                props_collection.setProperty(key, exp_prop)
-                prop = props_collection.property(key)
+
             prop_type = props_defintions.get(key).dataType() if props_defintions else None
             field_type = self.TYPES_MAP.get(prop_type)
-            self.dd_properties.append((prop, field_type))
+            field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
+
+            if prop_type == 2:
+                exp_prop = QgsProperty()
+                exp_prop.setExpressionString(prop.asExpression())
+                expression = exp_prop.expressionString()
+                exp_prop.setExpressionString(f'"{field_name}"')
+                props_collection.setProperty(key, exp_prop)
+                prop = props_collection.property(key)
+            else:
+                expression = prop.expressionString().replace("@map_scale", self.min_zoom)
+                evaluation = QgsExpression(expression).evaluate()
+                if evaluation is not None:
+                    prop.setExpressionString(str(evaluation))
+                    continue
+                if "array" in expression:
+                    expression = f"try(array_to_string({expression}), {expression})"
+                prop.setExpressionString(f'"{field_name}"')
+
+            field_map = [field_type, expression, field_name]
+
+            self.dd_properties.append(field_map)
 
 
 class ZoomLevels:
@@ -380,9 +399,7 @@ class TilesStyler:
         style_dir = join(self.output_dir, "style")
         makedirs(style_dir, exist_ok=True)
         qlr_path = join(style_dir, "tiles.qlr")
-        layer = QgsProject.instance().layerTreeRoot().findLayer(
-            self.tiles_layer.id()
-        )
+        layer = QgsProject.instance().layerTreeRoot().findLayer(self.tiles_layer.id())
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [layer])
 
 
@@ -731,32 +748,16 @@ class RulesExporter:
         fields = []
         for flat_rule in flat_rules:
             min_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
-            for prop, field_type in DataDefinedPropertiesFetcher(flat_rule.rule).fetch():
-                field_map = self._expression_to_field(prop, field_type, min_zoom)
-                if not field_map:
-                    continue
-                fields.append(field_map)
+            fields_list = DataDefinedPropertiesFetcher(flat_rule.rule, min_zoom).fetch()
+            if not fields_list:
+                continue
+            fields.extend(fields_list)
         return fields
 
-    def _expression_to_field(self, prop: QgsProperty, field_type: QVariant, min_zoom: str) -> list:
-        """Convert data defined expression to field"""
-        expression = prop.expressionString().replace("@map_scale", min_zoom)
-        evaluation = QgsExpression(expression).evaluate()
-        if evaluation is not None:
-            prop.setExpressionString(str(evaluation))
-            return
-        field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
-        if "array" in expression:
-            expression = f"try(array_to_string({expression}), {expression})"
-        field_map = [field_type, expression, field_name]
-        prop.setExpressionString(f'"{field_name}"')
-        return field_map
-
     def _run_alg(self, algorithm: str, algorithm_type: str = "native", **params):
-        """Execute QGIS processing algorithm."""
-        sleep(0.25)  # Avoid processing crashes due to rapid temp file creation
         if not params.get("OUTPUT"):
             params["OUTPUT"] = "TEMPORARY_OUTPUT"
+        sleep(0.5)
         output = run(f"{algorithm_type}:{algorithm}", params)["OUTPUT"]  # pylint: disable=E1136
 
         if isinstance(output, str):
@@ -1336,9 +1337,10 @@ class QGIS2StyledTiles:
             self._log(f". Process completed successfully ({total_time} minutes).")
             self._clear_project()
             return output
-
         except QgsProcessingException as e:
-            self._log(f". Error during conversion: {e}")
+            self._log(f". Processing failed: {str(e)}")
+            self._clear_project()
+            return None
 
     def _clear_project(self):
         """Clear temp layers which are not visible in the project legend"""
@@ -1404,7 +1406,6 @@ class QGIS2StyledTiles:
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
         """Export MapLibre style."""
-        print(temp_dir)
         exporter = QgisMapLibreStyleExporter(temp_dir, styled_layer)
         exporter.export()
 

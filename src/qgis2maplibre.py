@@ -50,23 +50,22 @@ class QgisMapLibreStyleExporter:
         # Initialize style structure
         self.style = {
             "version": 8,
-            "name": f"{layer.name()} - Converted Style",
-            "sources": {},
+            "name": f"q2vt_{self.source_name}_style",
+            "sources": {
+                f"q2vt_{self.source_name}_tiles": {
+                    "type": "vector",
+                    "tiles": ["http://localhost:9000/tiles/{z}/{x}/{y}.pbf"],
+                }
+            },
+            "glyphs": "local://{fontstack}/{range}.pbf",
+            "sprite": "http://localhost:9000/style/sprite/sprite",
             "layers": [],
         }
 
     def export(self) -> Dict[str, Any]:
         """Convert all styles from QgsVectorTileLayer to MapLibre GL style."""
         # Add source for the layer
-        source_url = self.layer.source()
-        self.style["sources"][self.source_name] = {
-            "type": "vector",
-            "tiles": (
-                [source_url]
-                if source_url
-                else [f"{{source}}/{self.source_name}/{{z}}/{{x}}/{{y}}.pbf"]
-            ),
-        }
+        self.layer.source()
 
         # Extract renderer styles
         renderer = self.layer.renderer()
@@ -204,23 +203,24 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"]["icon-image"] = marker_name  # Reference marker from sprites
         layer_def["layout"]["visibility"] = "visible"
 
-        size = symbol_layer.size()
-        # detect unit for icon size (reuse size_unit logic)
-        size_unit = None
-        for attr in ("sizeUnit", "sizeUnits", "size_unit"):
-            if hasattr(symbol_layer, attr):
-                u = getattr(symbol_layer, attr)
-                size_unit = u() if callable(u) else u
-                break
-        icon_px = self._convert_length_to_pixels(size, size_unit)
-        layer_def["layout"]["icon-size"] = icon_px / 24.0  # Normalize to sprite size
+        # size = symbol_layer.size()
+        # # detect unit for icon size (reuse size_unit logic)
+        # size_unit = None
+        # for attr in ("sizeUnit", "sizeUnits", "size_unit"):
+        #     if hasattr(symbol_layer, attr):
+        #         u = getattr(symbol_layer, attr)
+        #         size_unit = u() if callable(u) else u
+        #         break
+        # icon_px = self._convert_length_to_pixels(size, size_unit)
+        icon_pt = 1 # Default to 1 pt since thw size was determined when the symbol was created and is already in pixels in the sprite
+        layer_def["layout"]["icon-size"] = icon_pt  # Normalize to sprite size
 
         # Icon additional properties
         layer_def["layout"]["icon-rotation-alignment"] = "map"
         layer_def["layout"]["icon-pitch-alignment"] = "viewport"
         layer_def["layout"]["icon-anchor"] = "center"
-        layer_def["layout"]["icon-allow-overlap"] = False
-        layer_def["layout"]["icon-ignore-placement"] = False
+        layer_def["layout"]["icon-allow-overlap"] = True
+        layer_def["layout"]["icon-ignore-placement"] = True
         layer_def["paint"]["icon-opacity"] = 1.0
 
         # Check for data-defined size
@@ -497,8 +497,8 @@ class QgisMapLibreStyleExporter:
         except AttributeError:
             allow_overlap = True  # Default to allowing overlap if property doesn't exist
         layer_def["layout"]["text-allow-overlap"] = allow_overlap
-        layer_def["layout"]["text-ignore-placement"] = False
-        layer_def["layout"]["text-optional"] = False
+        layer_def["layout"]["text-ignore-placement"] = True
+        layer_def["layout"]["text-optional"] = True
         layer_def["layout"]["text-padding"] = 0
 
         # Text justification
@@ -625,8 +625,8 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["icon-anchor"] = "center"
             layer_def["layout"]["icon-rotation-alignment"] = "map"
             layer_def["layout"]["icon-pitch-alignment"] = "viewport"
-            layer_def["layout"]["icon-allow-overlap"] = False
-            layer_def["layout"]["icon-ignore-placement"] = False
+            layer_def["layout"]["icon-allow-overlap"] = True
+            layer_def["layout"]["icon-ignore-placement"] = True
             layer_def["layout"]["icon-keep-upright"] = True
             try:
                 layer_def["paint"]["icon-opacity"] = background.opacity()
@@ -641,8 +641,8 @@ class QgisMapLibreStyleExporter:
                 pass
         else:
             # Default icon properties even without background
-            layer_def["layout"]["icon-allow-overlap"] = False
-            layer_def["layout"]["icon-ignore-placement"] = False
+            layer_def["layout"]["icon-allow-overlap"] = True
+            layer_def["layout"]["icon-ignore-placement"] = True
             layer_def["layout"]["icon-optional"] = True
             layer_def["paint"]["icon-opacity"] = 1.0
             layer_def["paint"]["icon-halo-color"] = "rgba(0, 0, 0, 0.00)"
@@ -833,17 +833,9 @@ class QgisMapLibreStyleExporter:
         # Generate sprites if markers were collected
         if self.marker_symbols:
             sprite_gen = SpriteGenerator(
-                self.marker_symbols, full_output_dir,
-                scale_factor=1, test_mode=False
+                self.marker_symbols, full_output_dir, scale_factor=1, test_mode=False
             )
-            sprite_output_dir = sprite_gen.generate()
-
-            if sprite_output_dir:
-                # Add sprite source to style
-                self.style["sources"]["sprites"] = {
-                    "type": "sprite",
-                    "tiles": ["sprite"]
-                }
+            sprite_gen.generate()
 
         # Save style.json
         filepath = os.path.join(full_output_dir, filename)
