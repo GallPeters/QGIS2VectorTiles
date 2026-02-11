@@ -45,14 +45,13 @@ class QgisMapLibreStyleExporter:
             raise ValueError(f"Layer must be a QgsVectorTileLayer, got {type(layer).__name__}")
 
         self.layer = layer
-        self.source_name = layer.name().replace(" ", "_").lower()
-
+        self.source_name = "q2vt_tiles"  # Fixed source name for simplicity
         # Initialize style structure
         self.style = {
             "version": 8,
-            "name": f"q2vt_{self.source_name}_style",
+            "name": f"{self.source_name}_style",
             "sources": {
-                f"q2vt_{self.source_name}_tiles": {
+                self.source_name: {
                     "type": "vector",
                     "tiles": ["http://localhost:9000/tiles/{z}/{x}/{y}.pbf"],
                 }
@@ -98,7 +97,9 @@ class QgisMapLibreStyleExporter:
         layer_name = style.layerName()
         symbol = style.symbol()
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1  # MapLibre maxzoom is exclusive, QGIS is inclusive
+        max_zoom = style.maxZoomLevel()  # MapLibre maxzoom is exclusive, QGIS is inclusive
+        if min_zoom == max_zoom:
+            max_zoom += 1  # Ensure max_zoom is always greater than min_zoom
         enabled = style.isEnabled()
         if not enabled or not symbol:
             return
@@ -117,7 +118,9 @@ class QgisMapLibreStyleExporter:
         layer_name = style.layerName()
         label_settings = style.labelSettings()
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1  # MapLibre maxzoom is exclusive, QGIS is inclusive
+        max_zoom = style.maxZoomLevel()  # MapLibre maxzoom is exclusive, QGIS is inclusive
+        if min_zoom == max_zoom:
+            max_zoom += 1  # Ensure max_zoom is always greater than min_zoom
         enabled = style.isEnabled()
 
         if not enabled or not label_settings:
@@ -212,14 +215,14 @@ class QgisMapLibreStyleExporter:
         #         size_unit = u() if callable(u) else u
         #         break
         # icon_px = self._convert_length_to_pixels(size, size_unit)
-        icon_pt = 1 # Default to 1 pt since thw size was determined when the symbol was created and is already in pixels in the sprite
+        icon_pt = 1  # Default to 1 pt since thw size was determined when the symbol was created and is already in pixels in the sprite
         layer_def["layout"]["icon-size"] = icon_pt  # Normalize to sprite size
 
         # Icon additional properties
         layer_def["layout"]["icon-rotation-alignment"] = "map"
         layer_def["layout"]["icon-pitch-alignment"] = "viewport"
         layer_def["layout"]["icon-anchor"] = "center"
-        layer_def["layout"]["icon-allow-overlap"] = True
+        layer_def["layout"]["icon-allow-overlap"] = False
         layer_def["layout"]["icon-ignore-placement"] = True
         layer_def["paint"]["icon-opacity"] = 1.0
 
@@ -497,7 +500,7 @@ class QgisMapLibreStyleExporter:
         except AttributeError:
             allow_overlap = True  # Default to allowing overlap if property doesn't exist
         layer_def["layout"]["text-allow-overlap"] = allow_overlap
-        layer_def["layout"]["text-ignore-placement"] = True
+        layer_def["layout"]["text-ignore-placement"] = False
         layer_def["layout"]["text-optional"] = True
         layer_def["layout"]["text-padding"] = 0
 
@@ -538,7 +541,7 @@ class QgisMapLibreStyleExporter:
             layer_def["paint"]["text-halo-blur"] = buffer.size() * 0.5
         else:
             layer_def["paint"]["text-halo-width"] = 0
-            layer_def["paint"]["text-halo-color"] = "rgba(255, 255, 255, 1.00)"
+            layer_def["paint"]["text-halo-color"] = "rgb(255, 255, 255)"
             layer_def["paint"]["text-halo-blur"] = 0
 
         # Text offset (convert units if available)
@@ -632,7 +635,7 @@ class QgisMapLibreStyleExporter:
                 layer_def["paint"]["icon-opacity"] = background.opacity()
                 bg_color = background.fillColor()
                 layer_def["paint"]["icon-color"] = self._qcolor_to_maplibre(bg_color)
-                layer_def["paint"]["icon-halo-color"] = "rgba(0, 0, 0, 0.50)"
+                layer_def["paint"]["icon-halo-color"] = "rgb(0, 0, 0)"
                 layer_def["paint"]["icon-halo-width"] = 0
                 layer_def["paint"]["icon-halo-blur"] = 0
                 layer_def["paint"]["icon-translate"] = [0, 0]
@@ -645,7 +648,7 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["icon-ignore-placement"] = True
             layer_def["layout"]["icon-optional"] = True
             layer_def["paint"]["icon-opacity"] = 1.0
-            layer_def["paint"]["icon-halo-color"] = "rgba(0, 0, 0, 0.00)"
+            layer_def["paint"]["icon-halo-color"] = "rgb(0, 0, 0)"
             layer_def["paint"]["icon-halo-width"] = 0
             layer_def["paint"]["icon-halo-blur"] = 0
             layer_def["paint"]["icon-translate"] = [0, 0]
@@ -700,7 +703,7 @@ class QgisMapLibreStyleExporter:
 
     def _qcolor_to_maplibre(self, color: QColor) -> str:
         """Convert QColor to MapLibre rgba format."""
-        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF():.2f})"
+        return f"rgb({color.red()}, {color.green()}, {color.blue()})"
 
     def _convert_length_to_pixels(self, value: float, unit_obj=None) -> float:
         """Convert a length value from various QGIS units to pixels.
