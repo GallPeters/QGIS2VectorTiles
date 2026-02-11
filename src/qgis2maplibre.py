@@ -117,7 +117,7 @@ class QgisMapLibreStyleExporter:
         layer_name = style.layerName()
         label_settings = style.labelSettings()
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel()
+        max_zoom = style.maxZoomLevel() + 1  # MapLibre maxzoom is exclusive, QGIS is inclusive
         enabled = style.isEnabled()
 
         if not enabled or not label_settings:
