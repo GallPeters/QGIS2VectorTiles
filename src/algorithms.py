@@ -12,12 +12,12 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from .qgis2vectortiles import QGIS2StyledTiles, _PLUGIN_DIR
+from .qgis2vectortiles import QGIS2VectorTiles, _PLUGIN_DIR
 
 _ICON = QIcon(join(_PLUGIN_DIR, "icon.png"))
 
 
-class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
+class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     """
     QGIS Processing Algorithm for generating styled MBTiles from project layers.
     This wrapper provides a user interface for the MBTiles generation process
@@ -25,7 +25,6 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
     """
 
     # Parameter names (constants for consistency)
-    OUTPUT_CONTENT = "OUTPUT_CONTENT"
     MIN_ZOOM = "MIN_ZOOM"
     MAX_ZOOM = "MAX_ZOOM"
     EXTENT = "EXTENT"
@@ -49,21 +48,21 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Returns a new instance of the algorithm. Required by QGIS Processing framework.
         """
-        return QGIS2StyledTilesAlgorithm()
+        return QGIS2VectorTilesAlgorithm()
 
     def name(self):
         """
         Returns the algorithm name, used for identifying the algorithm.
         This string should be fixed for the algorithm, and must not be localized.
         """
-        return "QGIS2StyledTiles_action"
+        return "QGIS2VectorTiles_action"
 
     def displayName(self):
         """
         Returns the translated algorithm name, which should be used for any
         user-visible display of the algorithm name.
         """
-        return self.tr("QGIS2StyledTiles")
+        return self.tr("QGIS2VectorTiles")
 
     def group(self):
         """
@@ -98,17 +97,6 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Define the inputs and outputs of the algorithm.
         """
-
-        self.addParameter(
-            QgsProcessingParameterEnum(
-                self.OUTPUT_CONTENT,
-                self.tr("Output Content"),
-                options=["Style and Tiles", "Style Only"],
-                defaultValue=0,  # Default to XYZ
-                optional=False,
-            )
-        )
-
         # Output type parameter
         self.addParameter(
             QgsProcessingParameterEnum(
@@ -222,7 +210,6 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
         """
 
         # Extract parameter values
-        output_content_index = self.parameterAsInt(parameters, self.OUTPUT_CONTENT, context)
         output_type_index = self.parameterAsInt(parameters, self.OUTPUT_TYPE, context)
         output_type = ["XYZ", "MBTiles"][output_type_index]
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
@@ -239,7 +226,7 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
 
         try:
             # Your existing MBTiles generator class would be called here
-            tiles_generator = QGIS2StyledTiles(
+            tiles_generator = QGIS2VectorTiles(
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 extent=extent,
@@ -247,7 +234,6 @@ class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 output_type=output_type,
-                output_content=output_content_index,
                 cent_source=polygon_labels_base,
                 feedback=feedback,
             )

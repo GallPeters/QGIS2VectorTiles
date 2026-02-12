@@ -1,12 +1,12 @@
 """QGIS2VectorTiles provider implementation."""
 
 from qgis.core import QgsProcessingProvider
-from .algorithms import QGIS2StyledTilesAlgorithm, _ICON
+from .algorithms import QGIS2VectorTilesAlgorithm, _ICON
 
 
 # Create a proper temporary provider class
 class QGIS2VectorTilesPorvider(QgsProcessingProvider):
-    """Provider for QGIS2VectorTiles plugin, integrating the QGIS2StyledTilesAlgorithm
+    """Provider for QGIS2VectorTiles plugin, integrating the QGIS2VectorTilesAlgorithm
     into the QGIS Processing framework."""
 
     def __init__(self):
@@ -26,4 +26,4 @@ class QGIS2VectorTilesPorvider(QgsProcessingProvider):
 
     def loadAlgorithms(self):
         """Loads the algorithms provided by this provider."""
-        self.addAlgorithm(QGIS2StyledTilesAlgorithm())
+        self.addAlgorithm(QGIS2VectorTilesAlgorithm())

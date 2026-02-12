@@ -1261,7 +1261,7 @@ class RulesFlattener:
         return rule_clone
 
 
-class QGIS2StyledTiles:
+class QGIS2VectorTiles:
     """
     Main adapter class that orchestrates the conversion process from QGIS
     vector layer styling to vector tiles format.
@@ -1276,7 +1276,6 @@ class QGIS2StyledTiles:
         include_required_fields_only=0,
         output_type: str = "xyz",
         cpu_percent: int = 100,
-        output_content: int = 0,
         cent_source: int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
@@ -1288,7 +1287,6 @@ class QGIS2StyledTiles:
         self.include_required_fields_only = include_required_fields_only
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
-        self.output_content = output_content
         self.cent_source = cent_source
         self.feedback = feedback or QgsProcessingFeedback()
 
@@ -1316,21 +1314,20 @@ class QGIS2StyledTiles:
             flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
             self._log(f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes).")
             tiles_uri = layers = None
-            if self.output_content == 0:
-                # Step 2: Export rules to datasets
-                self._log(". Exporting rules to datasets...")
-                layers, rules = self._export_rules(rules)
-                export_finish_time = perf_counter()
-                export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
-                self._log(f". Successfully exported {len(layers)} layers ({export_time} minutes).")
+            # Step 2: Export rules to datasets
+            self._log(". Exporting rules to datasets...")
+            layers, rules = self._export_rules(rules)
+            export_finish_time = perf_counter()
+            export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
+            self._log(f". Successfully exported {len(layers)} layers ({export_time} minutes).")
 
-                # Step 3: Generate and style tiles
-                if self._has_features(layers):
-                    self._log(". Generating tiles...")
-                    tiles_uri = self._generate_tiles(layers, temp_dir)
-                    tiles_finish_time = perf_counter()
-                    tiles_time = self._elapsed_minutes(export_finish_time, tiles_finish_time)
-                    self._log(f". Successfully generated tiles ({tiles_time} minutes).")
+            # Step 3: Generate and style tiles
+            if self._has_features(layers):
+                self._log(". Generating tiles...")
+                tiles_uri = self._generate_tiles(layers, temp_dir)
+                tiles_finish_time = perf_counter()
+                tiles_time = self._elapsed_minutes(export_finish_time, tiles_finish_time)
+                self._log(f". Successfully generated tiles ({tiles_time} minutes).")
 
             self._log(". Loading and styling tiles...")
             styled_layer = self._sytle_tiles(rules, temp_dir, tiles_uri)
@@ -1524,5 +1521,5 @@ class QGIS2StyledTiles:
 
 # Main execution for QGIS console
 if __name__ == "__console__":
-    adapter = QGIS2StyledTiles(output_dir=QgsProcessingUtils.tempFolder())
+    adapter = QGIS2VectorTiles(output_dir=QgsProcessingUtils.tempFolder())
     adapter.convert_project_to_vector_tiles()
