@@ -485,14 +485,7 @@ class QgisMapLibreStyleExporter:
         #  1pt = 1/72in; at 96 DPI => px = pt * 96/72
         layer_def["layout"]["text-size"] = font.pointSizeF() * (96.0 / 72.0)
         layer_def["layout"]["visibility"] = "visible"
-
-        # Text style properties
-        # text-allow-overlap depends on obstacle setting
-        try:
-            allow_overlap = not label_settings.obstacle
-        except AttributeError:
-            allow_overlap = True  # Default to allowing overlap if property doesn't exist
-        layer_def["layout"]["text-allow-overlap"] = allow_overlap
+        layer_def["layout"]["text-allow-overlap"] = False
         layer_def["layout"]["text-ignore-placement"] = False
         layer_def["layout"]["text-optional"] = True
         layer_def["layout"]["text-padding"] = 0
