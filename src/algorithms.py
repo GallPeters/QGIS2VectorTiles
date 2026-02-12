@@ -12,7 +12,7 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from .qgis2styledtiles import QGIS2StyledTiles, _PLUGIN_DIR
+from .qgis2vectortiles import QGIS2StyledTiles, _PLUGIN_DIR
 _ICON = QIcon(join(_PLUGIN_DIR, "resources", "icon.png"))
 
 

@@ -17,7 +17,7 @@
             bottom: 0;
             width: 100%;
         }
-        #zoom-indicator {
+        #zoom-indicator {   
             position: absolute;
             top: 10px;
             left: 10px;
@@ -55,7 +55,8 @@
                     },
                     'vector_tiles': {
                         type: 'vector',
-                        tiles: ['http://localhost:9000/tiles/{z}/{x}/{y}.pbf']
+                        tiles: ['http://localhost:9000/tiles/{z}/{x}/{y}.pbf'],
+                        bounds: [-180, -90, 180, 90]
                     }
                 },
                 sprite: 'http://localhost:9000/style/sprite/sprite',
@@ -95,9 +96,9 @@
                         }
 
                         // If the map's style lacks sprite or glyphs, copy them from fetched style
-                        // const baseStyle = map.getStyle();
-                        // if (!baseStyle.sprite && styleData.sprite) baseStyle.sprite = styleData.sprite;
-                        // if (!baseStyle.glyphs && styleData.glyphs) baseStyle.glyphs = styleData.glyphs;
+                        const baseStyle = map.getStyle();
+                        if (!baseStyle.sprite && styleData.sprite) baseStyle.sprite = styleData.sprite;
+                        if (!baseStyle.glyphs && styleData.glyphs) baseStyle.glyphs = styleData.glyphs;
 
                         // Add all layers from the style safely
                         if (Array.isArray(styleData.layers)) {
@@ -110,6 +111,10 @@
                                     console.error('Error adding layer', layer && layer.id, e);
                                 }
                             });
+                            
+                            // Set zoom level and center to specific coordinates
+                            map.setZoom(2);
+                            map.setCenter([32, 32]);
                         } else {
                             console.warn('Fetched style has no layers array');
                         }

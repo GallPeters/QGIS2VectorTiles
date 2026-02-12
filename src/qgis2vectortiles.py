@@ -18,6 +18,7 @@ from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
 from shutil import rmtree
+from subprocess import Popen
 from uuid import uuid4
 
 from processing import run
@@ -39,6 +40,8 @@ from qgis.core import (
     QgsWkbTypes,
     QgsReadWriteContext,
     QgsMapLayer,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
     QgsVectorTileBasicRenderer,
     QgsProcessingFeatureSourceDefinition,
     QgsVectorTileBasicRendererStyle,
@@ -70,6 +73,7 @@ else:
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
 _CONF = join(_PLUGIN_DIR, "resources", "conf.toml")
+_HTML = join(_PLUGIN_DIR, "resources", "maplibre_viewer.html")
 _TILES_CONF = load(open(_CONF, "rb"))
 _TILING_SCHEME = _TILES_CONF["TILING_SCHEME"]
 
@@ -431,7 +435,8 @@ class GDALTilesGenerator:
         spatial_ref.ImportFromEPSG(crs_id)
 
         output, uri = self._prepare_output_paths()
-        creation_options = self._get_creation_options()
+        min_zoom, max_zoom = self._get_global_min_zoom(), self._get_global_max_zoom()
+        creation_options = self._get_creation_options(min_zoom, max_zoom)
 
         driver = gdal.GetDriverByName("MVT")
         dataset = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
@@ -442,7 +447,7 @@ class GDALTilesGenerator:
         dataset.FlushCache()
         dataset = None
 
-        return uri
+        return uri, min_zoom
 
     def _configure_gdal_threading(self):
         """Configure GDAL threading based on CPU percentage."""
@@ -461,9 +466,8 @@ class GDALTilesGenerator:
             uri = f"type=mbtiles&url={output}"
             return output, uri
 
-    def _get_creation_options(self) -> List[str]:
+    def _get_creation_options(self, min_zoom: int, max_zoom: int) -> List[str]:
         """Generate GDAL creation options based on output type."""
-        min_zoom, max_zoom = self._get_global_min_zoom(), self._get_global_max_zoom()
         zoom_range = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
         if self.output_type == "mbtiles":
             return zoom_range
@@ -1308,7 +1312,7 @@ class QGIS2StyledTiles:
             flatten_finish_time = perf_counter()
             flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
             self._log(f". Successfully extracted {len(rules)} rules " f"({flatten_time} minutes).")
-            output = tiles_uri = layers = None
+            tiles_uri = layers = None
             if self.output_content == 0:
                 # Step 2: Export rules to datasets
                 self._log(". Exporting rules to datasets...")
@@ -1336,7 +1340,7 @@ class QGIS2StyledTiles:
             total_time = self._elapsed_minutes(start_time, perf_counter())
             self._log(f". Process completed successfully ({total_time} minutes).")
             self._clear_project()
-            return output
+            self.serve_tiles(temp_dir)
         except QgsProcessingException as e:
             self._log(f". Processing failed: {str(e)}")
             self._clear_project()
@@ -1395,7 +1399,8 @@ class QGIS2StyledTiles:
         generator = GDALTilesGenerator(
             layers, temp_dir, self.output_type, self.extent, self.cpu_percent, self.feedback
         )
-        tiles_uri = generator.generate()
+        tiles_uri, min_zoom = generator.generate()
+        self.min_zoom = min_zoom
         return tiles_uri
 
     def _sytle_tiles(self, rules, temp_dir, tiles_uri) -> Optional[QgsVectorTileLayer]:
@@ -1420,6 +1425,37 @@ class QGIS2StyledTiles:
     def _elapsed_minutes(start: float, end: float) -> str:
         """Calculate elapsed time in minutes."""
         return f"{round((end - start) / 60, 2)}"
+
+    def serve_tiles(self, output_folder):
+        """Serve generated tiles using a simple HTTP server."""
+        # Get the extent of the tiles in EPSG:4326 for the MapLibre viewer
+        src_crs = QgsCoordinateReferenceSystem("EPSG:3857")
+        dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+        coord_transform = QgsCoordinateTransform(src_crs, dest_crs, QgsProject.instance())
+        center_4326 = coord_transform.transformBoundingBox(self.extent).center()
+        center_corrd = f'[{center_4326.x()}, {center_4326.y()}]'
+        # Write the MapLibre viewer HTML with the correct bounds and serve the tiles
+        with open(_HTML, "r", encoding="utf-8") as html_source:
+            html_content = html_source.read()
+            html_content = html_content.replace('map.setZoom(2)', f'map.setZoom({self.min_zoom})')
+            html_content = html_content.replace('map.setCenter([32, 32])', f'map.setCenter({center_corrd})')
+       
+        html_source.close()
+        with open(join(output_folder, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
+            html_copy.write(html_content)
+        html_copy.close()
+        
+        # Create a batch file to serve the tiles and open the viewer
+        bat_path = join(output_folder, "serve.bat")
+        with open(bat_path, "w", encoding="utf-8") as bat:
+            bat.write(
+                "@echo off\n"
+                "start python -m http.server 9000\n"
+                "timeout /t 2 /nobreak >nul\n"
+                "start http://localhost:9000/maplibre_viewer.html"
+            )
+        bat.close()
+        Popen([str(bat_path)], cwd=output_folder)
 
 
 # Main execution for QGIS console
