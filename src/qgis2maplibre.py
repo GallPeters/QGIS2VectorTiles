@@ -16,6 +16,8 @@ from qgis.core import (
     QgsUnitTypes,
     QgsProperty,
     QgsSymbolLayer,
+    QgsTextFormat,
+    QgsTextBackgroundSettings
 )
 from qgis.utils import iface
 from .qgis2sprites import SpriteGenerator
@@ -215,8 +217,8 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"]["icon-rotation-alignment"] = "map"
         layer_def["layout"]["icon-pitch-alignment"] = "viewport"
         layer_def["layout"]["icon-anchor"] = "center"
-        layer_def["layout"]["icon-allow-overlap"] = True
-        layer_def["layout"]["icon-ignore-placement"] = True
+        layer_def["layout"]["icon-allow-overlap"] = False
+        layer_def["layout"]["icon-ignore-placement"] = False
         layer_def["paint"]["icon-opacity"] = 1.0
 
         # Check for data-defined size
@@ -487,7 +489,7 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"]["visibility"] = "visible"
         layer_def["layout"]["text-allow-overlap"] = False
         layer_def["layout"]["text-ignore-placement"] = False
-        layer_def["layout"]["text-optional"] = True
+        layer_def["layout"]["text-optional"] = False
         layer_def["layout"]["text-padding"] = 0
 
         # Text justification
@@ -591,8 +593,14 @@ class QgisMapLibreStyleExporter:
                 layer_def["layout"]["text-rotate"] = ["get", field]
 
         # Background (uses sprite if enabled)
-        background = label_settings.format().background()
-        if background.enabled():
+        label_settings = QgsPalLayerSettings(label_settings)
+        label_format = QgsTextFormat(label_settings.format())
+        background = QgsTextBackgroundSettings(label_format.background())
+        if background.markerSymbol():
+            background.setMarkerSymbol(background.markerSymbol().clone())
+        label_format.setBackground(background)
+        label_settings.setFormat(label_settings)
+        if background.enabled() and background.markerSymbol():
             # Try to extract marker from background
             try:
                 if hasattr(background, "markerSymbol"):
@@ -609,13 +617,14 @@ class QgisMapLibreStyleExporter:
             except (RuntimeError, AttributeError):
                 layer_def["layout"]["icon-image"] = style_name
 
-            layer_def["layout"]["icon-text-fit"] = "both"
+            if background().sizeType() == 0:
+                layer_def["layout"]["icon-text-fit"] = "both"
             layer_def["layout"]["icon-text-fit-padding"] = [4, 2, 4, 2]
             layer_def["layout"]["icon-anchor"] = "center"
             layer_def["layout"]["icon-rotation-alignment"] = "map"
             layer_def["layout"]["icon-pitch-alignment"] = "viewport"
-            layer_def["layout"]["icon-allow-overlap"] = True
-            layer_def["layout"]["icon-ignore-placement"] = True
+            layer_def["layout"]["icon-allow-overlap"] = False
+            layer_def["layout"]["icon-ignore-placement"] = False
             layer_def["layout"]["icon-keep-upright"] = True
             try:
                 layer_def["paint"]["icon-opacity"] = background.opacity()
@@ -630,9 +639,9 @@ class QgisMapLibreStyleExporter:
                 pass
         else:
             # Default icon properties even without background
-            layer_def["layout"]["icon-allow-overlap"] = True
-            layer_def["layout"]["icon-ignore-placement"] = True
-            layer_def["layout"]["icon-optional"] = True
+            layer_def["layout"]["icon-allow-overlap"] = False
+            layer_def["layout"]["icon-ignore-placement"] = False
+            layer_def["layout"]["icon-optional"] = False
             layer_def["paint"]["icon-opacity"] = 1.0
             layer_def["paint"]["icon-halo-color"] = "rgb(0, 0, 0)"
             layer_def["paint"]["icon-halo-width"] = 0
