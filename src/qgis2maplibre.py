@@ -482,7 +482,7 @@ class QgisMapLibreStyleExporter:
         text_format = label_settings.format()
         font = text_format.font()
 
-        layer_def["layout"]["text-font"] = [font.family()]
+        layer_def["layout"]["text-font"] = [f"{font.family()} {font.styleName()}"]
         # Convert QGIS font point size to pixels (MapLibre uses pixels).
         #  1pt = 1/72in; at 96 DPI => px = pt * 96/72
         layer_def["layout"]["text-size"] = font.pointSizeF() * (96.0 / 72.0)
@@ -599,7 +599,7 @@ class QgisMapLibreStyleExporter:
         if background.markerSymbol():
             background.setMarkerSymbol(background.markerSymbol().clone())
         label_format.setBackground(background)
-        label_settings.setFormat(label_settings)
+        label_settings.setFormat(label_format)
         if background.enabled() and background.markerSymbol():
             # Try to extract marker from background
             try:
@@ -617,9 +617,13 @@ class QgisMapLibreStyleExporter:
             except (RuntimeError, AttributeError):
                 layer_def["layout"]["icon-image"] = style_name
 
-            if background().sizeType() == 0:
+            if background.sizeType() == 0: # Buffer type
                 layer_def["layout"]["icon-text-fit"] = "both"
-            layer_def["layout"]["icon-text-fit-padding"] = [4, 2, 4, 2]
+                buffer_size = background.size().width()
+                buffer_unit = background.sizeUnit()
+                buffer_px = self._convert_length_to_pixels(buffer_size, buffer_unit)
+                padding = [buffer_px*2, buffer_px, buffer_px*2, buffer_px]
+                layer_def["layout"]["icon-text-fit-padding"] = padding
             layer_def["layout"]["icon-anchor"] = "center"
             layer_def["layout"]["icon-rotation-alignment"] = "map"
             layer_def["layout"]["icon-pitch-alignment"] = "viewport"
