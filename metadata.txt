@@ -17,7 +17,7 @@ icon=icon.png
 hasProcessingProvider=yes
 supportsQt6=True
 changelog=
-	** v1.6 (10.02.26):
+	** v1.6 (12.02.26):
 		- Support a MapLibre/Mapbox client-side style package generation (experimental).
 		- Bug fixes ensuring proper style conversion process involving geometric transformations.
 	** v1.5 (08.02.26):

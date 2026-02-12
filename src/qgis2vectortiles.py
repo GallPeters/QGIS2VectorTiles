@@ -9,6 +9,8 @@ Converts QGIS vector layer styling to vector tiles format by:
 5. Loading and styling the tiles in QGIS with appropriate symbology
 """
 
+import platform
+from sys import prefix
 from dataclasses import dataclass
 from tomllib import load
 from datetime import datetime
@@ -20,6 +22,7 @@ from urllib.request import pathname2url
 from shutil import rmtree
 from subprocess import Popen
 from uuid import uuid4
+
 
 from processing import run
 from osgeo import gdal, ogr, osr
@@ -1427,35 +1430,96 @@ class QGIS2StyledTiles:
         return f"{round((end - start) / 60, 2)}"
 
     def serve_tiles(self, output_folder):
-        """Serve generated tiles using a simple HTTP server."""
+        """Serve generated tiles using a simple HTTP server (cross-platform)."""
         # Get the extent of the tiles in EPSG:4326 for the MapLibre viewer
         src_crs = QgsCoordinateReferenceSystem("EPSG:3857")
         dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-        coord_transform = QgsCoordinateTransform(src_crs, dest_crs, QgsProject.instance())
-        center_4326 = coord_transform.transformBoundingBox(self.extent).center()
-        center_corrd = f'[{center_4326.x()}, {center_4326.y()}]'
+        coord_transform = QgsCoordinateTransform(
+            src_crs, dest_crs, QgsProject.instance().transformContext()
+        )
+        center_4326 = coord_transform.transformBoundingBox(self.extent)
+        center_corrd = f"[{center_4326.center().x()}, {center_4326.center().y()}]"
+
         # Write the MapLibre viewer HTML with the correct bounds and serve the tiles
         with open(_HTML, "r", encoding="utf-8") as html_source:
             html_content = html_source.read()
-            html_content = html_content.replace('map.setZoom(2)', f'map.setZoom({self.min_zoom})')
-            html_content = html_content.replace('map.setCenter([32, 32])', f'map.setCenter({center_corrd})')
-       
+            html_content = html_content.replace("map.setZoom(2)", f"map.setZoom({self.min_zoom})")
+            html_content = html_content.replace(
+                "map.setCenter([32, 32])", f"map.setCenter({center_corrd})"
+            )
+
         html_source.close()
         with open(join(output_folder, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
             html_copy.write(html_content)
         html_copy.close()
-        
-        # Create a batch file to serve the tiles and open the viewer
+
+        # Create platform-specific script to serve the tiles and open the viewer
+        system = platform.system()
+
+        if system == "Windows":
+            self._create_windows_script(output_folder)
+        else:  # Linux and macOS
+            self._create_unix_script(output_folder)
+
+    def _create_windows_script(self, output_folder):
+        """Create and execute Windows batch script."""
+        python_exe = join(prefix, "python3.exe")
         bat_path = join(output_folder, "serve.bat")
+
         with open(bat_path, "w", encoding="utf-8") as bat:
             bat.write(
                 "@echo off\n"
-                "start python -m http.server 9000\n"
+                "echo Checking port 9000...\n"
+                # kill process using port 9000
+                'for /f "tokens=5" %%a in (\'netstat -aon ^| find ":9000" ^| find "LISTENING"\') do (\n'  # pylint: disable=C0301
+                "  echo Killing process %%a using port 9000\n"
+                "  taskkill /F /PID %%a >nul 2>&1\n"
+                ")\n"
+                # start server
+                f'start "" "{python_exe}" -m http.server 9000\n'
+                # wait
                 "timeout /t 2 /nobreak >nul\n"
-                "start http://localhost:9000/maplibre_viewer.html"
+                # open browser
+                "start http://localhost:9000/maplibre_viewer.html\n"
             )
-        bat.close()
+
         Popen([str(bat_path)], cwd=output_folder)
+
+    def _create_unix_script(self, output_folder):
+        """Create and execute Unix/Linux/macOS shell script."""
+
+        if platform.system() == "Linux":
+            python_exe = join(prefix, "bin", "python3")
+        else:
+            python_exe = join(prefix, "python3")
+
+        sh_path = join(output_folder, "serve.sh")
+
+        with open(sh_path, "w", encoding="utf-8") as sh:
+            sh.write(
+                "#!/bin/bash\n"
+                "echo 'Checking port 9000...'\n"
+                # kill process using port 9000 (if exists)
+                "PID=$(lsof -ti:9000)\n"
+                'if [ ! -z "$PID" ]; then\n'
+                '  echo "Killing process $PID using port 9000"\n'
+                "  kill -9 $PID\n"
+                "fi\n"
+                # start server
+                f'"{python_exe}" -m http.server 9000 &\n'
+                # wait
+                "sleep 2\n"
+                # open browser
+                "if command -v xdg-open >/dev/null 2>&1; then\n"
+                "    xdg-open http://localhost:9000/maplibre_viewer.html\n"
+                "elif command -v open >/dev/null 2>&1; then\n"
+                "    open http://localhost:9000/maplibre_viewer.html\n"
+                "else\n"
+                "    echo 'Server started at http://localhost:9000/maplibre_viewer.html'\n"
+                "fi\n"
+            )
+
+        Popen(["bash", str(sh_path)], cwd=output_folder)
 
 
 # Main execution for QGIS console

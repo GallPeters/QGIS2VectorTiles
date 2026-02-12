@@ -206,23 +206,16 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"]["icon-image"] = marker_name  # Reference marker from sprites
         layer_def["layout"]["visibility"] = "visible"
 
-        # size = symbol_layer.size()
-        # # detect unit for icon size (reuse size_unit logic)
-        # size_unit = None
-        # for attr in ("sizeUnit", "sizeUnits", "size_unit"):
-        #     if hasattr(symbol_layer, attr):
-        #         u = getattr(symbol_layer, attr)
-        #         size_unit = u() if callable(u) else u
-        #         break
-        # icon_px = self._convert_length_to_pixels(size, size_unit)
-        icon_pt = 1  # Default to 1 pt since thw size was determined when the symbol was created and is already in pixels in the sprite
+        # Default to 1 pt since thw size was determined when the
+        #  symbol was created and is already in pixels in the sprite
+        icon_pt = 1
         layer_def["layout"]["icon-size"] = icon_pt  # Normalize to sprite size
 
         # Icon additional properties
         layer_def["layout"]["icon-rotation-alignment"] = "map"
         layer_def["layout"]["icon-pitch-alignment"] = "viewport"
         layer_def["layout"]["icon-anchor"] = "center"
-        layer_def["layout"]["icon-allow-overlap"] = False
+        layer_def["layout"]["icon-allow-overlap"] = True
         layer_def["layout"]["icon-ignore-placement"] = True
         layer_def["paint"]["icon-opacity"] = 1.0
 
@@ -500,7 +493,7 @@ class QgisMapLibreStyleExporter:
         except AttributeError:
             allow_overlap = True  # Default to allowing overlap if property doesn't exist
         layer_def["layout"]["text-allow-overlap"] = allow_overlap
-        layer_def["layout"]["text-ignore-placement"] = False
+        layer_def["layout"]["text-ignore-placement"] = True
         layer_def["layout"]["text-optional"] = True
         layer_def["layout"]["text-padding"] = 0
 

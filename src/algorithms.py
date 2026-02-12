@@ -13,8 +13,8 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .qgis2vectortiles import QGIS2StyledTiles, _PLUGIN_DIR
-_ICON = QIcon(join(_PLUGIN_DIR, "resources", "icon.png"))
 
+_ICON = QIcon(join(_PLUGIN_DIR, "icon.png"))
 
 
 class QGIS2StyledTilesAlgorithm(QgsProcessingAlgorithm):

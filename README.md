@@ -66,7 +66,7 @@ Generate a MapLibre/Mapbox client-side compatible style which can be used with M
 |22|99|
 
 ## Changelog
-### v1.6 (10.02.26):
+### v1.6 (12.02.26):
 - Support a client-side style package generation which outputs MapLibre/Mapbox style.json and matching sprites (experimental).
 - Bug fixes which ensure smooth style conversion process which involves geometry generators and centroid fills symbol layers.
 ### v1.5 (08.02.26):
