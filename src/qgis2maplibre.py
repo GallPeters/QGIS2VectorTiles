@@ -493,7 +493,7 @@ class QgisMapLibreStyleExporter:
         except AttributeError:
             allow_overlap = True  # Default to allowing overlap if property doesn't exist
         layer_def["layout"]["text-allow-overlap"] = allow_overlap
-        layer_def["layout"]["text-ignore-placement"] = True
+        layer_def["layout"]["text-ignore-placement"] = False
         layer_def["layout"]["text-optional"] = True
         layer_def["layout"]["text-padding"] = 0
 
