@@ -5,9 +5,11 @@
 ## Demos
 
 *Converting QGIS built in world dataset (Europe area) to styled vector tiles in zoom levels 0-5 (sped up from 20 seconds)*
+
 https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
 
 *Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA area) to styled vector tiles in zoom levels 0-7 (sped up from 13 minutes)*
+
 https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff
 
 
