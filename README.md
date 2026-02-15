@@ -1,7 +1,6 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
  
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (.mbtiles or XYZ), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json and matching sprites).
-
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (.mbtiles or XYZ), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json).
 ## Demos
 
 *Converting QGIS built in world dataset (Europe area) to styled vector tiles in zoom levels 0-5 (sped up from 20 seconds)*
@@ -14,18 +13,40 @@ https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff
 
 
 
-
 ## Use Cases
 
-### 1. Efficient WMS/WMTS Serving
+### 1. Client-Side Rendering (Experimental)
+Generate a MapLibre/Mapbox client-side compatible style which can be used with Maplibre, Mapbox, OpenLayers, Leaflet, MapTiler, etc. in order to render vector tiles on the client side. *This is an experimental feature and may not support all QGIS styling capabilities*.
+
+### 2. Efficient WMS/WMTS Serving
 Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Leverage QGIS's full cartographic capabilities (multiple renderer types, polygons labels and outlines,complex expressions based properties, geometry generators) which are not available in client-side vector tile specs.
 
-### 2. Easy Project Sharing
+### 3. Easy Project Sharing
 Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source (.mbtiles or XYZ) and a single layer file (.qlr).
 
-### 3. Client-Side Rendering (Experimental)
-Generate a MapLibre/Mapbox client-side compatible style which can be used with Maplibre, Mapbox, OpenLayers, Leaflet, MapTiler, etc. in order to render vector tiles on the client side. This is an experimental feature and may not support all QGIS styling capabilities.
-
+## Changelog
+### v1.6 (14.02.26):
+- Support a client-side style package generation which outputs MapLibre/Mapbox style.json and matching sprites (experimental).
+- Bug fixes which ensure smooth style conversion process which involves geometry generators and centroid fills symbol layers.
+### v1.5 (08.02.26):
+- Support fields based properties in addition to expression based properties.
+- Improved processing performence.
+### v1.4 (08.02.26):
+- Improved renderering of Centroid Fill symbol layers.
+- Stabilizing DDP support when running on QGIS LTR (3.40.x).
+### v1.3 (05.02.26):
+- Added QT6 support
+- Improved output rendering performance by matching the calculated field type of DDP to the property type.
+- Improved processing performence by skipping unnessesary rule splitting and exporting steps.
+- Bug fixes including preventing crashes when retrieving specific DDP when running on QGIS LTR (3.40.x).
+### v1.2 (30.12.25):
+- Added Polygons Labels Base as processing parameter.
+### v1.1 (16.12.25):
+- Support DDP (data defined properties) as calculated fields for improved rendering performence.
+- Bug fixes.
+### v1.0 (10.12.25):
+- Initial release.
+- 
 ## How It Works
 
 1. Converts renderers and labelings to a rule-based type.
@@ -71,28 +92,6 @@ Generate a MapLibre/Mapbox client-side compatible style which can be used with M
 |21|199|
 |22|99|
 
-## Changelog
-### v1.6 (14.02.26):
-- Support a client-side style package generation which outputs MapLibre/Mapbox style.json and matching sprites (experimental).
-- Bug fixes which ensure smooth style conversion process which involves geometry generators and centroid fills symbol layers.
-### v1.5 (08.02.26):
-- Support fields based properties in addition to expression based properties.
-- Improved processing performence.
-### v1.4 (08.02.26):
-- Improved renderering of Centroid Fill symbol layers.
-- Stabilizing DDP support when running on QGIS LTR (3.40.x).
-### v1.3 (05.02.26):
-- Added QT6 support
-- Improved output rendering performance by matching the calculated field type of DDP to the property type.
-- Improved processing performence by skipping unnessesary rule splitting and exporting steps.
-- Bug fixes including preventing crashes when retrieving specific DDP when running on QGIS LTR (3.40.x).
-### v1.2 (30.12.25):
-- Added Polygons Labels Base as processing parameter.
-### v1.1 (16.12.25):
-- Support DDP (data defined properties) as calculated fields for improved rendering performence.
-- Bug fixes.
-### v1.0 (10.12.25):
-- Initial release.
 ## License
 
 This project is licensed under the GNU General Public License v2.0.
