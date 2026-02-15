@@ -13,7 +13,6 @@ from qgis.core import (
     QgsSimpleLineSymbolLayer,
     QgsSimpleFillSymbolLayer,
     QgsProcessingUtils,
-    QgsUnitTypes,
     QgsProperty,
     QgsSymbolLayer,
     QgsTextFormat,
@@ -97,6 +96,7 @@ class QgisMapLibreStyleExporter:
     def _convert_renderer_style(self, style):
         """Convert a single renderer style from QgsVectorTileBasicRendererStyle."""
         layer_name = style.layerName()
+        style_name = style.styleName()
         symbol = style.symbol()
         min_zoom = style.minZoomLevel()
         max_zoom = style.maxZoomLevel()  # MapLibre maxzoom is exclusive, QGIS is inclusive
@@ -106,11 +106,6 @@ class QgisMapLibreStyleExporter:
         if not enabled or not symbol:
             return
 
-        # Generate style name based on layer name and symbol type
-        #  (no index - allows merging across zoom levels)
-        symbol_type_code = self._get_symbol_type_code(symbol.type())
-        style_name = f"{layer_name}_{symbol_type_code}"
-
         # Convert the symbol with zoom levels, using generated layer ID
         #  and layer_name as source-layer
         self._convert_symbol(symbol, style_name, layer_name, self.source_name, min_zoom, max_zoom)
@@ -118,6 +113,7 @@ class QgisMapLibreStyleExporter:
     def _convert_labeling_style(self, style):
         """Convert a single labeling style from QgsVectorTileBasicLabelingStyle."""
         layer_name = style.layerName()
+        style_name = style.styleName()
         label_settings = style.labelSettings()
         min_zoom = style.minZoomLevel()
         max_zoom = style.maxZoomLevel()  # MapLibre maxzoom is exclusive, QGIS is inclusive
@@ -127,9 +123,6 @@ class QgisMapLibreStyleExporter:
 
         if not enabled or not label_settings:
             return
-
-        # Generate style name for labels (no index - allows merging across zoom levels)
-        style_name = f"{layer_name}_label"
 
         # Convert the label settings with zoom levels, using generated layer ID
         #  and layer_name as source-layer
@@ -514,8 +507,11 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"]["text-transform"] = "none"  # Default no transform
 
         # Text max width (wrap text)
-        layer_def["layout"]["text-max-width"] = 10  # Default wrap at 10em
-
+        if label_settings.autoWrapLength > 0:
+            layer_def["layout"]["text-max-width"] = label_settings.autoWrapLength
+        else:
+            layer_def["layout"]["text-max-width"] = 999  # Effectively no max width
+        
         # Text color
         color = text_format.color()
         layer_def["paint"]["text-color"] = self._qcolor_to_maplibre(color)
@@ -630,6 +626,11 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["icon-allow-overlap"] = False
             layer_def["layout"]["icon-ignore-placement"] = False
             layer_def["layout"]["icon-keep-upright"] = True
+            offset_unit = background.offsetUnit()
+            offset = background.offset()
+            offset_x = self._convert_length_to_pixels(offset.x(), offset_unit)
+            offset_y = self._convert_length_to_pixels(offset.y(), offset_unit)
+            layer_def["layout"]["icon-offset"] = [offset_x, offset_y]
             try:
                 layer_def["paint"]["icon-opacity"] = background.opacity()
                 bg_color = background.fillColor()
@@ -729,8 +730,6 @@ class QgisMapLibreStyleExporter:
         # Interpret unit strings heuristically
         if "millimeter" in unit_str or "mm" in unit_str:
             return value * 3.78
-        if "centimeter" in unit_str or "cm" in unit_str:
-            return value * 37.8
         if "inch" in unit_str or "in" in unit_str:
             return value * 96.0
         if "point" in unit_str or "pt" in unit_str:
@@ -740,15 +739,13 @@ class QgisMapLibreStyleExporter:
 
         # Try to handle known QgsUnitTypes enums by name
         try:
-            if unit_obj == QgsUnitTypes.RenderMillimeters:
+            if unit_obj == 0:
                 return value * 3.78
-            if unit_obj == QgsUnitTypes.RenderCentimeters:
-                return value * 37.8
-            if unit_obj == QgsUnitTypes.RenderInches:
+            if unit_obj == 5:
                 return value * 96.0
-            if unit_obj == QgsUnitTypes.RenderPoints:
+            if unit_obj == 4:
                 return value * (96.0 / 72.0)
-            if unit_obj == QgsUnitTypes.RenderPixels:
+            if unit_obj == 2:
                 return value
         except (RuntimeError, AttributeError):
             pass
