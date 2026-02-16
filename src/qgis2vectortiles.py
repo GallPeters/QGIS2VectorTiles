@@ -298,8 +298,7 @@ class TilesStyler:
     def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
         """Create and add vector tiles layer to project."""
         header = "&http-header:referer="
-        suffix = header if tiles_path and tiles_path.split(".")[-1] != "mbtiles" else ""
-        layer = QgsVectorTileLayer(f"{tiles_path}{suffix}", "Vector Tiles")
+        layer = QgsVectorTileLayer(f"{tiles_path}{header}", "Vector Tiles")
         layer = QgsProject.instance().addMapLayer(layer, False)
         QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
         return layer
@@ -411,7 +410,7 @@ class TilesStyler:
 
 
 class GDALTilesGenerator:
-    """Generate mbtiles/XYZ tiles from GeoJSON layers using GDAL MVT driver."""
+    """Generate XYZ tiles from GeoJSON layers using GDAL MVT driver."""
 
     def __init__(
         self,
@@ -459,22 +458,14 @@ class GDALTilesGenerator:
 
     def _prepare_output_paths(self) -> Tuple[str, str]:
         """Prepare output paths based on output type."""
-        if self.output_type == "xyz":
-            template = pathname2url(r"/{z}/{x}/{y}.pbf")
-            output = join(self.output_dir, "tiles")
-            uri = f"type=xyz&zmin=0&zmax=22&url=file:///{output}{template}"
-            return output, uri
-        else:
-            output = join(self.output_dir, "tiles.mbtiles")
-            uri = f"type=mbtiles&url={output}"
-            return output, uri
+        template = pathname2url(r"/{z}/{x}/{y}.pbf")
+        output = join(self.output_dir, "tiles")
+        uri = f"type=xyz&zmin=0&zmax=22&url=file:///{output}{template}"
+        return output, uri
 
     def _get_creation_options(self, min_zoom: int, max_zoom: int) -> List[str]:
         """Generate GDAL creation options based on output type."""
         zoom_range = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
-        if self.output_type == "mbtiles":
-            return zoom_range
-
         param_limit = 4 if int(gdal.VersionInfo()) < 3100200 else -1
         scheme_conf = list(_TILING_SCHEME.values())[:param_limit]
         scheme_options = [f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"]

@@ -25,6 +25,10 @@ Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Le
 Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source (.mbtiles or XYZ) and a single layer file (.qlr).
 
 ## Changelog
+v1.7 (16.02.26):
+- Implement DDP as fields inside Maplibre style.json.
+- Remove mbtiles output option (not supported by native Maplibre).
+- Improve documentation (add more samples and limitations list).
 ### v1.6 (14.02.26):
 - Support a client-side style package generation which outputs MapLibre/Mapbox style.json and matching sprites (experimental).
 - Bug fixes which ensure smooth style conversion process which involves geometry generators and centroid fills symbol layers.

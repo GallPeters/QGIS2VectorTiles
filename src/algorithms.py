@@ -19,8 +19,8 @@ _ICON = QIcon(join(_PLUGIN_DIR, "icon.png"))
 
 class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     """
-    QGIS Processing Algorithm for generating styled MBTiles from project layers.
-    This wrapper provides a user interface for the MBTiles generation process
+    QGIS Processing Algorithm for generating styled tiles from project layers.
+    This wrapper provides a user interface for the tiles generation process
     through the QGIS Processing Toolbox.
     """
 
@@ -87,7 +87,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         Returns a localised short helper string for the algorithm.
         """
         return self.tr(
-            "Generates MBTiles or XYZ Directory which contains vector tiles from all visible project layers while preserving "  # pylint: disable=C0301
+            "Generates styled vector tiles package from all visible project layers while preserving "  # pylint: disable=C0301
             "their original styling. The generated tiles are automatically loaded "
             "back into the project with identical appearance to the source layers."
             "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
@@ -97,16 +97,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         """
         Define the inputs and outputs of the algorithm.
         """
-        # Output type parameter
-        self.addParameter(
-            QgsProcessingParameterEnum(
-                self.OUTPUT_TYPE,
-                self.tr("Output Type"),
-                options=["XYZ", "MBTiles"],
-                defaultValue=0,  # Default to XYZ
-                optional=False,
-            )
-        )
 
         # Minimum zoom level parameter
         self.addParameter(
@@ -197,7 +187,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         """
-        Main processing method. This is where your existing MBTiles generation logic
+        Main processing method. This is where your existing vector tiles generation logic
         should be called.
 
         Args:
@@ -210,8 +200,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         """
 
         # Extract parameter values
-        output_type_index = self.parameterAsInt(parameters, self.OUTPUT_TYPE, context)
-        output_type = ["XYZ", "MBTiles"][output_type_index]
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
         extent = self.parameterAsExtent(
@@ -225,7 +213,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
 
         try:
-            # Your existing MBTiles generator class would be called here
+            # Your existing vector tile generator class would be called here
             tiles_generator = QGIS2VectorTiles(
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
@@ -233,17 +221,16 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 cpu_percent=cpu_percent,
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
-                output_type=output_type,
                 cent_source=polygon_labels_base,
                 feedback=feedback,
             )
 
             # Run the generation process
             tiles_generator.convert_project_to_vector_tiles()
-            feedback.pushInfo(f"{output_type} generation completed successfully")
+            feedback.pushInfo("Vector tiles package generation completed successfully")
 
         except (NameError, ValueError, AttributeError, TypeError) as e:
-            feedback.reportError(f"Error during {output_type} generation: {str(e)}")
+            feedback.reportError(f"Error during Vector tiles package generation: {str(e)}")
             return {}
 
         # Return empty results dictionary (modify as needed for your use case)

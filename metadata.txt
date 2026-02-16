@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
 description=Turn a QGIS project into a lightweight vector tiles package which can be used for WMS/WMTS serving, easy sharing and client-side rendering (experimental) while preserving original style.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (.mbtiles or XYZ directory), a single vector tiles layer (.qlr) and a client-side compatible style package (style.json and sprites).
-version=1.6
+version=1.7
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
@@ -12,13 +12,17 @@ deprecated=False
 homepage=https://github.com/GallPeters/QGIS2VectorTiles
 repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
-tags=cartography, style, styles, tiles, maplibre, mapbox, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
+tags=cartography, style, styles, tiles, maplibre, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
 icon=icon.png
 hasProcessingProvider=yes
 supportsQt6=True
 changelog=
+	** v1.7 (16.02.26):
+		- Implement DDP as fields inside Maplibre style.json.
+		- Remove mbtiles output option (not supported by native Maplibre).
+		- Improve documentation (add more samples and limitations list).
 	** v1.6 (14.02.26):
-		- Support a MapLibre/Mapbox client-side style package generation (experimental).
+		- Support a MapLibre client-side style package generation (experimental).
 		- Bug fixes ensuring proper style conversion process involving geometric transformations.
 	** v1.5 (08.02.26):
 		- Support fields based properties.
