@@ -1463,11 +1463,10 @@ class QGIS2VectorTiles:
                 "echo Checking port 9000...\n"
                 # kill process using port 9000
                 'for /f "tokens=5" %%a in (\'netstat -aon ^| find ":9000" ^| find "LISTENING"\') do (\n'  # pylint: disable=C0301
-                "  echo Killing process %%a using port 9000\n"
                 "  taskkill /F /PID %%a >nul 2>&1\n"
                 ")\n"
                 # start server
-                f'"{python_exe}" -m http.server 9000\n'
+                f'start /B "" "{python_exe}" -m http.server 9000\n'
                 # wait
                 "timeout /t 2 /nobreak >nul\n"
                 # open browser
