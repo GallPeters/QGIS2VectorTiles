@@ -20,7 +20,7 @@ changelog=
 	** v1.7 (16.02.26):
 		- Implement DDP as fields inside Maplibre style.json.
 		- Remove mbtiles output option (not supported by native Maplibre).
-		- Improve documentation (add more samples and limitations list).
+		- Improve documentation (add considerations paragrpah and more demos).
 	** v1.6 (14.02.26):
 		- Support a MapLibre client-side style package generation (experimental).
 		- Bug fixes ensuring proper style conversion process involving geometric transformations.

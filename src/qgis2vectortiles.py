@@ -176,8 +176,8 @@ class DataDefinedPropertiesFetcher:
             prop_type = prop.propertyType()
             if prop_type not in [2, 3]:
                 continue
-
-            prop_type = props_defintions.get(key).dataType() if props_defintions else None
+            prop_def = props_defintions.get(key)
+            prop_type = prop_def.dataType() if props_defintions else None
             field_type = self.TYPES_MAP.get(prop_type)
             field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
 
@@ -190,6 +190,9 @@ class DataDefinedPropertiesFetcher:
                 prop = props_collection.property(key)
             else:
                 expression = prop.expressionString().replace("@map_scale", self.min_zoom)
+                if "color" in prop_def.name().lower() and field_type == 10:
+                    # Convert color to hex string in order to be used in MapLibre style
+                    expression = f"'#' || with_variable('hex', array_cat(generate_series(0,9),array('A','B','C','D','E','F')), array_to_string (array_foreach (array ('red','green','blue'),with_variable('colo',color_part ({expression}, @element),@hex[floor(@colo/16)] || @hex[@colo%16] )),''))" # pylint: disable=C0301
                 evaluation = QgsExpression(expression).evaluate()
                 if evaluation is not None:
                     prop.setExpressionString(str(evaluation))

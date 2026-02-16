@@ -906,7 +906,7 @@ class QgisMapLibreStyleExporter:
             layer_def["paint"]["line-opacity"] = LinePropertyExtractor.get_line_opacity(
                 symbol_layer
             )
-            layer_def["paint"]["line-blur"] = LinePropertyExtractor.get_line_blur()
+            # layer_def["paint"]["line-blur"] = LinePropertyExtractor.get_line_blur()
             layer_def["paint"]["line-gap-width"] = LinePropertyExtractor.get_line_gap_width()
             layer_def["paint"]["line-translate"] = LinePropertyExtractor.get_line_translate()
             layer_def["paint"][
@@ -1058,9 +1058,7 @@ class QgisMapLibreStyleExporter:
         layer_def["paint"]["text-halo-width"] = TextPropertyExtractor.get_text_halo_width(
             text_format
         )
-        layer_def["paint"]["text-halo-blur"] = TextPropertyExtractor.get_text_halo_blur(
-            text_format
-        )
+        # layer_def["paint"]["text-halo-blur"] = TextPropertyExtractor.get_text_halo_blur(text_format)
         layer_def["paint"]["text-translate"] = TextPropertyExtractor.get_text_translate()
         layer_def["paint"][
             "text-translate-anchor"
@@ -1127,7 +1125,7 @@ class QgisMapLibreStyleExporter:
                 layer_def["paint"]["icon-color"] = IconPropertyExtractor.get_icon_color(background)
                 layer_def["paint"]["icon-halo-color"] = IconPropertyExtractor.get_icon_halo_color()
                 layer_def["paint"]["icon-halo-width"] = IconPropertyExtractor.get_icon_halo_width()
-                layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
+                # layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
                 layer_def["paint"]["icon-translate"] = IconPropertyExtractor.get_icon_translate()
                 layer_def["paint"][
                     "icon-translate-anchor"
@@ -1146,7 +1144,7 @@ class QgisMapLibreStyleExporter:
             layer_def["paint"]["icon-opacity"] = IconPropertyExtractor.get_icon_opacity()
             layer_def["paint"]["icon-halo-color"] = IconPropertyExtractor.get_icon_halo_color()
             layer_def["paint"]["icon-halo-width"] = IconPropertyExtractor.get_icon_halo_width()
-            layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
+            # layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
             layer_def["paint"]["icon-translate"] = IconPropertyExtractor.get_icon_translate()
             layer_def["paint"][
                 "icon-translate-anchor"

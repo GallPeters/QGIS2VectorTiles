@@ -1,107 +1,81 @@
-# <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
- 
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json).
+# <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
+
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) that packages a QGIS project into:  
+- **Vector tiles source** (XYZ directory)  
+- **Vector tiles layer** (.qlr)  
+- **Client-side MapLibre style package** (style.json)  
+
+---
 ## Demos
-
-*Converting QGIS built in world dataset (Europe area) to styled vector tiles in zoom levels 0-5 (sped up from 20 seconds)*
-
-https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
-
-*Converting the [Natural Earth quick-start project](https://www.naturalearthdata.com/) (USA area) to styled vector tiles in zoom levels 0-7 (sped up from 13 minutes)*
-
-https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff
+- **Europe (QGIS built-in world)**: zoom 0–5, ~20 sec 
+  
+  https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
 
 
+- **USA (Natural Earth project)**: zoom 0–7, ~13 min 
+ 
+  https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff 
+
+---
 
 ## Use Cases
+1. **Client-side Rendering (Experimental)**  
+   Generate MapLibre/Mapbox-compatible styles for web clients. *Note: Not all QGIS styling supported.*  
 
-### 1. Client-Side Rendering (Experimental)
-Generate a MapLibre/Mapbox client-side compatible style which can be used with Maplibre, Mapbox, OpenLayers, Leaflet, MapTiler, etc. in order to render vector tiles on the client side. *This is an experimental feature and may not support all QGIS styling capabilities*.
+2. **Efficient WMS/WMTS Serving**  
+   Serve lightweight vector tiles via QGIS Server while keeping QGIS cartography features.  
 
-### 2. Efficient WMS/WMTS Serving
-Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Leverage QGIS's full cartographic capabilities (multiple renderer types, polygons labels and outlines,complex expressions based properties, geometry generators) which are not available in client-side vector tile specs.
+3. **Simple Project Sharing**  
+   Package complex projects (PostGIS, GeoPackage, shapefiles) into a single XYZ source + one layer file.  
 
-### 3. Easy Project Sharing
-Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source  (XYZ directory) and a single layer file (.qlr).
+---
+
+## Key Considerations
+
+| Feature | Limitation | Workaround |
+|---|---|---|
+| Styling | MapLibre more limited than QGIS | Use simple styling |
+| Polygon labels | Centroid only | Avoid perimeter/multipart reliance |
+| Colors | RGB only | No opacity/transparency |
+| Polygon outlines | Not supported | Add simple-line layer |
+| Geometry generators | Converted to geometry | Prefer generators over unique QGIS-only styling |
+| Marker symbols | Rasterized; DDP ignored | Avoid data-driven markers for HTML |
+| Fonts | HTML uses local fonts | Use MapLibre Font Maker |
+| Renderers & labels | Converted to rule-based; blocking labels ignored | Avoid blocking-label configs |
+| Viewer | Must serve tiles/styles | Run `serve.bat` |
+
+---
+
+## How It Works
+1. Converts renderers/labels to rule-based style.  
+2. Flattens nested rules with property inheritance (filters, zoom, symbol layers).  
+3. Splits rules by zoom, symbol layers, and label rules.  
+4. Exports datasets with calculated fields, geometry transforms, and centroids.  
+5. Generates vector tiles via GDAL MVT driver.  
+6. Loads tiles back into QGIS as QgsVectorTileLayer.  
+7. Exports client-side style.json with sprites for markers/labels.  
+
+---
+
+## Tiling Scheme
+| Zoom | Scale |
+|:-:|:-:|
+|0–22|419,311,712 → 99 (ref. scale)|  
+
+---
 
 ## Changelog
-v1.7 (16.02.26):
-- Implement DDP as fields inside Maplibre style.json.
-- Remove mbtiles output option (not supported by native Maplibre).
-- Improve documentation (add more samples and limitations list).
-### v1.6 (14.02.26):
-- Support a client-side style package generation which outputs MapLibre/Mapbox style.json and matching sprites (experimental).
-- Bug fixes which ensure smooth style conversion process which involves geometry generators and centroid fills symbol layers.
-### v1.5 (08.02.26):
-- Support fields based properties in addition to expression based properties.
-- Improved processing performence.
-### v1.4 (08.02.26):
-- Improved renderering of Centroid Fill symbol layers.
-- Stabilizing DDP support when running on QGIS LTR (3.40.x).
-### v1.3 (05.02.26):
-- Added QT6 support
-- Improved output rendering performance by matching the calculated field type of DDP to the property type.
-- Improved processing performence by skipping unnessesary rule splitting and exporting steps.
-- Bug fixes including preventing crashes when retrieving specific DDP when running on QGIS LTR (3.40.x).
-### v1.2 (30.12.25):
-- Added Polygons Labels Base as processing parameter.
-### v1.1 (16.12.25):
-- Support DDP (data defined properties) as calculated fields for improved rendering performence.
-- Bug fixes.
-### v1.0 (10.12.25):
-- Initial release.
-- 
-## How It Works
+**v1.7 (16.02.26)**: DDP as fields, removed MBTiles, improved docs & demos  
+**v1.6 (14.02.26)**: Experimental MapLibre style output, bug fixes  
+**v1.5 (08.02.26)**: Fields-based properties, faster processing  
+**v1.4–v1.0**: Various improvements, QT6 support, initial release  
 
-1. Converts renderers and labelings to a rule-based type.
-2. Flattens nested rules to stand alone rules using properties inheritance which includes:
-   -   Filter expressions.
-   -  Zoom levels ranges.
-   -  Symbol layers (for renderer rules).
-3. Splits rules by:
-   -  Zoom levels (if @map_scale varaiable is being used).
-   -  Symbol layers (for renderer rules)
-   -  Match renderer rules (for labeling rules)
-4. Exports each rule as a separate dataset while:
-   - Calculating expression based fields (label expressions, data-driven properties etc).
-   - Transform geometry if required (e.g. geometry generators, centroids for polygons labels and centroid fill symbol layers, lines for polygons etc.)
-5. Generates vector tiles using (amazingly fast) GDAL MVT driver
-6. Loads styled tiles back into QGIS as QgsVectorTileLayer.
-7. Export QgsVectorTileLayer flat style into client-side compatible style.json while generting sprites for marker symbol layers and labeling markers symbol backgrounds.
-
-## Tiling scheme
-| Zoom Level | Reference Scale |
-| :-: | :-: |
-|0|419311712|
-|1|209655856|
-|2|104827928|
-|3|52413964|
-|4|26206982|
-|5|13103491|
-|6|6551745|
-|7|3275872|
-|8|1637936|
-|9|818968|
-|10|409484|
-|11|204742|
-|12|102371|
-|13|51185|
-|14|25592|
-|15|12796|
-|16|6398|
-|17|3199|
-|18|1599|
-|19|799|
-|20|399|
-|21|199|
-|22|99|
+---
 
 ## License
+GNU GPL v2 → [LICENSE](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
 
-This project is licensed under the GNU General Public License v2.0.
-
-See the [LICENSE](https://www.gnu.org/licenses/gpl-2.0-standalone.html) file for details.
+---
 
 ## Contributing
-
-Contributions welcome! Please open an issue or submit a pull request.
+Open an issue or submit a pull request.
