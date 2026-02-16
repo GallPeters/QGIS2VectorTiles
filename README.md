@@ -1,6 +1,6 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" />      QGIS2VectorTiles
  
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (.mbtiles or XYZ), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json).
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) which pack a QGIS project into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr) and a client-side compatible Maplibre/Mapbox style package (style.json).
 ## Demos
 
 *Converting QGIS built in world dataset (Europe area) to styled vector tiles in zoom levels 0-5 (sped up from 20 seconds)*
@@ -22,7 +22,7 @@ Generate a MapLibre/Mapbox client-side compatible style which can be used with M
 Serve lightweight vector tiles via QGIS Server instead of heavy raster tiles. Leverage QGIS's full cartographic capabilities (multiple renderer types, polygons labels and outlines,complex expressions based properties, geometry generators) which are not available in client-side vector tile specs.
 
 ### 3. Easy Project Sharing
-Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source (.mbtiles or XYZ) and a single layer file (.qlr).
+Replace big, messy and complex projects with multiple layers and data sources (PostGIS, GeoPackage, shapefiles, etc.) with a single data source  (XYZ directory) and a single layer file (.qlr).
 
 ## Changelog
 v1.7 (16.02.26):
