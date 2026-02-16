@@ -1464,7 +1464,7 @@ class QGIS2VectorTiles:
                 "  taskkill /F /PID %%a >nul 2>&1\n"
                 ")\n"
                 # start server
-                f'start "" "{python_exe}" -m http.server 9000\n'
+                f'"{python_exe}" -m http.server 9000\n'
                 # wait
                 "timeout /t 2 /nobreak >nul\n"
                 # open browser
