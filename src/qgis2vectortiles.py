@@ -1471,7 +1471,7 @@ class QGIS2VectorTiles:
                 # wait
                 "timeout /t 2 /nobreak >nul\n"
                 # open browser
-            'start "" http://localhost:9000/maplibre_viewer.html\n'
+            'start "" "http://localhost:9000/maplibre_viewer.html\n"'
             )
 
         Popen([str(bat_path)], cwd=output_folder)
