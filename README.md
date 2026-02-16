@@ -1,69 +1,77 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
 
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) that packages a QGIS project into:  
-- **Vector tiles source** (XYZ directory)  
-- **Vector tiles layer** (.qlr)  
-- **MapLibre style package** (style.json and sprites)  
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) that packages a QGIS project into vector tiles package while preserving original style:  
+- **Vector Tiles** (XYZ directory)  
+- **Styled QGIS Vector Tiles Layer** (.qlr)  
+- **MapLibre Style Package** (style.json and sprites)  
 
 ---
 ## Demos
-- **Europe (QGIS built-in world)**: zoom 0–5, ~20 sec 
+- _Europe (QGIS built-in world dataset)**: zoom 0–5, ~20 seconds:_
   
   https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
 
 
-- **USA (Natural Earth project)**: zoom 0–7, ~13 min 
+- _USA (Natural Earth project)**: zoom 0–7, ~13 minutes:_
  
   https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff 
 
 ---
 
 ## Use Cases
-1. **Client-side Rendering (Experimental)**  
-   Generate MapLibre/Mapbox-compatible styles for web clients. *Note: Not all QGIS styling supported.*  
+1. **Client-Side Rendering (Experimental)**  
+   Generate MapLibre compatible styles for web clients. *Note: Not all QGIS styling supported.*  
 
 2. **Efficient WMS/WMTS Serving**  
-   Serve lightweight vector tiles via QGIS Server while keeping QGIS cartography features.  
+   Serve lightweight vector tiles via QGIS Server while keeping QGIS advanced cartogrpahy.  
 
-3. **Simple Project Sharing**  
-   Package complex projects (PostGIS, GeoPackage, shapefiles) into a single XYZ source + one layer file.  
+3. **Project Sharing**  
+   Package complex projects (PostGIS, GeoPackage, shapefiles) into a single source and a single layer file.  
 
 ---
 
 ## Key Considerations
+## Considerations
 
-| Feature | Limitation | Workaround / Notes |
+| Title | Limitation / Behavior | How to handle |
 |---|---|---|
-| MapLibre styling | Client-side style spec is limited compared to QGIS | Not all QGIS styling features are supported; simplify complex styles |
-| Polygon labels | Converted to single-part centroids | Perimeter labels not supported; multipart polygons produce multiple labels |
-| Colors | Only RGB supported | Avoid alpha/transparency channels |
-| Polygon outlines | Not supported | Use simple-line symbol layer to simulate outlines |
-| Geometry generators | Converted to resulting geometry | Prefer geometry generators over QGIS-only unique styling options |
-| Marker symbols | Rasterized; DDP ignored in HTML | Data-defined properties visible in QGIS output only |
-| Fonts | Not compressed/served; HTML uses local fonts | Use [MapLibre Font Maker](https://maplibre.org/font-maker/) and reference fonts in style |
-| Renderers & labels | Converted to rule-based | Blocking labels and complex label settings are not supported |
-| Performance notes | Complex QGIS styles may not fully match MapLibre rendering | Use simpler or expression-based styling where possible |
+| Styling Support | MapLibre styling is more limited than QGIS styling. | Use simple styling and avoid complex QGIS-only features. |
+| Polygon Labels | Labels use single-part centroids. No perimeter labels. Multipart polygons → multiple labels. | Design labels for centroid placement only. |
+| Colors | RGB only. No alpha/transparency. | Avoid opacity and transparency. |
+| Polygon Outlines | Polygon outlines are not supported. | Add a simple-line symbol layer instead. |
+| Geometry Generators | Converted to resulting geometry. | Prefer geometry generators over unique QGIS styling options. |
+| Marker Symbols | Converted to raster icons. Data-defined properties not shown in HTML. | Do not rely on data-defined marker properties for HTML output. |
+| Fonts | Glyphs are not being served. HTML uses local fonts. | Generate fonts with [MapLibre Font Maker](https://maplibre.org/font-maker/) and update the style. |
+| Renderers & Labels | Are being converted to rule-based. Blocking labels not supported. | Avoid blocking-label configurations. |
+| Styling Accuracy | Complex styles may not fully match QGIS output. | Prefer expression-based styling (geometry generators, data-defined). |
+| Viewer Usage | Tiles and style must be served to display. | Run `serve.bat` from the output folder. |
 
 ---
-
-
 ## How It Works
 
 1. **Renderer and labeling conversion**: Converts all renderers and labelings to a rule-based type for consistency.  
 2. **Flattening nested rules**: Nested rules are flattened into standalone rules with inherited properties, including:  
    - Filter expressions  
    - Zoom level ranges  
-   - Symbol layers for renderer rules  
+   - Symbol layers (for renderer rules)  
 3. **Rule splitting**: Rules are split based on:  
    - Zoom levels (if `@map_scale` variable is used)  
-   - Symbol layers (renderer rules)  
-   - Matching renderer rules (labeling rules)  
+   - Symbol layers (for renderer rules)  
+   - Matching renderer rules (for labeling rules)  
 4. **Dataset export**: Each rule becomes a separate dataset:  
-   - Calculates expression-based fields (label expressions, DDP, etc.)  
-   - Transforms geometry where needed (geometry generators, polygon centroids for labels/fill layers, line conversion for polygons)  
+   - Calculates expression-based fields (label expressions, data-driven properties, etc.)  
+   - Transforms geometry where needed (geometry generators, polygon centroids for labels and fill layers, line conversion for polygons outlines)  
 5. **Vector tile generation**: Uses the fast GDAL MVT driver to produce vector tiles efficiently.  
-6. **Loading into QGIS**: Styled tiles are loaded back as `QgsVectorTileLayer` for preview and validation.  
-7. **Client-side style export**: Generates a MapLibre-compatible `style.json` with sprites for markers and label backgrounds, ensuring the tiles are ready for web clients.  
+6. **Loading into QGIS**: Styled tiles are loaded back as `QgsVectorTileLayer`.
+7. **Client-side style export**: Generates a MapLibre-compatible `style.json` with sprites for markers symbols (inside renderers and labeling backgrounds) ensuring the tiles are ready for web clients.  
+
+---
+
+## Tiling Scheme
+| Zoom |  Reference Scale |
+|:-:|:-:|
+|0 → 22|419,311,712 → 99|  
+
 ---
 
 ## Changelog
@@ -100,17 +108,11 @@
 
 **v1.0 (10.12.25)**  
 - Initial release.  
----
-
-## Tiling Scheme
-| Zoom | Scale |
-|:-:|:-:|
-|0–22|419,311,712 → 99 (ref. scale)|  
 
 ---
 
 ## License
-[GNU GPL v2](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
+GNU GPL v2 → [LICENSE](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
 
 ---
 
