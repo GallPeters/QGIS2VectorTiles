@@ -7,16 +7,16 @@
 
 ---
 ## Demos
-- _**Basic** QGIS built-in world dataset (1 layer), Europe area (zoom 0–5) &rarr; 20 seconds:_
+- _**Basic** - QGIS built-in world dataset (1 layer) in Europe area (zoom 0–5) &rarr; 20 seconds:_
   
   https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
 
 
-- _**Complex** [Natural Erath Project](https://www.naturalearthdata.com/) (235 layers), USA area (zoom 0–7) &rarr; 13 minutes:_
+- _**Complex** - [Natural Erath Project](https://www.naturalearthdata.com/) (235 layers) in USA area (zoom 0–7) &rarr; 13 minutes:_
  
   https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff 
 
-- _**Data Driven** QGIS built-in world dataset (1 layer), Europe area (zoom 0–5) &rarr; 10 seconds:_
+- _**Data Driven** - QGIS built-in world dataset (1 layer) in Europe area (zoom 0–5) &rarr; 10 seconds:_
 
   https://github.com/user-attachments/assets/61e46690-e0ab-4c72-8f11-c2350381e9f8
 
