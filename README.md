@@ -117,9 +117,9 @@
 ---
 
 ## License
-GNU GPL v2 → [LICENSE](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
+[GNU GPL v2](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
 
 ---
 
 ## Contributing
-Open an issue or submit a pull request.
+Contributions welcome! Please open an issue or submit a pull request.
