@@ -1,5 +1,8 @@
 # Changelog
 
+**v1.8 (19.02.26)**
+- Activate http server silently when tunning on windows.
+
 **v1.7 (16.02.26)**  
 - Implemented Data Defined Properties (DDP) as fields in MapLibre style.json.  
 - Removed MBTiles output (not supported by native MapLibre).  

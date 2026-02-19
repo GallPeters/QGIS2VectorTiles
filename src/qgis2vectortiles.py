@@ -1428,8 +1428,9 @@ class QGIS2VectorTiles:
         coord_transform = QgsCoordinateTransform(
             src_crs, dest_crs, QgsProject.instance().transformContext()
         )
-        center_4326 = coord_transform.transformBoundingBox(self.extent)
-        center_corrd = f"[{center_4326.center().x()}, {center_4326.center().y()}]"
+        center_3857 = self.extent.center()
+        center_4326 = coord_transform.transform(center_3857)
+        center_corrd = f"[{center_4326.x()}, {center_4326.y()}]"
 
         # Write the MapLibre viewer HTML with the correct bounds and serve the tiles
         with open(_HTML, "r", encoding="utf-8") as html_source:
@@ -1440,7 +1441,9 @@ class QGIS2VectorTiles:
             )
 
         html_source.close()
-        with open(join(output_folder, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
+        utilities = join(output_folder, 'utilities')
+        makedirs(utilities, exist_ok=True)
+        with open(join(utilities, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
             html_copy.write(html_content)
         html_copy.close()
 
@@ -1448,16 +1451,18 @@ class QGIS2VectorTiles:
         system = platform.system()
 
         if system == "Windows":
-            self._create_windows_script(output_folder)
+            self._create_windows_script(output_folder, utilities)
         else:  # Linux and macOS
-            self._create_unix_script(output_folder)
+            self._create_unix_script(output_folder, utilities)
 
-    def _create_windows_script(self, output_folder):
+    def _create_windows_script(self, output_folder, utilities_folder):
         """Create and execute Windows batch script."""
         python_exe = join(prefix, "python3.exe")
-        bat_path = join(output_folder, "serve.bat")
-
-        with open(bat_path, "w", encoding="utf-8") as bat:
+        
+        utilities_dir_name = basename(utilities_folder)
+        html_path = f'http://localhost:9000/{utilities_dir_name}/maplibre_viewer.html'
+        activator = join(utilities_folder, "activate_server.bat")
+        with open(activator, "w", encoding="utf-8") as bat:
             bat.write(
                 "@echo off\n"
                 "echo Checking port 9000...\n"
@@ -1466,26 +1471,34 @@ class QGIS2VectorTiles:
                 "  taskkill /F /PID %%a >nul 2>&1\n"
                 ")\n"
                 # start server
-                f'start /B "" "{python_exe}" -m http.server 9000\n'
+                f'start /B "" "{python_exe}" -m http.server 9000 -d "{output_folder}"'
                 # wait
-                "timeout /t 2 /nobreak >nul\n"
+                "\ntimeout /t 2 /nobreak >nul\n"
                 # open browser
-            'start "" "http://localhost:9000/maplibre_viewer.html"\n'
+            f'start "" "{html_path}"\n'
             )
+        
+        launcher = join(output_folder, "launch_viewer.vbs")
+        
+        with open(launcher, "w", encoding="utf-8") as bat:
+            bat.write(
+            'Set WshShell = CreateObject("WScript.Shell")\n'
+            f'WshShell.Run  "cmd /c ""{activator}""" , 0'
+            '\nSet WshShell = Nothing'
+            )
+        command = ["wscript.exe", launcher]
+        Popen(command)
 
-        Popen([str(bat_path)], cwd=output_folder)
-
-    def _create_unix_script(self, output_folder):
+    def _create_unix_script(self, output_folder, utilities_folder):
         """Create and execute Unix/Linux/macOS shell script."""
-
+        html_path = f'http://localhost:9000/{basename(utilities_folder)}/maplibre_viewer.html'
         if platform.system() == "Linux":
             python_exe = join(prefix, "bin", "python3")
         else:
             python_exe = join(prefix, "python3")
 
-        sh_path = join(output_folder, "serve.sh")
-
-        with open(sh_path, "w", encoding="utf-8") as sh:
+        launcher = join(output_folder, "launch_viewer.sh")
+        with open(launcher, "w", encoding="utf-8") as sh:
             sh.write(
                 "#!/bin/bash\n"
                 "echo 'Checking port 9000...'\n"
@@ -1501,15 +1514,15 @@ class QGIS2VectorTiles:
                 "sleep 2\n"
                 # open browser
                 "if command -v xdg-open >/dev/null 2>&1; then\n"
-                "    xdg-open http://localhost:9000/maplibre_viewer.html\n"
+                f"    xdg-open {html_path}\n"
                 "elif command -v open >/dev/null 2>&1; then\n"
-                "    open http://localhost:9000/maplibre_viewer.html\n"
+                f"    open {html_path}\n"
                 "else\n"
-                "    echo 'Server started at http://localhost:9000/maplibre_viewer.html'\n"
+                f"    echo 'Server started at {html_path}'\n"
                 "fi\n"
             )
-
-        Popen(["bash", str(sh_path)], cwd=output_folder)
+        Popen(["bash", launcher], cwd=output_folder)
+        
 
 
 # Main execution for QGIS console
