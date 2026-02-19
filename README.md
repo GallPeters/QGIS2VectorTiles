@@ -5,20 +5,19 @@
 - **Styled QGIS Vector Tiles Layer** (.qlr)  
 - **MapLibre Style Document** (.json)  
 - **MapLibre Sprites** (.png & .json)
-- **MapLibre Viewer** (.html)
-- **Viewer Launcher** (.bat / .sh)
+- **MapLibre Viewer** (.html & .bat / .sh)
 
 ---
 
 ## Use Cases
-1. **Client-Side Rendering (Experimental)**  
+1. **Client-Side Rendering**  
    Generate MapLibre compatible styles for web clients. *Note: Not all QGIS styling supported.*  
 
-2. **Efficient WMS/WMTS Serving**  
-   Serve lightweight vector tiles via QGIS Server while keeping QGIS advanced cartography.  
+2. **Server-Side Rendering**  
+   Serve lightweight vector tiles via QGIS Server as WMS/WMTS while keeping QGIS advanced cartography.  
 
 3. **Project Sharing**  
-   Package complex projects (PostGIS, GeoPackage, shapefiles) into a single source and a single layer file.  
+   Package complex projects contains diffrent data sources (PostGIS, GeoPackage, shapefiles) into a single source and a single layer file.  
 
 ---
 ## Demos

@@ -2,7 +2,7 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-description=Turn a QGIS project into a lightweight vector tiles package which can be used for WMS/WMTS serving, easy sharing and client-side rendering (experimental) while preserving original style.
+description=Turn a QGIS project into a lightweight styled vector tiles package which can be used for client-side rendering (using MapLibre, Mapbox etc), server-side rendering (via WMS/WMTS) and easy sharing while preserving original style.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr) and a client-side compatible style package (style.json and sprites).
 version=1.8
 author=Jossef Kanter
