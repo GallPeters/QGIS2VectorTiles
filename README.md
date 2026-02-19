@@ -68,26 +68,8 @@
 ---
 
 ## How It Works
-1. **Convert To Rule-Based**: Converts all renderers and labelings to a rule-based type.
-2. **Flatten Rules**: Flattens rules  into standalone rules while inheritance:  
-   - Filter expressions.  
-   - Zoom ranges.
-   - Symbol layers (for renderer rules).
-3. **Split Rules**: Splits Rules based on:  
-   - Zoom levels (for rules uses @map_scale)  
-   - Symbol layers (for renderer rules)  
-   - Matching renderers rules (for labeling rules)  
-4. **Export Rules To Datasets**: Exports each rule to a seperated datasets while:  
-   - Calculates expression-based fields (label expressions, data-driven properties, etc.)  
-   - Transforms geometry where needed (geometry generators, polygons labels into centroids, polygons outlines into lines)  
-5. **Generate Vector Tiles**: Generates `XYZ Directory` contains vector tiles using efficiently GDAL's MVT driver.
-6. **Load Styled Tiles Into QGIS**: Loads styled tiles back into QGIS as vector tiles layer and export it into `.qlr`.
-7. **Produce MapLibre Style from Tiles Layer**: Produce a MapLibre-compatible style includes:
-   -  Style `.json` document.
-   -  Sprite package include `.png` and `.style` files (for renderers and labeling backgrounds contains marker symbols).
-8. **Copy launcher** Copy ready-to-use launcher includes:
-   - MapLibre `.html` viewer.
-   - Launcher `.bat` file which serves tiles and launch viewer.
+
+<img width="1408" height="768" alt="QGIS2VectorTilesWorkflow" src="https://github.com/user-attachments/assets/bae7d47d-bc59-4fdf-9b8b-6d42abb78a2e" />
 
 ---
 
