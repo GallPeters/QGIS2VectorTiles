@@ -1540,7 +1540,6 @@ class QGIS2VectorTiles:
                 f"    xdg-open {html_path}\n"
                 "elif command -v open >/dev/null 2>&1; then\n"
                 f"    open {html_path}\n"
-                "else\n"
                 "fi\n"
             )
         Popen(["bash", launcher], cwd=output_folder)
