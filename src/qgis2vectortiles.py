@@ -330,7 +330,10 @@ class TilesStyler:
             return
         symbol_layer = symbol.symbolLayers()[-1]
         sub_symbol = symbol_layer.subSymbol()
-        sub_symbol_layer = sub_symbol.symbolLayers()[-1] if sub_symbol else None
+        if sub_symbol:
+            sub_symbol_layer = sub_symbol.symbolLayers()[-1]
+        else:
+            sub_symbol_layer = None
         source_geom = int(flat_rule.get_attr("g"))
         target_geom = int(flat_rule.get_attr("c"))
 
@@ -614,16 +617,18 @@ class RulesExporter:
         for flat_rule in flat_rules:
             rule_type = flat_rule.get_attr("t")
             zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
-            if rule_type == 1:
+            if rule_type == 1 and flat_rule.rule.settings():
                 settings = flat_rule.rule.settings()
                 label_exp = settings.getLabelExpression().expression()
-                updated_exp = label_exp.replace("@map_scale", zoom_scale)
-                settings.fieldName = updated_exp
+                if label_exp:
+                    updated_exp = label_exp.replace("@map_scale", zoom_scale)
+                    settings.fieldName = updated_exp
                 if settings.geometryGeneratorEnabled:
                     updated_exp = settings.geometryGenerator.replace("@map_scale", zoom_scale)
                     settings.geometryGenerator = updated_exp
             else:
-                if not flat_rule.rule.symbol():
+                symbol = flat_rule.rule.symbol()
+                if not symbol:
                     continue
                 symbol_layers = flat_rule.rule.symbol().symbolLayers()
                 for layer in filter(lambda x: x.layerType() == "GeometryGenerator", symbol_layers):
@@ -632,11 +637,12 @@ class RulesExporter:
                     layer.setGeometryExpression(updated_exp)
 
     def _apply_field_mapping(
-        self, layer: QgsVectorLayer, fields: list, transformation, flat_rule
+        self, layer: QgsVectorLayer, fields: Optional[list], transformation, flat_rule
     ) -> QgsVectorLayer:
         """Apply field mapping and geometry transformation."""
         field_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
-        field_mapping.extend(fields)
+        if fields:
+            field_mapping.extend(fields)
         rule_description = f"'{flat_rule.get_description()}'"
         field_mapping.append((10, rule_description, f"{self.FIELD_PREFIX}_description"))
         if self.include_required_fields_only != 0:
@@ -693,7 +699,11 @@ class RulesExporter:
     def _add_label_expression_field(self, flat_rule: FlattenedRule, fields: dict) -> dict:
         """Add label expression as a calculated field."""
         field_name = f"{self.FIELD_PREFIX}_label"
+        if not flat_rule.rule.settings():
+            return
         label_exp = flat_rule.rule.settings().getLabelExpression().expression()
+        if not label_exp:
+            return
         filter_exp = f'"{label_exp}"' if not flat_rule.rule.settings().isExpression else label_exp
         fields.append([10, filter_exp, field_name])
         flat_rule.rule.settings().isExpression = False
@@ -702,12 +712,13 @@ class RulesExporter:
 
     def _get_geometry_transformation(self, flat_rule: FlattenedRule) -> Union[str, Tuple, None]:
         """Determine geometry transformation needed for rule."""
+        transformation = None
         rule_type = flat_rule.get_attr("t")
         if rule_type == 0 and flat_rule.rule.symbol():
             transformation = self._get_renderer_transformation(flat_rule)
         elif rule_type == 1:
             transformation = self._get_labeling_transformation(flat_rule)
-        else:
+        if not transformation:
             return
         extent_wkt = self.extent.asWktPolygon()
         clipped_geom = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{extent_wkt}')), if(not is_empty_or_null(@clip), @clip, NULL))"  # pylint: disable=C0301
@@ -720,7 +731,7 @@ class RulesExporter:
         target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
 
-        if settings.geometryGeneratorEnabled:
+        if settings and settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
@@ -734,6 +745,9 @@ class RulesExporter:
 
     def _get_renderer_transformation(self, flat_rule: FlattenedRule) -> Union[Tuple, str, None]:
         """Get geometry transformation for renderer rules."""
+        symbol = flat_rule.rule.symbol()
+        if not symbol:
+            return
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
         target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
@@ -801,12 +815,10 @@ class RulesFlattener:
         or labeling rules without settings"""
         for flat_rule in self.flattened_rules:
             useable= False
-            if flat_rule.get_attr("t") == 0:
-                if flat_rule.rule.symbol():
-                    useable = True
-            else:
-                settings = flat_rule.rule.settings()
-                if settings and settings.getLabelExpression().expression():
+            if flat_rule.get_attr("t") == 0 and flat_rule.rule.symbol():
+                useable = True
+            elif flat_rule.get_attr("t") == 1 and flat_rule.rule.settings():
+                if flat_rule.rule.settings().getLabelExpression().expression():
                     useable = True
             if not useable:
                 self.flattened_rules.remove(flat_rule)
@@ -1221,7 +1233,10 @@ class RulesFlattener:
     def _symbol_layer_visible_at_zoom(self, flat_rule: FlattenedRule) -> bool:
         """Check if symbol layer is visible at specific zoom level."""
         min_zoom = flat_rule.get_attr("o")
-        symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
+        symbol = flat_rule.rule.symbol()
+        if not symbol:
+            return
+        symbol_layer = symbol.symbolLayers()[0]
         visiblity_prop = symbol_layer.dataDefinedProperties().property(44)
         if visiblity_prop and visiblity_prop.isActive():
             expression = visiblity_prop.expressionString()
@@ -1266,9 +1281,9 @@ class RulesFlattener:
             rule_clone.rule.setFilterExpression(scale_specific_filter)
 
         rule_type = flat_rule.get_attr("t")
-        if rule_type == 1:
+        if rule_type == 1 and flat_rule.rule.settings():
             label_exp = flat_rule.rule.settings().getLabelExpression().expression()
-            if "@map_scale" in label_exp:
+            if label_exp and "@map_scale" in label_exp:
                 scale_specific_label = label_exp.replace("@map_scale", scale)
                 rule_clone.rule.settings().fieldName = scale_specific_label
 
