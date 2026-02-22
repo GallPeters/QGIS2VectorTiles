@@ -801,10 +801,13 @@ class RulesFlattener:
         or labeling rules without settings"""
         for flat_rule in self.flattened_rules:
             useable= False
-            if flat_rule.get_attr("t") == 0 and flat_rule.rule.symbol():
-                useable = True
-            elif flat_rule.get_attr("t") == 1 and flat_rule.rule.settings():
-                useable = True
+            if flat_rule.get_attr("t") == 0:
+                if flat_rule.rule.symbol():
+                    useable = True
+            else:
+                settings = flat_rule.rule.settings()
+                if settings and settings.getLabelExpression().expression():
+                    useable = True
             if not useable:
                 self.flattened_rules.remove(flat_rule)
 
@@ -976,7 +979,7 @@ class RulesFlattener:
         if rule.minimumScale() != 0 or rule.maximumScale() != 0:
             return
         settings = rule.settings()
-        if settings.scaleVisibility:
+        if settings and settings.scaleVisibility:
             rule.setMinimumScale(settings.minimumScale())
             rule.setMaximumScale(settings.maximumScale())
             settings.scaleVisibility = False
