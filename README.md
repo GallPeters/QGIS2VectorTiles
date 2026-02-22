@@ -32,7 +32,7 @@ Each export automatically generates a complete, deployment-ready package:
 
 https://github.com/user-attachments/assets/6b786617-7294-4fb5-a884-42e2bc0cf2e2
 
-> **View More Examples:** Check out our [Demos Page](https://github.com/GallPeters/QGIS2VectorTiles/new/main/assets/demos) to see Basic, Data-Driven, and Offline rendering examples.
+> **View More Examples:** Check out our [Demos Page]([https://github.com/GallPeters/QGIS2VectorTiles/new/main/assets/demos](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demos/Demos.md)) to see Basic, Data-Driven, and Offline rendering examples.
 
 ---
 
