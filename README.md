@@ -17,9 +17,7 @@ Each export automatically generates a complete, deployment-ready package:
 
 ## Use Cases
 
-- **Client-Side Rendering:** Export MapLibre-compatible styles optimized for web map clients. *(Note: Not all QGIS styling features are natively supported).*
-- **Server-Side Rendering:** Serve lightweight vector tiles via QGIS Server (WMS/WMTS) without sacrificing QGIS cartographic quality.
-- **Project Consolidation:** Combine complex projects spanning multiple data sources (PostGIS, GeoPackage, shapefiles) into a single, highly portable source and layer file.
+<img style="width:90%" alt="QGIS2VectorTilesUseCases" src="https://github.com/user-attachments/assets/f2c53e54-e887-4537-8591-20f72b5458df" />
 
 ---
 
