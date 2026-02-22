@@ -1,7 +1,10 @@
 # <img align="center" width="45" height="45" alt="QGIS2VectorTiles Icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
 
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) designed to package your QGIS projects into self-contained vector tile bundles while meticulously preserving your original styling.
+**QGIS2VectorTiles** is a QGIS Plugin designed to package your QGIS projects into self-contained vector tile package while preserving your original styling.
+> Available on the [QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)
 
+---
+## Output package
 Each export automatically generates a complete, deployment-ready package:
 - **Vector Tiles:** `XYZ directory`
 - **Styled QGIS Layer:** `.qlr`
@@ -21,18 +24,22 @@ Each export automatically generates a complete, deployment-ready package:
 
 ## How It Works
 
-<img style="width:150" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
+<img style="width:90%" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
 
 ---
 
 ## Demos
 
 ### Featured Demo: Complex Rendering
+> **View More Examples:** Check out our [Demos Page](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demos/Demos.md) to see Basic, Data-Driven, and Offline rendering examples.
+> 
 *Natural Earth Project (235 layers), USA, zoom 0–7. Processing time: ~13 minutes.*
 
 https://github.com/user-attachments/assets/6b786617-7294-4fb5-a884-42e2bc0cf2e2
 
-> **View More Examples:** Check out our [Demos Page](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demos/Demos.md) to see Basic, Data-Driven, and Offline rendering examples.
+
+
+
 
 ---
 
