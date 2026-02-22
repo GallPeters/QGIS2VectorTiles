@@ -1,83 +1,84 @@
 # <img align="center" width="45" height="45" alt="icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
 
-**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) that packages a QGIS project into vector tiles package while preserving original style. The package includes:  
-- **Vector Tiles** (XYZ directory)  
-- **Styled QGIS Vector Tiles Layer** (.qlr)  
-- **MapLibre Style Document** (.json)  
-- **MapLibre Sprites** (.png & .json)
-- **MapLibre Viewer** (.html & .bat / .sh)
+**QGIS2VectorTiles** is a [QGIS Plugin](https://plugins.qgis.org/plugins/QGIS2VectorTiles/) that packages a QGIS project into a self-contained vector tiles bundle while preserving its original styling.
+
+Each export produces:
+- **Vector Tiles** — `XYZ directory`
+- **Styled QGIS Layer** — `.qlr`
+- **MapLibre Style** — `.json`
+- **MapLibre Sprites** — `.png` & `.json`
+- **MapLibre Viewer** — `.html` & `.bat` / `.sh`
 
 ---
 
 ## Use Cases
-1. **Client-Side Rendering**  
-   Generate MapLibre compatible styles for web clients. *Note: Not all QGIS styling supported.*  
 
-2. **Server-Side Rendering**  
-   Serve lightweight vector tiles via QGIS Server as WMS/WMTS while keeping QGIS advanced cartography.  
+**Client-Side Rendering** — Export MapLibre-compatible styles for web map clients. Not all QGIS styling options are supported.
 
-3. **Project Sharing**  
-   Package complex projects contains diffrent data sources (PostGIS, GeoPackage, shapefiles) into a single source and a single layer file.  
+**Server-Side Rendering** — Serve lightweight vector tiles via QGIS Server as WMS/WMTS while retaining QGIS cartographic quality.
+
+**Project Sharing** — Consolidate projects that span multiple data sources (PostGIS, GeoPackage, shapefiles) into a single source and layer file.
 
 ---
+
 ## Demos
-- _**Basic** - QGIS built-in world dataset (1 layer) in Europe area (zoom 0–5) &rarr; 20 seconds:_
-  
-  https://github.com/user-attachments/assets/8f057667-7fd1-4062-bfcd-79f8a09f2118
 
+_**Basic** — QGIS built-in world dataset (1 layer), Europe, zoom 0–5 → ~20 seconds_
 
-- _**Complex** - [Natural Erath Project](https://www.naturalearthdata.com/) (235 layers) in USA area (zoom 0–7) &rarr; 13 minutes:_
- 
-  https://github.com/user-attachments/assets/9fcc00af-f729-4ced-be85-8f7ba07e7eff 
+https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demo_basic.mp4
 
-- _**Data Driven** - QGIS built-in world dataset (1 layer) in Europe area (zoom 0–5) &rarr; 10 seconds:_
+_**Complex** — [Natural Earth Project](https://www.naturalearthdata.com/) (235 layers), USA, zoom 0–7 → ~13 minutes_
 
-  https://github.com/user-attachments/assets/61e46690-e0ab-4c72-8f11-c2350381e9f8
+https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demo_complex.mp4
+
+_**Data Driven** — QGIS built-in world dataset (1 layer), Europe, zoom 0–5 → ~10 seconds_
+
+https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demo_data_driven.mp4
 
 ---
 
 ## Tiling Scheme
-| Zoom |  Reference Scale |
-|:-:|:-:|
-|0 → 22|419,311,712 → 99|  
+
+| Zoom | Reference Scale |
+|:----:|:---------------:|
+| 0 → 22 | 419,311,712 → 99 |
 
 ---
 
-## Changelog
-[Changelog](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/CHANGELOG.md)
+## Styling Considerations
 
----
-
-
-## Key Considerations
-
-| Title | Limitation / Behavior | How to handle |
+| Topic | Behavior | Recommendation |
 |---|---|---|
-| Styling Support | MapLibre styling is more limited than QGIS styling. | Use simple styling and avoid complex QGIS-only features. |
-| Polygon Labels | Labels use single-part centroids. No perimeter labels. Multipart polygons → multiple labels. | Design labels for centroid placement only. |
-| Colors | RGB only. No alpha/transparency. | Avoid opacity and transparency. |
-| Polygon Outlines | Polygon outlines are not supported. | Add a simple-line symbol layer instead. |
-| Geometry Generators | Converted to resulting geometry. | Prefer geometry generators over unique QGIS styling options. |
-| Marker Symbols | Converted to raster icons. Data-defined properties not shown in HTML. | Do not rely on data-defined marker properties for HTML output. |
-| Fonts | Glyphs are not being served. HTML uses local fonts. | Generate fonts with [MapLibre Font Maker](https://maplibre.org/font-maker/) and update the style. |
-| Renderers & Labels | Are being converted to rule-based. Blocking labels not supported. | Avoid blocking-label configurations. |
-| Styling Accuracy | Complex styles may not fully match QGIS output. | Prefer expression-based styling (geometry generators, data-defined). |
-| Viewer Usage | Tiles and style must be served to display. | Run `serve.bat` from the output folder. |
+| **Styling Support** | MapLibre supports fewer styling options than QGIS. | Stick to simple styles; avoid QGIS-exclusive features. |
+| **Polygon Labels** | Labels are placed at single-part centroids. Multipart polygons produce multiple labels. | Design labels for centroid placement only. |
+| **Colors** | RGB only. No alpha or transparency. | Avoid opacity and transparency values. |
+| **Polygon Outlines** | Not supported. | Use a simple-line symbol layer instead. |
+| **Geometry Generators** | Converted to their resulting geometry. | Prefer geometry generators over unique QGIS styling options. |
+| **Marker Symbols** | Converted to raster icons. Data-defined properties are not reflected in HTML output. | Do not rely on data-defined marker properties for the HTML viewer. |
+| **Fonts** | Glyphs are not served automatically. HTML output uses local fonts. | Generate fonts with [MapLibre Font Maker](https://maplibre.org/font-maker/) and update the style. |
+| **Renderers & Labels** | Converted to rule-based. Blocking labels are not supported. | Avoid blocking-label configurations. |
+| **Viewer Usage** | Tiles and style must be served to display correctly. | Run `serve.bat` from the output folder. |
 
 ---
 
 ## How It Works
 
-<img width="1408" height="768" alt="QGIS2VectorTilesWorkflow" src="https://github.com/user-attachments/assets/bae7d47d-bc59-4fdf-9b8b-6d42abb78a2e" />
+<img width="1408" height="768" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
 
 ---
 
+## Changelog
 
-
-## License
-[GNU GPL v2](https://www.gnu.org/licenses/gpl-2.0-standalone.html)  
+See [CHANGELOG.md](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/CHANGELOG.md) for release history.
 
 ---
 
 ## Contributing
-Contributions welcome! Please open an issue or submit a pull request.
+
+Contributions are welcome. Please open an issue or submit a pull request.
+
+---
+
+## License
+
+[GNU GPL v2](https://www.gnu.org/licenses/gpl-2.0-standalone.html)

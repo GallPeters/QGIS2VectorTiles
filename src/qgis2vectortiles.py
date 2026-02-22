@@ -19,7 +19,7 @@ from os.path import join, basename, exists
 from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union
 from urllib.request import pathname2url
-from shutil import rmtree
+from shutil import rmtree, copy2
 from subprocess import Popen
 from uuid import uuid4
 
@@ -76,7 +76,9 @@ else:
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
 _CONF = join(_PLUGIN_DIR, "resources", "conf.toml")
-_HTML = join(_PLUGIN_DIR, "resources", "maplibre_viewer.html")
+_VIEWER = join(_PLUGIN_DIR, "resources", "maplibre_viewer.html")
+_MAPLIBRE = join(_PLUGIN_DIR, "resources", "maplibre-gl")
+_PORT = 9000
 _TILES_CONF = load(open(_CONF, "rb"))
 _TILING_SCHEME = _TILES_CONF["TILING_SCHEME"]
 
@@ -1422,6 +1424,11 @@ class QGIS2VectorTiles:
 
     def serve_tiles(self, output_folder):
         """Serve generated tiles using a simple HTTP server (cross-platform)."""
+        # Create utilities direcotry
+        utilitie_dir_name = 'utilities'
+        utilities = join(output_folder, utilitie_dir_name)
+        makedirs(utilities, exist_ok=True)
+        
         # Get the extent of the tiles in EPSG:4326 for the MapLibre viewer
         src_crs = QgsCoordinateReferenceSystem("EPSG:3857")
         dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
@@ -1433,19 +1440,22 @@ class QGIS2VectorTiles:
         center_corrd = f"[{center_4326.x()}, {center_4326.y()}]"
 
         # Write the MapLibre viewer HTML with the correct bounds and serve the tiles
-        with open(_HTML, "r", encoding="utf-8") as html_source:
+        with open(_VIEWER, "r", encoding="utf-8") as html_source:
             html_content = html_source.read()
             html_content = html_content.replace("map.setZoom(2)", f"map.setZoom({self.min_zoom})")
             html_content = html_content.replace(
                 "map.setCenter([32, 32])", f"map.setCenter({center_corrd})"
             )
+            html_content = html_content.replace('_PORT/utilities_dir_name', f'{_PORT}/{utilitie_dir_name}')
 
         html_source.close()
-        utilities = join(output_folder, 'utilities')
-        makedirs(utilities, exist_ok=True)
         with open(join(utilities, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
             html_copy.write(html_content)
         html_copy.close()
+
+        # Copy maplibre-gl js and css files
+        copy2(f'{_MAPLIBRE}.js', utilities)
+        copy2(f'{_MAPLIBRE}.css', utilities)
 
         # Create platform-specific script to serve the tiles and open the viewer
         system = platform.system()
@@ -1460,21 +1470,16 @@ class QGIS2VectorTiles:
         python_exe = join(prefix, "python3.exe")
         
         utilities_dir_name = basename(utilities_folder)
-        html_path = f'http://localhost:9000/{utilities_dir_name}/maplibre_viewer.html'
+        html_path = f'http://localhost:{_PORT}/{utilities_dir_name}/maplibre_viewer.html'
         activator = join(utilities_folder, "activate_server.bat")
         with open(activator, "w", encoding="utf-8") as bat:
             bat.write(
                 "@echo off\n"
-                "echo Checking port 9000...\n"
-                # kill process using port 9000
-                'for /f "tokens=5" %%a in (\'netstat -aon ^| find ":9000" ^| find "LISTENING"\') do (\n'  # pylint: disable=C0301
+                f'for /f "tokens=5" %%a in (\'netstat -aon ^| find ":{_PORT}" ^| find "LISTENING"\') do (\n'  # pylint: disable=C0301
                 "  taskkill /F /PID %%a >nul 2>&1\n"
                 ")\n"
-                # start server
-                f'start /B "" "{python_exe}" -m http.server 9000 -d "{output_folder}"'
-                # wait
+                f'start /B "" "{python_exe}" -m http.server {_PORT} -d "{output_folder}"'
                 "\ntimeout /t 2 /nobreak >nul\n"
-                # open browser
             f'start "" "{html_path}"\n'
             )
         
@@ -1491,7 +1496,7 @@ class QGIS2VectorTiles:
 
     def _create_unix_script(self, output_folder, utilities_folder):
         """Create and execute Unix/Linux/macOS shell script."""
-        html_path = f'http://localhost:9000/{basename(utilities_folder)}/maplibre_viewer.html'
+        html_path = f'http://localhost:{_PORT}/{basename(utilities_folder)}/maplibre_viewer.html'
         if platform.system() == "Linux":
             python_exe = join(prefix, "bin", "python3")
         else:
@@ -1501,15 +1506,12 @@ class QGIS2VectorTiles:
         with open(launcher, "w", encoding="utf-8") as sh:
             sh.write(
                 "#!/bin/bash\n"
-                "echo 'Checking port 9000...'\n"
-                # kill process using port 9000 (if exists)
-                "PID=$(lsof -ti:9000)\n"
+                f"PID=$(lsof -ti:{_PORT})\n"
                 'if [ ! -z "$PID" ]; then\n'
-                '  echo "Killing process $PID using port 9000"\n'
                 "  kill -9 $PID\n"
                 "fi\n"
                 # start server
-                f'"{python_exe}" -m http.server 9000 &\n'
+                f'"{python_exe}" -m http.server {_PORT} &\n'
                 # wait
                 "sleep 2\n"
                 # open browser
@@ -1518,7 +1520,6 @@ class QGIS2VectorTiles:
                 "elif command -v open >/dev/null 2>&1; then\n"
                 f"    open {html_path}\n"
                 "else\n"
-                f"    echo 'Server started at {html_path}'\n"
                 "fi\n"
             )
         Popen(["bash", launcher], cwd=output_folder)
