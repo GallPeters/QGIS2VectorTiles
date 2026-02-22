@@ -852,9 +852,9 @@ class RulesFlattener:
         """Process both renderer and labeling rules for a layer."""
         for rule_type, type_name in self.RULE_TYPES.items():
             rule_system = self._get_or_convert_rule_system(layer, rule_type)
-            getattr(layer, f"set{type_name.capitalize()}")(rule_system)
             if not rule_system:
                 continue
+            getattr(layer, f"set{type_name.capitalize()}")(rule_system)
             root_rule = self._prepare_root_rule(rule_system, layer)
             if root_rule:
                 self._flat_rule(layer, layer_idx, root_rule, rule_type, 0, 0)
