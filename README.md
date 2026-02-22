@@ -16,13 +16,14 @@ Each export automatically generates a complete, deployment-ready package:
 
 ## Use Cases
 
-<img style="width:90%" alt="QGIS2VectorTilesUseCases" src="https://github.com/user-attachments/assets/f2c53e54-e887-4537-8591-20f72b5458df" />
+<img style="width:90%; height:90%" alt="QGIS2VectorTilesUseCases" src="https://github.com/user-attachments/assets/f2c53e54-e887-4537-8591-20f72b5458df" />
 
 ---
 
 ## Workflow
 
-<img style="width:90%" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
+<img style="width:90%; height:90%" alt="QGIS2VectorTilesWorkflow" src="https://github.com/user-attachments/assets/b2895d83-060c-4f8f-8eab-2784cacd1d8b" />
+
 
 ---
 
