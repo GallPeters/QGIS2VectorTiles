@@ -326,6 +326,8 @@ class TilesStyler:
         self._setup_base_style_properties(style, flat_rule)
 
         symbol = flat_rule.rule.symbol()
+        if not symbol:
+            return
         symbol_layer = symbol.symbolLayers()[-1]
         sub_symbol = symbol_layer.subSymbol()
         sub_symbol_layer = sub_symbol.symbolLayers()[-1] if sub_symbol else None
@@ -589,22 +591,23 @@ class RulesExporter:
         """Export group of rules sharing the same dataset."""
         flat_rule = flat_rules[0]
         source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
-        if exists(source_path):
-            layer = QgsVectorLayer(source_path)
-            if not layer or layer.featureCount() <= 0:
-                return
-            self._updated_map_scale_variable(flat_rules)
-            fields = self._create_expression_fields(flat_rules)
-            if flat_rule.get_attr("t") == 1:
-                fields = self._add_label_expression_field(flat_rule, fields)
-            transformation = self._get_geometry_transformation(flat_rule)
+        if not exists(source_path):
+            return
+        layer = QgsVectorLayer(source_path)
+        if not layer or layer.featureCount() <= 0:
+            return
+        self._updated_map_scale_variable(flat_rules)
+        fields = self._create_expression_fields(flat_rules)
+        if flat_rule.get_attr("t") == 1:
+            fields = self._add_label_expression_field(flat_rule, fields)
+        transformation = self._get_geometry_transformation(flat_rule)
+        if transformation:
             layer = self._apply_field_mapping(layer, fields, transformation, flat_rule)
-            if not layer or layer.featureCount() <= 0:
-                return
-            layer.setName(flat_rule.output_dataset)
-            self.processed_layers.append(layer)
-            return layer
-        return
+        if not layer or layer.featureCount() <= 0:
+            return
+        layer.setName(flat_rule.output_dataset)
+        self.processed_layers.append(layer)
+        return layer
 
     def _updated_map_scale_variable(self, flat_rules):
         """update expressions included @map_scale and replace it with the curren_scale"""
@@ -700,10 +703,12 @@ class RulesExporter:
     def _get_geometry_transformation(self, flat_rule: FlattenedRule) -> Union[str, Tuple, None]:
         """Determine geometry transformation needed for rule."""
         rule_type = flat_rule.get_attr("t")
-        if rule_type == 1:
+        if rule_type == 0 and flat_rule.rule.symbol():
+            transformation = self._get_renderer_transformation(flat_rule)
+        elif rule_type == 1:
             transformation = self._get_labeling_transformation(flat_rule)
         else:
-            transformation = self._get_renderer_transformation(flat_rule)
+            return
         extent_wkt = self.extent.asWktPolygon()
         clipped_geom = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{extent_wkt}')), if(not is_empty_or_null(@clip), @clip, NULL))"  # pylint: disable=C0301
         transformation[1] = clipped_geom
@@ -788,7 +793,20 @@ class RulesFlattener:
                 self._process_layer_rules(layer.layer(), layer_idx)
         if self.flattened_rules:
             self._split_flattened_rules_layers()
+        self._clear_unuseable_rules()
         return self.flattened_rules
+
+    def _clear_unuseable_rules(self):
+        """Clear rules without properties - renderer rules without symbols
+        or labeling rules without settings"""
+        for flat_rule in self.flattened_rules:
+            useable= False
+            if flat_rule.get_attr("t") == 0 and flat_rule.rule.symbol():
+                useable = True
+            elif flat_rule.get_attr("t") == 1 and flat_rule.rule.settings():
+                useable = True
+            if not useable:
+                self.flattened_rules.remove(flat_rule)
 
     def _split_flattened_rules_layers(self):
         """Seperate every rule to diffrent layer and save it on memory
@@ -807,9 +825,9 @@ class RulesFlattener:
             rule_clone.setMinimumScale(rule.minimumScale())
             rule_clone.setMaximumScale(rule.maximumScale())
 
-            if rule_type == 0:
+            if rule_type == 0 and rule.symbol():
                 rule_clone.setSymbol(rule.symbol().clone())
-            else:
+            elif rule_type == 1 and rule.settings():
                 new_settings = QgsPalLayerSettings(rule.settings())
                 new_format = QgsTextFormat(new_settings.format())
                 new_bg = QgsTextBackgroundSettings(new_format.background())
@@ -1266,7 +1284,7 @@ class QGIS2VectorTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 8,
+        max_zoom: int = 1,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
