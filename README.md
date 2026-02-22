@@ -21,7 +21,7 @@ Each export automatically generates a complete, deployment-ready package:
 
 ## How It Works
 
-<img style="width:180" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
+<img style="width:150" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
 
 ---
 
