@@ -1,10 +1,11 @@
 # <img align="center" width="45" height="45" alt="QGIS2VectorTiles Icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
 
+## Introduction
 **QGIS2VectorTiles** is a QGIS Plugin designed to package your QGIS projects into self-contained vector tile package while preserving your original styling.
-> Available on the [QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)
+It available on the [QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)
 
 ---
-## Output
+## Output Package
 Each export automatically generates a complete, deployment-ready package:
 - **Vector Tiles:** `XYZ directory`
 - **Styled QGIS Layer:** `.qlr`
@@ -14,7 +15,7 @@ Each export automatically generates a complete, deployment-ready package:
 
 ---
 
-## Core Use Cases
+## Use Cases
 
 - **Client-Side Rendering:** Export MapLibre-compatible styles optimized for web map clients. *(Note: Not all QGIS styling features are natively supported).*
 - **Server-Side Rendering:** Serve lightweight vector tiles via QGIS Server (WMS/WMTS) without sacrificing QGIS cartographic quality.
@@ -22,41 +23,24 @@ Each export automatically generates a complete, deployment-ready package:
 
 ---
 
-## How It Works
+## Workflow
 
 <img style="width:90%" alt="QGIS2VectorTiles Workflow" src="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/QGIS2VectorTilesWorkflow.png"/>
 
 ---
 
 ## Demos
-
-### Featured Demo: Complex Rendering
-> **View More Examples:** Check out our [Demos Page](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demos/Demos.md) to see Basic, Data-Driven, and Offline rendering examples.
-> 
-*Natural Earth Project (235 layers), USA, zoom 0–7. Processing time: ~13 minutes.*
+The demo below show the convertion of the [Natural Earth Project](https://www.naturalearthdata.com/) which contains 235 layers in the USA area (zoom 0–7) within 13 minutes (More examples are avaliable in the [Demos Page](https://github.com/GallPeters/QGIS2VectorTiles/blob/main/assets/demos/Demos.md)).
 
 https://github.com/user-attachments/assets/6b786617-7294-4fb5-a884-42e2bc0cf2e2
-
-
-
-
 
 ---
 
 ## Technical Specifications
 
-### Tiling Scheme
-
-| Zoom Level | Reference Scale |
-|:---:|:---:|
-| 0 → 22 | 419,311,712 → 99 |
-
-### Styling Considerations & Best Practices
-
-For the best results, adhere to the following guidelines when preparing your QGIS project for export:
-
 | Topic | Plugin Behavior | Recommendation |
 |---|---|---|
+| **Zoom levels** | QGIS Desktop tiling scheme is used. |  Use predfined scales (z0 → 1:419,311,712, z22 → 1:99) 
 | **Styling Support** | MapLibre supports a narrower range of styling options compared to QGIS. | Utilize simple styles and avoid QGIS-exclusive rendering features. |
 | **Polygon Labels** | Labels are anchored to single-part centroids. Multipart polygons will generate multiple labels. | Design and position labels exclusively for centroid placement. |
 | **Color Profiles** | Restricted to RGB. Alpha channels and transparency are not supported. | Use solid colors; avoid opacity and transparency settings. |
