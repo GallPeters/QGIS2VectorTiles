@@ -4,7 +4,7 @@
 > Available on the [QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)
 
 ---
-## Output package
+## Output
 Each export automatically generates a complete, deployment-ready package:
 - **Vector Tiles:** `XYZ directory`
 - **Styled QGIS Layer:** `.qlr`
