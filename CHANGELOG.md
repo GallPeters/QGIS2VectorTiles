@@ -1,8 +1,8 @@
 # Changelog
 
 **v1.9 (22.02.26)**
-- Serve msplibre-gl.js locally for offline use.
-- Bug fixes ensuring smooth convertion of layers with empty renderers/labelings.
+- Serve maplibre-gl.js locally for an offline use.
+- Bug fixes ensuring smooth convertion of layers contains empty renderers/labelings.
 
 **v1.8 (19.02.26)**
 - Activate http server silently when running on windows.
