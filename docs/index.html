@@ -5,208 +5,569 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QGIS2VectorTiles</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@300;400;500;600&display=swap');
 
+/* ══════════════════════════════
+   DESIGN TOKENS
+══════════════════════════════ */
 :root {
-  --bg:      #0b0b0b;
-  --surface: #141414;
-  --sur2:    #1c1c1c;
-  --border:  #2e2e2e;
-  --g1:      #589632;
-  --g2:      #6db040;
-  --g3:      #8dcc5a;
-  --g4:      #b5e57c;
-  --gdark:   #2d4f19;
-  --gvdark:  #192c0d;
-  --text:    #f0f0f0;
-  --muted:   #7a7a7a;
-  --muted2:  #4a4a4a;
+  --bg:        #080c06;
+  --surface:   #0f140d;
+  --sur2:      #161d13;
+  --sur3:      #1e2819;
+  --border:    #263020;
+  --border2:   #354228;
+
+  --g1:        #4a8228;
+  --g2:        #5c9e32;
+  --g3:        #7ec44a;
+  --g4:        #a8d96e;
+  --g5:        #c8eaa0;
+  --gdark:     #243c12;
+  --gvdark:    #111f08;
+
+  --text:      #e8edd8;
+  --muted:     #b6b9b3;
+  --dim:       #56664a;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --transition: 0.2s ease;
+  --glow: 0 0 30px rgba(126,196,74,0.12);
+  --glow-hover: 0 0 40px rgba(126,196,74,0.22);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ══════════════════════════════
+   RESET & BASE
+══════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   background: var(--bg);
-  font-family: 'Inter', sans-serif;
+  background-image:
+    radial-gradient(ellipse 800px 400px at 50% 0%, rgba(74,130,40,0.06) 0%, transparent 70%),
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(38,48,32,0.25) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(38,48,32,0.15) 40px);
+  font-family: 'DM Sans', sans-serif;
   color: var(--text);
-  padding: 38px 44px 52px;
+  padding: 16px 28px 28px;
   width: 1240px;
+  min-height: 100vh;
 }
 
-/* ═══ TITLE ═══ */
-.title-wrap { text-align: center; margin-bottom: 42px; }
+a { color: inherit; text-decoration: none; }
+
+/* ══════════════════════════════
+   TITLE
+══════════════════════════════ */
+.title-wrap {
+  text-align: center;
+  margin-bottom: 18px;
+  padding-top: 4px;
+}
+
 .title-wrap h1 {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 68px; font-weight: 700;
-  letter-spacing: 7px; text-transform: uppercase;
-  color: var(--g3); line-height: 1;
-  text-shadow: 0 0 80px rgba(141,204,90,0.25);
-}
-.tagline {
-  font-family: 'Space Mono', monospace;
-  font-size: 12.5px; color: var(--muted);
-  letter-spacing: 4px; margin-top: 7px;
-}
-.title-rule {
-  margin: 18px auto 0; width: 380px; height: 2px;
-  background: linear-gradient(to right, transparent, var(--g1), var(--g3), var(--g1), transparent);
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--g3);
+  line-height: 1;
+  text-shadow: 0 0 60px rgba(126,196,74,0.3), 0 0 120px rgba(126,196,74,0.1);
 }
 
-/* ═══ SECTION HEADING ═══ */
+.tagline {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 2.5px;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.title-rule {
+  margin: 10px auto 0;
+  width: 320px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--g1), var(--g3), var(--g1), transparent);
+  opacity: 0.7;
+}
+
+/* ══════════════════════════════
+   SECTION HEADING
+══════════════════════════════ */
 .sec-head {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 12px; font-weight: 600;
-  letter-spacing: 6px; text-transform: uppercase;
-  color: var(--g2); margin-bottom: 16px;
-  display: flex; align-items: center; gap: 12px;
-}
-.sec-head::before, .sec-head::after {
-  content: ''; flex: 1; height: 1px; background: var(--border);
-}
-
-/* ═══ OUTPUTS (TOP) ═══ */
-.outputs-wrap { margin-bottom: 40px; }
-.outputs-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
+
+.sec-head::before,
+.sec-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.sec-head.bright { color: var(--g2); }
+
+/* ══════════════════════════════
+   MAIN LAYOUT ROW 1
+══════════════════════════════ */
+.row1 {
+  display: grid;
+  grid-template-columns: 124px 1fr 188px;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: stretch;
+}
+
+/* ── Left buttons ── */
+.btn-col {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.btn-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(126,196,74,0.04) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.btn-card:hover {
+  border-color: var(--g2);
+  box-shadow: var(--glow-hover), inset 0 0 20px rgba(126,196,74,0.04);
+  background: var(--sur2);
+}
+
+.btn-card:hover::after { opacity: 1; }
+
+.btn-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--g3);
+  letter-spacing: 0.3px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.btn-sub {
+  font-size: 9px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* ── Video panels ── */
+.videos-col {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.video-panel {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.video-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 5px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--sur2);
+}
+
+.video-panel-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--g3);
+  letter-spacing: 1.5px;
+}
+
+.video-panel-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(to right, var(--g1), var(--g3));
+  z-index: 1;
+}
+
+.video-panel video {
+  width: 100%;
+  flex: 1;
+  display: block;
+  background: #000;
+  object-fit: contain;
+}
+
+/* ── Output pills column ── */
+.outputs-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.outputs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  justify-content: space-between;
+}
+
 .out-pill {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px 14px 16px;
-  display: flex; flex-direction: column;
-  align-items: center; gap: 10px;
-  position: relative; overflow: hidden;
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.out-pill:hover {
+  border-color: var(--border2);
+  box-shadow: var(--glow);
+}
+
+.out-pill::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--g1), var(--g3));
+}
+
+.out-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gdark);
+  flex-shrink: 0;
+  width: 14px;
   text-align: center;
 }
-.out-pill::before {
-  content: ''; position: absolute;
-  top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(to right, var(--g1), var(--g3));
-}
-.out-pill-icon { font-size: 28px; line-height: 1; }
-.out-pill-label {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 16px; font-weight: 700;
-  color: var(--g4); letter-spacing: 0.5px;
-}
-.out-pill-ext {
-  font-family: 'Space Mono', monospace;
-  font-size: 10px; color: var(--muted);
-  line-height: 1.6;
-}
 
-/* ═══ USE CASES ═══ */
-.usecases-wrap { margin-bottom: 40px; }
-.usecases-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
-}
-.uc-card {
-  background: var(--surface);
+.out-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 40%;
+  background: var(--sur2);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 22px 20px 20px;
-  position: relative; overflow: hidden;
-  display: flex; flex-direction: column; gap: 14px;
-}
-.uc-card::after {
-  content: ''; position: absolute;
-  top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(to right, var(--g1), var(--g3));
-}
-.uc-top { display: flex; align-items: center; gap: 14px; }
-.uc-num {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 56px; font-weight: 700;
-  color: var(--gdark); line-height: 1;
-  flex-shrink: 0; user-select: none;
-}
-.uc-header {}
-.uc-icon { font-size: 26px; margin-bottom: 4px; }
-.uc-title {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 21px; font-weight: 700;
-  color: var(--g3); letter-spacing: 0.5px;
-}
-.uc-desc {
-  font-size: 12.5px; color: var(--muted);
-  line-height: 1.55;
-}
-
-/* platform logos */
-.plat-row {
-  display: flex; flex-wrap: wrap;
-  gap: 8px; align-items: flex-end;
-}
-.plat {
-  display: flex; flex-direction: column;
-  align-items: center; gap: 5px;
-}
-.plat-logo {
-  width: 48px; height: 48px;
-  border-radius: 11px;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink:0;
   overflow: hidden;
 }
-.plat-name {
-  font-size: 9.5px; color: var(--muted);
-  font-weight: 500; text-align: center; white-space: nowrap;
+
+.out-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
-/* ═══ EFFICIENCY BAND ═══ */
+.out-pill-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--g4);
+  letter-spacing: 0.7px;
+  line-height: 1.4;
+}
+
+.out-pill-ext {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+/* ══════════════════════════════
+   EFFICIENCY BAND
+══════════════════════════════ */
 .eff-band {
   background: var(--gvdark);
   border: 1px solid var(--gdark);
-  border-left: 3px solid var(--g1);
-  border-radius: 8px;
-  padding: 12px 20px; margin-top: 16px;
-  display: flex; align-items: center; gap: 12px;
-  font-size: 13px; color: #9ed476;
+  border-left: 3px solid var(--g2);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--g4);
+  font-weight: 400;
 }
-.eff-band strong { color: var(--g3); }
 
-/* ═══ WORKFLOW ═══ */
-.wf-row {
-  display: flex; align-items: stretch; gap: 0;
+.eff-band strong { color: var(--g3); font-weight: 600; }
+.eff-band .eff-icon { font-size: 15px; flex-shrink: 0; }
+
+/* ══════════════════════════════
+   USE CASES
+══════════════════════════════ */
+.usecases-wrap { margin-bottom: 10px; }
+
+.usecases-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
 }
+
+.uc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px 11px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.uc-card:hover {
+  border-color: var(--border2);
+  box-shadow: var(--glow);
+}
+
+.uc-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(to right, var(--g1), var(--g3));
+}
+
+.uc-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.uc-icon { font-size: 18px; flex-shrink: 0; }
+
+.uc-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--g3);
+  letter-spacing: 0.3px;
+  line-height: 1.1;
+}
+
+.uc-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-weight: 400;
+}
+
+.plat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.plat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.plat-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: #061828;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.plat:hover .plat-logo {
+  border-color: var(--g1);
+  transform: translateY(-1px);
+}
+
+.plat-name {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ══════════════════════════════
+   WORKFLOW
+══════════════════════════════ */
+.workflow-wrap { margin-bottom: 0; }
+
+.wf-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
 .wf-step {
   flex: 1;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 12px 14px;
-  display: flex; flex-direction: column;
-  align-items: center; text-align: center; gap: 7px;
+  border-radius: var(--radius-sm);
+  padding: 10px 7px 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
   position: relative;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
+
+.wf-step:hover {
+  border-color: var(--border2);
+  background: var(--sur2);
+  box-shadow: var(--glow);
+  z-index: 1;
+}
+
 .wf-step::before {
-  content: ''; position: absolute;
-  bottom: 0; left: 0; right: 0; height: 3px;
-  border-radius: 0 0 12px 12px;
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: linear-gradient(to right, var(--g1), var(--g3));
+  opacity: 0.5;
+  transition: opacity var(--transition);
 }
+
+.wf-step:hover::before { opacity: 1; }
+
 .wf-num {
-  font-family: 'Space Mono', monospace;
-  font-size: 10px; color: var(--g1); font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  color: var(--g1);
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
-.wf-icon { font-size: 28px; line-height: 1; }
+
+.wf-icon { font-size: 20px; line-height: 1; }
+
 .wf-label {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 14px; font-weight: 700;
-  color: var(--g4); letter-spacing: 0.4px; line-height: 1.2;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--g4);
+  letter-spacing: 0.2px;
+  line-height: 1.2;
 }
+
 .wf-sub {
-  font-size: 10px; color: var(--muted2); line-height: 1.4;
+  font-size: 9.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  font-weight: 400;
 }
+
 .wf-arrow {
-  display: flex; align-items: center;
-  justify-content: center; padding: 0 4px;
-  flex-shrink: 0; color: var(--g1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+/* ══════════════════════════════
+   FOOTER
+══════════════════════════════ */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.footer-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.8px;
+  transition: color var(--transition);
+}
+
+.footer-item:hover { color: var(--muted); }
+.footer-item a { color: var(--g2); transition: color var(--transition); }
+.footer-item a:hover { color: var(--g3); }
+
+.footer-item svg { flex-shrink: 0; }
+
+.footer-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
 }
 </style>
 </head>
@@ -214,398 +575,223 @@ body {
 
 <!-- ══════ TITLE ══════ -->
 <div class="title-wrap">
-  <h1>QGIS2VectorTiles</h1>
-  <div class="tagline">QGIS Plugin &nbsp;·&nbsp; Package your QGIS projects into lightweight, styled, deployment-ready vector tile packages</div>
+  <h1>QGIS2VECTORTILES</h1>
+  <div class="tagline">Package your QGIS projects into styled vector tile packages</div>
   <div class="title-rule"></div>
 </div>
 
-<!-- ══════ LINKS ROW ══════ -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:28px;">
+<!-- ══════ ROW 1: Buttons | Videos | Output Package ══════ -->
+<div class="row1">
 
-  <!-- Changelog -->
-  <a href="YOUR_CHANGELOG_URL" target="_blank" style="text-decoration:none;">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:13px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='#589632'" onmouseout="this.style.borderColor='#2e2e2e'">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+  <!-- LEFT: Action buttons -->
+  <div class="btn-col">
+
+    <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="btn-card">
+      <svg fill="#7ec44a" width="22" height="22" viewBox="0 0 32 32" style="flex-shrink:0;">
+        <path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/>
+      </svg>
+      <div class="btn-label">Download Plugin</div>
+      <div class="btn-sub">QGIS Plugin Repository</div>
+    </a>
+
+    <a href="https://github.com/GallPeters/QGIS2VectorTiles/tree/main/assets/demos" target="_blank" class="btn-card">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style="flex-shrink:0;">
         <rect width="32" height="32" rx="8" fill="#1a2f0e"/>
-        <!-- document lines -->
-        <rect x="7" y="5" width="18" height="22" rx="2" fill="none" stroke="#8dcc5a" stroke-width="1.8"/>
-        <line x1="10" y1="11" x2="22" y2="11" stroke="#8dcc5a" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="10" y1="15" x2="22" y2="15" stroke="#8dcc5a" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="10" y1="19" x2="18" y2="19" stroke="#8dcc5a" stroke-width="1.5" stroke-linecap="round"/>
-        <!-- clock badge -->
-        <circle cx="23" cy="23" r="7" fill="#1a2f0e" stroke="#8dcc5a" stroke-width="1.5"/>
-        <line x1="23" y1="20.5" x2="23" y2="23" stroke="#8dcc5a" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="23" y1="23" x2="25" y2="24.5" stroke="#8dcc5a" stroke-width="1.5" stroke-linecap="round"/>
+        <rect x="4" y="7" width="24" height="16" rx="2.5" fill="none" stroke="#7ec44a" stroke-width="1.8"/>
+        <polygon points="13,11 13,19 21,15" fill="#7ec44a"/>
+        <line x1="16" y1="23" x2="16" y2="27" stroke="#7ec44a" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="11" y1="27" x2="21" y2="27" stroke="#7ec44a" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
-      <div>
-        <div style="font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;color:#8dcc5a;letter-spacing:0.5px;">Changelog</div>
-        <div style="font-size:11px;color:#7a7a7a;margin-top:1px;">Version history &amp; updates</div>
-      </div>
-    </div>
-  </a>
+      <div class="btn-label">More Demos</div>
+      <div class="btn-sub">Live examples &amp; previews</div>
+    </a>
 
-  <!-- QGIS Plugin Repository (center / primary) -->
-  <a href="YOUR_QGIS_REPO_URL" target="_blank" style="text-decoration:none;">
-    <div style="background:#192c0d;border:1px solid #589632;border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:13px;box-shadow:0 0 22px rgba(89,150,50,0.15);transition:box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 0 32px rgba(141,204,90,0.28)'" onmouseout="this.style.boxShadow='0 0 22px rgba(89,150,50,0.15)'">
-      <!-- QGIS logo -->
-      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
-        <rect width="36" height="36" rx="9" fill="#1a0808"/>
-        <circle cx="16" cy="16" r="10" fill="#589632"/>
-        <circle cx="16" cy="16" r="6" fill="#0b0b0b"/>
-        <circle cx="16" cy="16" r="3.8" fill="none" stroke="white" stroke-width="2"/>
-        <line x1="21" y1="21" x2="29" y2="29" stroke="#589632" stroke-width="3.5" stroke-linecap="round"/>
-        <line x1="25" y1="25" x2="29" y2="29" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-      </svg>
-      <div>
-        <div style="font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;color:#8dcc5a;letter-spacing:0.5px;">Download Plugin</div>
-        <div style="font-size:11px;color:#9ed476;margin-top:1px;">QGIS Plugin Repository</div>
-      </div>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#589632" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;flex-shrink:0;"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    </div>
-  </a>
-
-  <!-- Demos -->
-  <a href="YOUR_DEMOS_URL" target="_blank" style="text-decoration:none;">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:13px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='#589632'" onmouseout="this.style.borderColor='#2e2e2e'">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+    <a href="https://github.com/GallPeters/QGIS2VectorTiles/blob/main/CHANGELOG.md" target="_blank" class="btn-card">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style="flex-shrink:0;">
         <rect width="32" height="32" rx="8" fill="#1a2f0e"/>
-        <!-- play button in screen -->
-        <rect x="4" y="7" width="24" height="16" rx="2.5" fill="none" stroke="#8dcc5a" stroke-width="1.8"/>
-        <polygon points="13,11 13,19 21,15" fill="#8dcc5a"/>
-        <!-- stand + base -->
-        <line x1="16" y1="23" x2="16" y2="27" stroke="#8dcc5a" stroke-width="1.8" stroke-linecap="round"/>
-        <line x1="11" y1="27" x2="21" y2="27" stroke="#8dcc5a" stroke-width="1.8" stroke-linecap="round"/>
+        <rect x="7" y="5" width="18" height="22" rx="2" fill="none" stroke="#7ec44a" stroke-width="1.8"/>
+        <line x1="10" y1="11" x2="22" y2="11" stroke="#7ec44a" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10" y1="15" x2="22" y2="15" stroke="#7ec44a" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10" y1="19" x2="18" y2="19" stroke="#7ec44a" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="23" cy="23" r="7" fill="#1a2f0e" stroke="#7ec44a" stroke-width="1.5"/>
+        <line x1="23" y1="20.5" x2="23" y2="23" stroke="#7ec44a" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="23" y1="23" x2="25" y2="24.5" stroke="#7ec44a" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
-      <div>
-        <div style="font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;color:#8dcc5a;letter-spacing:0.5px;">Demos</div>
-        <div style="font-size:11px;color:#7a7a7a;margin-top:1px;">Live examples &amp; previews</div>
+      <div class="btn-label">Changelog</div>
+      <div class="btn-sub">Version history &amp; updates</div>
+    </a>
+
+  </div>
+
+  <!-- MIDDLE: Demo videos -->
+  <div class="videos-col">
+
+    <div class="video-panel">
+      <div class="video-panel-topbar"></div>
+      <div class="video-panel-bar">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#7ec44a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="#7ec44a" stroke="none"/></svg>
+        <span class="video-panel-label">BASIC PREVIEW</span>
       </div>
-    </div>
-  </a>
-
-</div>
-
-<!-- ══════ OUTPUTS ══════ -->
-<div class="outputs-wrap">
-  <div class="sec-head">Each Export Generates</div>
-  <div class="outputs-row">
-
-    <div class="out-pill">
-      <div class="out-pill-icon">🗂️</div>
-      <div class="out-pill-label">Vector Tiles</div>
-      <div class="out-pill-ext">XYZ Directory</div>
+      <video controls preload="metadata">
+        <source src="demo_basic.mp4" type="video/mp4">Your browser does not support the video tag.
+      </video>
     </div>
 
-    <div class="out-pill">
-      <!-- QGIS .qlr icon: mini QGIS magnifier -->
-      <div class="out-pill-icon">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="18" cy="18" r="17" fill="#589632"/>
-          <circle cx="18" cy="18" r="9" fill="none" stroke="white" stroke-width="3"/>
-          <line x1="24" y1="24" x2="30" y2="30" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-        </svg>
+    <div class="video-panel">
+      <div class="video-panel-topbar"></div>
+      <div class="video-panel-bar">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#7ec44a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="#7ec44a" stroke="none"/></svg>
+        <span class="video-panel-label">OFFLINE PREVIEW</span>
       </div>
-      <div class="out-pill-label">Styled QGIS Layer</div>
-      <div class="out-pill-ext">.qlr</div>
-    </div>
-
-    <div class="out-pill">
-      <!-- MapLibre logo: blue teardrop/pin -->
-      <div class="out-pill-icon">
-       <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   fill="none"
-   viewBox="0 0 400 400"
-   version="1.1"
-   id="svg6"
-   width="400"
-   height="400"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <g
-     clip-path="url(#a)"
-     id="g5"
-     transform="translate(109.67945,56.092465)">
-    <g
-       clip-path="url(#b)"
-       id="g4">
-      <path
-         fill="#82b4fe"
-         fill-rule="evenodd"
-         d="M 91.32,0.578 C 41.994,0.258 1.624,37.59 1.323,83.793 c -0.266,40.912 19.964,60.885 41.871,82.513 15.273,15.078 31.36,30.96 41.885,55.302 0.71,0.577 1.185,0.962 1.389,1.144 a 5.164,5.164 0 0 0 3.398,1.286 5.172,5.172 0 0 0 3.416,-1.241 c 0.055,-0.049 0.156,-0.092 0.28,-0.145 0.34,-0.146 0.857,-0.368 1.124,-0.983 10.49,-24.11 26.806,-39.778 42.388,-54.74 22.189,-21.307 42.888,-41.184 43.153,-81.972 C 180.528,38.753 140.647,0.9 91.32,0.578 Z m -0.86,132.349 c 24.424,0.159 44.356,-19.81 44.517,-44.602 0.161,-24.792 -19.509,-45.019 -43.934,-45.178 -24.425,-0.159 -44.356,19.81 -44.518,44.602 -0.161,24.792 19.509,45.019 43.934,45.178 z"
-         clip-rule="evenodd"
-         id="path3" />
-      <path
-         fill="#ffffff"
-         fill-rule="evenodd"
-         d="m 58.49,238.338 c -4.075,-0.027 -7.408,4.48 -7.444,10.065 l -0.184,28.269 c -0.037,5.585 3.237,10.134 7.313,10.161 l 62.385,0.406 c 4.075,0.026 7.408,-4.48 7.444,-10.065 l 0.184,-28.269 c 0.037,-5.586 -3.237,-10.135 -7.313,-10.161 z"
-         clip-rule="evenodd"
-         id="path4" />
-    </g>
-  </g>
-  <defs
-     id="defs6">
-    <clipPath
-       id="a">
-      <path
-         fill="#ffffff"
-         d="M 0,0 H 1356 V 318 H 0 Z"
-         id="path5" />
-    </clipPath>
-    <clipPath
-       id="b">
-      <path
-         fill="#ffffff"
-         d="M 0,0 H 1355.33 V 317.795 H 0 Z"
-         id="path6" />
-    </clipPath>
-  </defs>
-</svg>
-
-      </div>
-      <div class="out-pill-label">MapLibre Style</div>
-      <div class="out-pill-ext">style.json</div>
-    </div>
-
-    <div class="out-pill">
-      <div class="out-pill-icon">🖼️</div>
-      <div class="out-pill-label">Sprites</div>
-      <div class="out-pill-ext">.png &amp; .json</div>
-    </div>
-
-    <div class="out-pill">
-      <div class="out-pill-icon">🌐</div>
-      <div class="out-pill-label">Viewer</div>
-      <div class="out-pill-ext">.html &amp; .bat / .sh</div>
+      <video controls preload="metadata">
+        <source src="demo_offline.mp4" type="video/mp4">Your browser does not support the video tag.
+      </video>
     </div>
 
   </div>
+
+  <!-- RIGHT: Output package -->
+  <div class="outputs-col">
+    <div class="sec-head">Output Package</div>
+    <div class="outputs-list">
+
+      <div class="out-pill">
+        <span class="out-num">1</span>
+        <div class="out-icon">🗂️</div>
+        <div>
+          <div class="out-pill-label">Vector Tiles</div>
+          <div class="out-pill-ext">XYZ Directory</div>
+        </div>
+      </div>
+
+      <div class="out-pill">
+        <span class="out-num">2</span>
+        <div class="out-icon">📦</div>
+        <div>
+          <div class="out-pill-label">Styled QGIS Layer</div>
+          <div class="out-pill-ext">.qlr</div>
+        </div>
+      </div>
+
+      <div class="out-pill">
+        <span class="out-num">3</span>
+        <div class="out-icon">🎨</div>
+        <div>
+          <div class="out-pill-label">MapLibre Style</div>
+          <div class="out-pill-ext">style.json</div>
+        </div>
+      </div>
+
+      <div class="out-pill">
+        <span class="out-num">4</span>
+        <div class="out-icon">✈️</div>
+        <div>
+          <div class="out-pill-label">Sprites</div>
+          <div class="out-pill-ext">.png &amp; .json</div>
+        </div>
+      </div>
+
+      <div class="out-pill">
+        <span class="out-num">5</span>
+        <div class="out-icon">🌐</div>
+        <div>
+          <div class="out-pill-label">Viewer</div>
+          <div class="out-pill-ext">.html</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
-<!-- ══════ USE CASES ══════ -->
+<!-- ══════ ROW 2: Efficiency band ══════ -->
+<div class="eff-band">
+  <span class="eff-icon">⚡</span>
+  <span><strong>Tight Data–Style Coupling:</strong> Only the data required to render the style is packed into tiles — and the style only references what's in the tiles. Maximum efficiency in storage, transfer and rendering.</span>
+</div>
+
+<!-- ══════ ROW 3: Use Cases ══════ -->
 <div class="usecases-wrap">
-  <div class="sec-head">Use Cases</div>
+  <div class="sec-head bright">Use Cases</div>
   <div class="usecases-row">
 
     <!-- 1. Client-Side Rendering -->
     <div class="uc-card">
       <div class="uc-top">
-        <div class="uc-num">1</div>
-        <div class="uc-header">
-          <div class="uc-icon">🌐</div>
-          <div class="uc-title">Client-Side Rendering</div>
-        </div>
+        <div class="uc-icon">🌐</div>
+        <div class="uc-title">Client-Side Rendering</div>
       </div>
-      <div class="uc-desc">Export client-side styles consumed directly by web map clients in the browser.</div>
-
+      <div class="uc-desc">Export client-side styles consumed directly by web map clients.</div>
       <div class="plat-row">
-
-        <!-- MapLibre: blue gradient circle with white M/pin -->
         <div class="plat">
-          <div class="plat-logo" style="background:#0d1f3c;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#1a3a6b"/>
-              <defs>
-                <linearGradient id="ml1" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#22c1e8"/>
-                  <stop offset="100%" stop-color="#1a5dc7"/>
-                </linearGradient>
-              </defs>
-              <!-- teardrop pin shape -->
-              <path d="M24 8 C16 8 10 14 10 21 C10 28 24 42 24 42 C24 42 38 28 38 21 C38 14 32 8 24 8Z" fill="url(#ml1)"/>
-              <circle cx="24" cy="21" r="6" fill="white"/>
-              <circle cx="24" cy="21" r="3" fill="#1a5dc7"/>
-            </svg>
-          </div>
+          <div class="plat-logo"><img src="maplibre.png" alt="maplibre" width="100%" height="100%"></div>
           <div class="plat-name">MapLibre</div>
         </div>
-
-        <!-- OpenLayers: actual OL logo - blue/white shield shape -->
         <div class="plat">
-          <div class="plat-logo" style="background:#1b3050;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#1b3050"/>
-              <!-- OL shield -->
-              <path d="M24 6 L36 11 L36 26 C36 33 24 42 24 42 C24 42 12 33 12 26 L12 11 Z" fill="#1f6eaa"/>
-              <path d="M24 6 L36 11 L36 26 C36 33 24 42 24 42 C24 42 12 33 12 26 L12 11 Z" stroke="#4aade8" stroke-width="1.5" fill="none"/>
-              <text x="24" y="30" font-family="Arial Black,Arial" font-size="14" font-weight="900" fill="white" text-anchor="middle">OL</text>
-            </svg>
-          </div>
+          <div class="plat-logo"><img src="openlayers.png" alt="openlayers" width="100%" height="100%"></div>
           <div class="plat-name">OpenLayers</div>
         </div>
-
-        <!-- MapTiler: stylised "MT" on orange/red -->
         <div class="plat">
-          <div class="plat-logo" style="background:#2a0e06;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#c73d1a"/>
-              <!-- mountain shape representing MapTiler logo -->
-              <polygon points="24,10 38,36 10,36" fill="rgba(255,255,255,0.15)"/>
-              <polygon points="24,16 34,36 14,36" fill="rgba(255,255,255,0.15)"/>
-              <text x="24" y="32" font-family="Arial Black,Arial" font-size="11" font-weight="900" fill="white" text-anchor="middle">MTA</text>
-            </svg>
-          </div>
-          <div class="plat-name">MapTiler</div>
-        </div>
-
-        <!-- Leaflet: correct green leaf shape -->
-        <div class="plat">
-          <div class="plat-logo" style="background:#0e2210;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#0e2210"/>
-              <!-- Leaflet leaf -->
-              <path d="M28 7 C28 7 42 14 42 26 C42 36 32 40 26 40 C20 40 14 36 14 28 C14 18 22 10 28 7Z" fill="#599b2b"/>
-              <path d="M28 7 C28 7 42 14 42 26 C42 36 32 40 26 40 C20 40 14 36 14 28 C14 18 22 10 28 7Z" stroke="#7dc842" stroke-width="1.2" fill="none"/>
-              <!-- midrib and veins -->
-              <path d="M26 40 C26 40 24 28 28 14" stroke="#3d6b20" stroke-width="2.2" stroke-linecap="round" fill="none"/>
-              <path d="M28 20 C24 22 20 24 18 28" stroke="#3d6b20" stroke-width="1.3" stroke-linecap="round" fill="none"/>
-              <path d="M30 28 C27 28 24 30 22 34" stroke="#3d6b20" stroke-width="1.3" stroke-linecap="round" fill="none"/>
-            </svg>
-          </div>
+          <div class="plat-logo"><img src="leaflet.png" alt="leaflet" width="100%" height="100%"></div>
           <div class="plat-name">Leaflet</div>
         </div>
-
-        <!-- Mapbox: dark with Mapbox pin/dot logo -->
         <div class="plat">
-          <div class="plat-logo" style="background:#0d0d0d;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#191a1b"/>
-              <!-- Mapbox actual logo: circle with offset dot -->
-              <circle cx="24" cy="24" r="14" fill="#4264fb"/>
-              <circle cx="24" cy="24" r="7" fill="white"/>
-              <circle cx="24" cy="24" r="3.5" fill="#4264fb"/>
-              <!-- top dot (the "pin" accent) -->
-              <circle cx="24" cy="10" r="4" fill="white"/>
-            </svg>
-          </div>
+          <div class="plat-logo"><img src="maptiler.avif" alt="maptiler" width="100%" height="100%"></div>
+          <div class="plat-name">MapTiler</div>
+        </div>
+        <div class="plat">
+          <div class="plat-logo"><img src="mapbox.png" alt="mapbox" width="100%" height="100%"></div>
           <div class="plat-name">Mapbox</div>
         </div>
-
       </div>
     </div>
 
     <!-- 2. Efficient WMS/WMTS Serving -->
     <div class="uc-card">
       <div class="uc-top">
-        <div class="uc-num">2</div>
-        <div class="uc-header">
-          <div class="uc-icon">🖥️</div>
-          <div class="uc-title">Efficient WMS/WMTS Serving</div>
-        </div>
+        <div class="uc-icon">🖥️</div>
+        <div class="uc-title">Efficient WMS/WMTS Serving</div>
       </div>
-      <div class="uc-desc">Serve lightweight vector tiles via GIS servers — far faster than raster tiles, full cartographic quality.</div>
-
+      <div class="uc-desc">Serve lightweight vector tiles via GIS servers.</div>
       <div class="plat-row">
-
-        <!-- QGIS Server: actual QGIS logo - green magnifier/Q -->
         <div class="plat">
-          <div class="plat-logo" style="background:#1a0808;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#1a0808"/>
-              <!-- QGIS Q magnifier -->
-              <circle cx="21" cy="21" r="13" fill="#589632"/>
-              <circle cx="21" cy="21" r="8" fill="#0b0b0b"/>
-              <circle cx="21" cy="21" r="5" fill="none" stroke="white" stroke-width="2.5"/>
-              <!-- handle -->
-              <line x1="27" y1="27" x2="37" y2="37" stroke="#589632" stroke-width="4.5" stroke-linecap="round"/>
-              <line x1="32" y1="32" x2="37" y2="37" stroke="white" stroke-width="3" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <div class="plat-name">QGIS Server</div>
-        </div>
-
-        <!-- GeoServer: globe logo - blue/white -->
-        <div class="plat">
-          <div class="plat-logo" style="background:#061828;">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="48" height="48" rx="11" fill="#06213a"/>
-              <!-- GeoServer globe -->
-              <circle cx="24" cy="24" r="16" fill="#0e4d8a"/>
-              <circle cx="24" cy="24" r="16" fill="none" stroke="#3a9de0" stroke-width="1.5"/>
-              <!-- latitude lines -->
-              <ellipse cx="24" cy="24" rx="16" ry="6" fill="none" stroke="#3a9de0" stroke-width="1.3"/>
-              <!-- longitude ellipse -->
-              <ellipse cx="24" cy="24" rx="7" ry="16" fill="none" stroke="#3a9de0" stroke-width="1.3"/>
-              <!-- horizontal equator -->
-              <line x1="8" y1="24" x2="40" y2="24" stroke="#3a9de0" stroke-width="1.3"/>
-              <!-- top/bottom latitude -->
-              <line x1="11" y1="16" x2="37" y2="16" stroke="#3a9de0" stroke-width="1.1"/>
-              <line x1="11" y1="32" x2="37" y2="32" stroke="#3a9de0" stroke-width="1.1"/>
-            </svg>
-          </div>
+          <div class="plat-logo"><img src="geoserver.png" alt="geoserver" width="100%" height="100%"></div>
           <div class="plat-name">GeoServer</div>
         </div>
-
-        <!-- WMS badge -->
-        <div style="display:flex;flex-direction:column;gap:6px;margin-left:6px;">
-          <div style="background:var(--gvdark);border:1px solid var(--gdark);border-radius:7px;padding:5px 12px;text-align:center;">
-            <div style="font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;color:var(--g3);">WMS</div>
-          </div>
-          <div style="background:var(--gvdark);border:1px solid var(--gdark);border-radius:7px;padding:5px 12px;text-align:center;">
-            <div style="font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;color:var(--g3);">WMTS</div>
-          </div>
+        <div class="plat">
+          <div class="plat-logo"><img src="qgis.png" alt="qgis" width="100%" height="100%"></div>
+          <div class="plat-name">QGIS Server</div>
         </div>
-
       </div>
     </div>
 
     <!-- 3. Project Sharing -->
     <div class="uc-card">
       <div class="uc-top">
-        <div class="uc-num">3</div>
-        <div class="uc-header">
-          <div class="uc-icon">📦</div>
-          <div class="uc-title">Project Sharing</div>
-        </div>
+        <div class="uc-icon">📦</div>
+        <div class="uc-title">Project Sharing</div>
       </div>
-      <div class="uc-desc">Package complex multi-source, multi-layer projects into a single lightweight bundle.</div>
-
-      <!-- many sources → single output diagram -->
-      <div style="display:flex;align-items:center;gap:8px;">
-        <!-- sources column -->
-        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
-          <div style="display:flex;align-items:center;gap:7px;">
-            <div style="width:30px;height:30px;background:#1a2535;border:1px solid #2a3d55;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;">🐘</div>
-            <span style="font-size:11px;color:var(--muted);">PostGIS</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:7px;">
-            <div style="width:30px;height:30px;background:#1a2510;border:1px solid #2a3d20;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;">📗</div>
-            <span style="font-size:11px;color:var(--muted);">GeoPackage</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:7px;">
-            <div style="width:30px;height:30px;background:#25200a;border:1px solid #3d3010;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;">📄</div>
-            <span style="font-size:11px;color:var(--muted);">Shapefile</span>
-          </div>
+      <div class="uc-desc">Package complex projects into a single lightweight bundle.</div>
+        <div class="plat-row">
+        <div class="plat">
+          <div class="plat-logo">🗂️</div>
+          <div class="plat-name">1x Source</div>
         </div>
-
-        <!-- converge SVG -->
-        <svg width="46" height="86" viewBox="0 0 46 86" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
-          <path d="M4 15 Q38 15 42 43" stroke="#589632" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-          <path d="M4 43 Q38 43 42 43" stroke="#589632" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-          <path d="M4 71 Q38 71 42 43" stroke="#589632" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-          <circle cx="42" cy="43" r="4" fill="#8dcc5a"/>
-          <path d="M42 43 L46 43" stroke="#8dcc5a" stroke-width="2"/>
-        </svg>
-
-        <!-- output -->
-        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
-          <div style="width:60px;height:60px;background:var(--gvdark);border:2px solid var(--g1);border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:30px;box-shadow:0 0 18px rgba(89,150,50,0.18);">🗂️</div>
-          <div style="text-align:center;font-family:'Space Mono',monospace;font-size:9.5px;color:var(--g4);line-height:1.7;">XYZ Dir<br>.qlr</div>
+        <div class="plat">
+          <div class="plat-logo"><img src="qlr.png" alt="qgis" width="100%" height="100%"></div>
+          <div class="plat-name">1x Layer</div>
         </div>
       </div>
     </div>
 
-  </div>
-
-  <div class="eff-band">
-    <span style="font-size:20px;">⚡</span>
-    <span><strong>Tight Data–Style Coupling:</strong> Only the data required to render the style is packed into tiles — and the style only references what's in the tiles. Maximum efficiency in storage, transfer and rendering.</span>
+    
   </div>
 </div>
 
-<!-- ══════ WORKFLOW ══════ -->
-<div>
-  <div class="sec-head">Plugin Workflow</div>
+<!-- ══════ ROW 4: Workflow ══════ -->
+<div class="workflow-wrap">
+  <div class="sec-head bright">Processing Workflow</div>
   <div class="wf-row">
 
     <div class="wf-step">
@@ -614,7 +800,7 @@ body {
       <div class="wf-label">Convert to Rule-Based</div>
       <div class="wf-sub">All renderers<br>&amp; labelings</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">02</div>
@@ -622,7 +808,7 @@ body {
       <div class="wf-label">Flatten Rules</div>
       <div class="wf-sub">Inherit filters,<br>zooms &amp; symbols</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">03</div>
@@ -630,7 +816,7 @@ body {
       <div class="wf-label">Split Rules</div>
       <div class="wf-sub">By zoom, symbol<br>&amp; label match</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">04</div>
@@ -638,7 +824,7 @@ body {
       <div class="wf-label">Export Datasets</div>
       <div class="wf-sub">1 rule → 1 dataset<br>calc fields &amp; geom</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">05</div>
@@ -646,7 +832,7 @@ body {
       <div class="wf-label">Generate Tiles</div>
       <div class="wf-sub">XYZ Directory<br>via GDAL MVT</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">06</div>
@@ -654,7 +840,7 @@ body {
       <div class="wf-label">Load into QGIS</div>
       <div class="wf-sub">Styled tiles layer<br>+ export .qlr</div>
     </div>
-    <div class="wf-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="wf-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
 
     <div class="wf-step">
       <div class="wf-num">07</div>
@@ -666,24 +852,19 @@ body {
   </div>
 </div>
 
-
 <!-- ══════ FOOTER ══════ -->
-<div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-top:36px;padding-top:20px;border-top:1px solid #2e2e2e;">
+<div class="footer">
 
-  <!-- License -->
-  <div style="display:flex;align-items:center;gap:7px;">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a4a4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    <span style="font-family:'Space Mono',monospace;font-size:10.5px;color:#4a4a4a;letter-spacing:1px;">Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank" style="color:#589632;text-decoration:none;">GNU GPL v2</a></span>
+  <div class="footer-item">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <span>Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
   </div>
 
-  <div style="width:1px;height:14px;background:#2e2e2e;"></div>
+  <div class="footer-divider"></div>
 
-  <!-- GitHub -->
-  <a href="YOUR_GITHUB_URL" target="_blank" style="text-decoration:none;display:flex;align-items:center;gap:7px;" onmouseover="this.querySelector('span').style.color='#8dcc5a'" onmouseout="this.querySelector('span').style.color='#4a4a4a'">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="#4a4a4a" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/>
-    </svg>
-    <span style="font-family:'Space Mono',monospace;font-size:10.5px;color:#4a4a4a;letter-spacing:1px;transition:color 0.2s;">GitHub Repository</span>
+  <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="footer-item">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+    <span>GitHub Repository</span>
   </a>
 
 </div>
