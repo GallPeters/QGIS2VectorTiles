@@ -70,6 +70,25 @@ a { color: inherit; text-decoration: none; }
   padding-top: 4px;
 }
 
+.title-h1-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.title-icon {
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+}
+
+.title-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .title-wrap h1 {
   font-family: 'Rajdhani', sans-serif;
   font-size: 44px;
@@ -581,6 +600,7 @@ a { color: inherit; text-decoration: none; }
   }
 
   /* Title */
+  .title-icon { width: 32px; height: 32px; }
   .title-wrap h1 {
     font-size: 28px;
     letter-spacing: 4px;
@@ -659,6 +679,7 @@ a { color: inherit; text-decoration: none; }
     padding: 10px 10px 20px;
   }
 
+  .title-icon { width: 26px; height: 26px; }
   .title-wrap h1 {
     font-size: 22px;
     letter-spacing: 2px;
@@ -717,7 +738,27 @@ a { color: inherit; text-decoration: none; }
 
 <!-- ══════ TITLE ══════ -->
 <div class="title-wrap">
-  <h1>QGIS2VECTORTILES</h1>
+  <div class="title-h1-row">
+    <div class="title-icon">
+      <svg height="484.99997pt" viewBox="0 0 484.99997 484.99997" width="484.99997pt" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+        </defs>
+        <g id="g15" transform="matrix(0.99969759,0,0,1.0000108,-1297.1076,1629.7675)" style="display:inline">
+          <rect style="display:inline;opacity:1;fill:#000000;fill-opacity:1;stroke:none;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1328.1789,-1387.2526 h 423.7888"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1540.0733,-1599.147 v 423.7888"/>
+          <path style="color:#000000;display:inline;fill:#7ec44a;paint-order:stroke markers fill" d="M 242.5,89 C 158.25744,89 89,158.25744 89,242.5 88.999992,326.74256 158.25744,396 242.5,396 326.74257,396.00001 396.00001,326.74257 396,242.5 396,158.25744 326.74256,88.999992 242.5,89 Z m 0,90 c 35.603,0 63.5,27.897 63.5,63.5 0,35.603 -27.897,63.5 -63.5,63.5 -35.603,0 -63.5,-27.897 -63.5,-63.5 0,-35.60299 27.89701,-63.5 63.5,-63.5 z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <path style="color:#000000;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-linecap:square;stroke-miterlimit:8.9;stroke-opacity:1;" d="M 350.99988,242.49998 A 108.49989,108.49989 0 0 1 242.49998,350.99988 108.49989,108.49989 0 0 1 134.00009,242.49998 108.49989,108.49989 0 0 1 242.49998,134.00009 108.49989,108.49989 0 0 1 350.99988,242.49998 Z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <rect style="display:inline;fill:none;stroke:#7ec44a;stroke-width:43.643;stroke-linecap:square;stroke-miterlimit:4.8;" width="441.5036" height="441.35175" x="1319.3215" y="-1607.9285"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:23.1323;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1648.4412,-1388.337 v 200.5128"/>
+          <path style="display:inline;opacity:1;fill:#7ec44a;fill-opacity:1;" d="m 1521.5734,-1405.7574 4.595,34.1156 29.5312,-29.522 z m 4.5961,34.1168 96.5917,96.5614 29.5312,-29.522 -96.5917,-96.5614 z"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:22.552;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 1748.1254,-1278.5638 H 1557.8826"/>
+          <rect style="display:inline;opacity:0.1;fill:url(#linearGradient21t);stroke:none;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
+        </g>
+      </svg>
+    </div>
+    <h1>QGIS2VECTORTILES</h1>
+  </div>
   <div class="tagline">Pack your QGIS project into a styled vector tile package</div>
   <div class="title-rule"></div>
 </div>
