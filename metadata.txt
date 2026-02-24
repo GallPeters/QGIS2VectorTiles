@@ -2,14 +2,14 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-description=Turn a QGIS project into a lightweight styled vector tiles package which can be used for client-side rendering (MapLibre, Mapbox etc), server-side rendering (via WMS/WMTS) and easy sharing while preserving original style.
-about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style package (style.json, sprites) and a ready-to-use MapLibre viewer.
-version=1.9
+description=Pack a QGIS project into a fully styled, ready-to-use client-side vector tile package.
+about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
+version=2.0
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
 deprecated=False
-homepage=https://github.com/GallPeters/QGIS2VectorTiles
+homepage=https://gallpeters.github.io/QGIS2VectorTiles
 repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
 tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
@@ -17,6 +17,9 @@ icon=icon.png
 hasProcessingProvider=yes
 supportsQt6=True
 changelog=
+	** v2.0 (24.02.26):
+		- Add Background Type parameter.
+		- Bug fixes.
 	** v1.9 (22.02.26):
 		- Serve maplibre-gl.js locally for an offline use.
 		- Bug fixes ensuring smooth convertion of layers contains empty renderers/labelings.
@@ -41,7 +44,7 @@ changelog=
 		- Improved processing performence.
 		- Bug fixes when running on QGIS LTR (3.40.x)
 	** v1.2 (30.12.25):
-		- Added polygons labels base parameter.
+		- Added Polygons Labels Base parameter.
 	** v1.1 (16.12.25):
 		- Support DDP (data defined properties).
 		- Bug fixes.
