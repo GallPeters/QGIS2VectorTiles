@@ -53,7 +53,9 @@ body {
   font-family: 'DM Sans', sans-serif;
   color: var(--text);
   padding: 16px 28px 28px;
-  width: 1240px;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
   min-height: 100vh;
 }
 
@@ -568,6 +570,146 @@ a { color: inherit; text-decoration: none; }
   width: 1px;
   height: 14px;
   background: var(--border);
+}
+
+/* ══════════════════════════════
+   RESPONSIVE — TABLET (≤ 768px)
+══════════════════════════════ */
+@media (max-width: 768px) {
+  body {
+    padding: 12px 14px 24px;
+  }
+
+  /* Title */
+  .title-wrap h1 {
+    font-size: 28px;
+    letter-spacing: 4px;
+  }
+  .tagline {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+  }
+  .title-rule { width: 200px; }
+
+  /* Row 1: stack vertically */
+  .row1 {
+    grid-template-columns: 1fr;
+  }
+
+  /* Buttons: side by side on tablet */
+  .btn-col {
+    flex-direction: row;
+  }
+  .btn-card {
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .btn-label { font-size: 14px; }
+  .btn-sub { font-size: 10px; }
+
+  /* Videos: side by side (keep on tablet, stack on mobile) */
+  .videos-col {
+    min-height: 200px;
+  }
+
+  /* Outputs: horizontal scroll row */
+  .outputs-col {
+    flex-direction: column;
+  }
+  .outputs-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .out-pill {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 140px;
+  }
+
+  /* Use cases: 1 column */
+  .usecases-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Workflow: 2 columns grid, hide arrows */
+  .wf-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .wf-arrow { display: none; }
+  .wf-step { border-radius: var(--radius-sm); }
+
+  /* Footer: stack */
+  .footer {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  .footer-divider { width: 60px; height: 1px; }
+}
+
+/* ══════════════════════════════
+   RESPONSIVE — MOBILE (≤ 480px)
+══════════════════════════════ */
+@media (max-width: 480px) {
+  body {
+    padding: 10px 10px 20px;
+  }
+
+  .title-wrap h1 {
+    font-size: 22px;
+    letter-spacing: 2px;
+  }
+
+  /* Buttons: stacked column */
+  .btn-col {
+    flex-direction: column;
+  }
+  .btn-card {
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  /* Videos: stacked */
+  .videos-col {
+    flex-direction: column;
+  }
+
+  /* Outputs: single column */
+  .out-pill {
+    flex: 1 1 100%;
+  }
+
+  /* Eff band */
+  .eff-band {
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+
+  /* Workflow: single column */
+  .wf-row {
+    grid-template-columns: 1fr;
+  }
+  .wf-step {
+    flex-direction: row;
+    text-align: left;
+    padding: 10px 14px;
+    gap: 10px;
+    align-items: center;
+  }
+  .wf-num { font-size: 11px; width: auto; }
+  .wf-icon { font-size: 18px; flex-shrink: 0; }
+  .wf-label { font-size: 14px; }
+  .wf-sub { font-size: 10px; }
+
+  /* Use case platform logos: wrap nicely */
+  .plat-row { gap: 8px; }
+  .plat-logo { width: 32px; height: 32px; }
 }
 </style>
 </head>
