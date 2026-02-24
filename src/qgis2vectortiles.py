@@ -1309,6 +1309,7 @@ class QGIS2VectorTiles:
         output_type: str = "xyz",
         cpu_percent: int = 100,
         cent_source: int = 0,
+        background_type:int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
         self.min_zoom = min_zoom
@@ -1320,6 +1321,7 @@ class QGIS2VectorTiles:
         self.output_type = output_type.lower()
         self.cpu_percent = cpu_percent
         self.cent_source = cent_source
+        self.background_type = background_type
         self.feedback = feedback or QgsProcessingFeedback()
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -1443,7 +1445,7 @@ class QGIS2VectorTiles:
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
         """Export MapLibre style."""
-        exporter = QgisMapLibreStyleExporter(temp_dir, styled_layer)
+        exporter = QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type)
         exporter.export()
 
     def _log(self, message: str):

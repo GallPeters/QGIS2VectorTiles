@@ -33,6 +33,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
+    BACKGROUND_TYPE = "BACKGROUND_TYPE" 
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -161,6 +162,16 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 optional=False,
             )
         )
+        
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.BACKGROUND_TYPE,
+                self.tr("Background Type"),
+                options=["OpenStreetMap", "Project Background Color"],
+                defaultValue=0,  # Default to Required Fields Only
+                optional=False,
+            )
+        )
 
         # Output directory parameter
         self.addParameter(
@@ -211,7 +222,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
         polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
-
+        background_type = self.parameterAsInt(parameters, self.BACKGROUND_TYPE, context)
         try:
             # Your existing vector tile generator class would be called here
             tiles_generator = QGIS2VectorTiles(
@@ -222,6 +233,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 cent_source=polygon_labels_base,
+                background_type=background_type,
                 feedback=feedback,
             )
 

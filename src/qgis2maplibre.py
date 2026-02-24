@@ -17,6 +17,7 @@ from qgis.core import (
     QgsProperty,
     QgsSymbolLayer,
     QgsTextFormat,
+    QgsProject,
     QgsTextBackgroundSettings,
 )
 from qgis.utils import iface
@@ -685,7 +686,7 @@ class TextPropertyExtractor:
 class QgisMapLibreStyleExporter:
     """Export QGIS Vector Tile Layer styles to MapLibre GL style JSON."""
 
-    def __init__(self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None):
+    def __init__(self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None, background_type = 0):
         """Initialize converter with output directory and optional QgsVectorTileLayer."""
         self.output_dir = output_dir
         self.marker_symbols = {}  # Dict to collect marker symbols for sprite generation
@@ -720,6 +721,29 @@ class QgisMapLibreStyleExporter:
             "sprite": "http://localhost:9000/style/sprite/sprite",
             "layers": [],
         }
+        if background_type == 0:
+            background = {
+            "id": 'osm-background',
+            "type": 'raster',
+            "source": 'osm',
+            "minzoom": 0,
+            "maxzoom": 22
+        }
+        else:
+            background_qcolor = QgsProject.instance().backgroundColor()
+            background_color = PropertyExtractor.convert_qcolor_to_maplibre(background_qcolor)
+            background =  {
+      "id": "background",
+      "type": "background",
+      "minzoom": 0,
+      "maxzoom": 22,
+      "paint": {
+        "background-color": background_color
+      }
+    }
+        self.style["layers"].append(background)
+            
+
 
     def export(self) -> Dict[str, Any]:
         """Convert all styles from QgsVectorTileLayer to MapLibre GL style."""

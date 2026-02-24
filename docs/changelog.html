@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QGIS2VectorTiles — Changelog</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:        #080c06;
+  --surface:   #0f140d;
+  --sur2:      #161d13;
+  --sur3:      #1e2819;
+  --border:    #263020;
+  --border2:   #354228;
+  --g1:        #4a8228;
+  --g2:        #5c9e32;
+  --g3:        #7ec44a;
+  --g4:        #a8d96e;
+  --g5:        #c8eaa0;
+  --gdark:     #243c12;
+  --gvdark:    #111f08;
+  --text:      #e8edd8;
+  --muted:     #b6b9b3;
+  --dim:       #56664a;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --transition: 0.2s ease;
+  --glow: 0 0 30px rgba(126,196,74,0.12);
+  --glow-hover: 0 0 40px rgba(126,196,74,0.22);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 800px 400px at 50% 0%, rgba(74,130,40,0.06) 0%, transparent 70%),
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(38,48,32,0.25) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(38,48,32,0.15) 40px);
+  font-family: 'DM Sans', sans-serif;
+  color: var(--text);
+  padding: 16px 28px 28px;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ── TITLE ── */
+.title-wrap {
+  text-align: center;
+  margin-bottom: 18px;
+  padding-top: 4px;
+}
+.title-h1-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.title-icon { flex-shrink: 0; width: 35px; height: 35px; }
+.title-icon svg { width: 100%; height: 100%; display: block; }
+.title-wrap h1 {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--g3);
+  line-height: 1;
+  text-shadow: 0 0 60px rgba(126,196,74,0.3), 0 0 120px rgba(126,196,74,0.1);
+}
+.tagline {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 2.5px;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+.title-rule {
+  margin: 10px auto 0;
+  width: 320px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--g1), var(--g3), var(--g1), transparent);
+  opacity: 0.7;
+}
+
+/* ── SECTION HEADING ── */
+.sec-head {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sec-head::before, .sec-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.sec-head.bright { color: var(--g2); }
+
+/* ── BACK BUTTON ── */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+  padding: 6px 12px 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition: color var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.back-btn:hover {
+  color: var(--g3);
+  border-color: var(--g1);
+  box-shadow: var(--glow);
+}
+
+/* ── CHANGELOG LAYOUT ── */
+.changelog-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cl-entry {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.cl-entry:hover {
+  border-color: var(--border2);
+  box-shadow: var(--glow);
+}
+.cl-entry::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(to right, var(--g1), var(--g3));
+}
+
+/* Latest entry gets a more prominent glow */
+.cl-entry.latest {
+  border-color: var(--g1);
+}
+.cl-entry.latest::before {
+  background: linear-gradient(to right, var(--g2), var(--g4));
+}
+
+.cl-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--sur2);
+}
+
+.cl-version {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--g3);
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.cl-entry.latest .cl-version {
+  color: var(--g4);
+  text-shadow: 0 0 20px rgba(126,196,74,0.3);
+}
+
+.cl-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+
+.cl-badge {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--gdark);
+  color: var(--g3);
+  border: 1px solid var(--g1);
+  text-transform: uppercase;
+}
+
+.cl-body {
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.cl-item-dot {
+  flex-shrink: 0;
+  margin-top: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--g2);
+}
+.cl-item span { flex: 1; }
+.cl-item strong { color: var(--g4); font-weight: 600; }
+
+/* ── FOOTER ── */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.footer-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.8px;
+  transition: color var(--transition);
+}
+.footer-item:hover { color: var(--muted); }
+.footer-item a { color: var(--g2); transition: color var(--transition); }
+.footer-item a:hover { color: var(--g3); }
+.footer-divider { width: 1px; height: 14px; background: var(--border); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  body { padding: 12px 14px 24px; }
+  .title-wrap h1 { font-size: 28px; letter-spacing: 4px; }
+  .tagline { font-size: 9px; letter-spacing: 1.5px; }
+  .title-rule { width: 200px; }
+  .footer { flex-direction: column; gap: 10px; text-align: center; }
+  .footer-divider { width: 60px; height: 1px; }
+}
+@media (max-width: 480px) {
+  body { padding: 10px 10px 20px; }
+  .title-wrap h1 { font-size: 22px; letter-spacing: 2px; }
+  .cl-header { flex-wrap: wrap; gap: 8px; }
+  .cl-badge { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════ TITLE ══════ -->
+<div class="title-wrap">
+  <div class="title-h1-row">
+    <div class="title-icon">
+      <svg height="484.99997pt" viewBox="0 0 484.99997 484.99997" width="484.99997pt" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg">
+        <g id="g15" transform="matrix(0.99969759,0,0,1.0000108,-1297.1076,1629.7675)" style="display:inline">
+          <rect style="display:inline;opacity:1;fill:#000000;fill-opacity:1;stroke:none;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1328.1789,-1387.2526 h 423.7888"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1540.0733,-1599.147 v 423.7888"/>
+          <path style="color:#000000;display:inline;fill:#7ec44a;paint-order:stroke markers fill" d="M 242.5,89 C 158.25744,89 89,158.25744 89,242.5 88.999992,326.74256 158.25744,396 242.5,396 326.74257,396.00001 396.00001,326.74257 396,242.5 396,158.25744 326.74256,88.999992 242.5,89 Z m 0,90 c 35.603,0 63.5,27.897 63.5,63.5 0,35.603 -27.897,63.5 -63.5,63.5 -35.603,0 -63.5,-27.897 -63.5,-63.5 0,-35.60299 27.89701,-63.5 63.5,-63.5 z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <path style="color:#000000;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-linecap:square;stroke-miterlimit:8.9;stroke-opacity:1;" d="M 350.99988,242.49998 A 108.49989,108.49989 0 0 1 242.49998,350.99988 108.49989,108.49989 0 0 1 134.00009,242.49998 108.49989,108.49989 0 0 1 242.49998,134.00009 108.49989,108.49989 0 0 1 350.99988,242.49998 Z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <rect style="display:inline;fill:none;stroke:#7ec44a;stroke-width:43.643;stroke-linecap:square;stroke-miterlimit:4.8;" width="441.5036" height="441.35175" x="1319.3215" y="-1607.9285"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:23.1323;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1648.4412,-1388.337 v 200.5128"/>
+          <path style="display:inline;opacity:1;fill:#7ec44a;fill-opacity:1;" d="m 1521.5734,-1405.7574 4.595,34.1156 29.5312,-29.522 z m 4.5961,34.1168 96.5917,96.5614 29.5312,-29.522 -96.5917,-96.5614 z"/>
+          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:22.552;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 1748.1254,-1278.5638 H 1557.8826"/>
+        </g>
+      </svg>
+    </div>
+    <h1>QGIS2VECTORTILES</h1>
+  </div>
+  <div class="tagline">Version History &amp; Release Notes</div>
+  <div class="title-rule"></div>
+</div>
+
+<!-- ── BACK BUTTON ── -->
+<a href="index.html" class="back-btn">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+  Back to Main Page
+</a>
+
+<!-- ── SECTION HEADING ── -->
+<div class="sec-head bright">Changelog</div>
+
+<!-- ══════ CHANGELOG ENTRIES ══════ -->
+<div class="changelog-wrap">
+
+  <!-- v2.0 -->
+  <div class="cl-entry latest">
+    <div class="cl-header">
+      <div class="cl-version">v2.0</div>
+      <div class="cl-date">24 Feb 2026</div>
+      <div class="cl-badge">Latest</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Add <strong>Background Type</strong> parameter.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Bug fixes.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.9 -->
+  <div class="cl-entry latest">
+    <div class="cl-header">
+      <div class="cl-version">v1.9</div>
+      <div class="cl-date">22 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Serve <strong>maplibre-gl.js</strong> locally for full offline use.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Bug fixes ensuring smooth conversion of layers containing <strong>empty renderers / labelings</strong>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.8 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.8</div>
+      <div class="cl-date">19 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Activate <strong>HTTP server silently</strong> when running on Windows.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.7 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.7</div>
+      <div class="cl-date">16 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Implemented <strong>Data Defined Properties (DDP)</strong> as fields in MapLibre style.json.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Removed <strong>MBTiles output</strong> (not supported by native MapLibre).</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Improved documentation, added more demos and limitations guidance.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.6 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.6</div>
+      <div class="cl-date">14 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Experimental <strong>client-side style generation</strong>: outputs MapLibre/Mapbox style.json + sprites.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Bug fixes for smoother style conversion, especially with <strong>geometry generators</strong> and <strong>centroid fill symbol layers</strong>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.5 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.5</div>
+      <div class="cl-date">08 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added support for <strong>fields-based properties</strong> alongside expression-based ones.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Processing <strong>performance improvements</strong>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.4 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.4</div>
+      <div class="cl-date">08 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Improved rendering for <strong>Centroid Fill symbol layers</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Stabilized <strong>DDP support</strong> on QGIS LTR (3.40.x).</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.3 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.3</div>
+      <div class="cl-date">05 Feb 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added <strong>QT6 support</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Improved output rendering by matching calculated field types of <strong>DDP to property types</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Performance improvements: skipped unnecessary <strong>rule splitting / exporting</strong> steps.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Bug fixes preventing crashes when retrieving specific <strong>DDP on QGIS LTR</strong>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.2 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.2</div>
+      <div class="cl-date">30 Dec 2025</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added <strong>"Polygons Labels Base"</strong> parameter to processing.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.1 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.1</div>
+      <div class="cl-date">16 Dec 2025</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Supported <strong>DDP as calculated fields</strong> for better rendering performance.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Minor bug fixes.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.0 -->
+  <div class="cl-entry">
+    <div class="cl-header">
+      <div class="cl-version">v1.0</div>
+      <div class="cl-date">10 Dec 2025</div>
+      <div class="cl-badge" style="background:var(--gvdark);color:var(--dim);border-color:var(--border);">Initial Release</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>🎉 <strong>Initial release</strong> of QGIS2VectorTiles.</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════ FOOTER ══════ -->
+<div class="footer">
+  <div class="footer-item">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <span>Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
+  </div>
+  <div class="footer-divider"></div>
+  <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="footer-item">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+    <span>GitHub Repository</span>
+  </a>
+</div>
+
+</body>
+</html>
