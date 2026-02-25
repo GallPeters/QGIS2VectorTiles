@@ -2,8 +2,7 @@
 
 **QGIS2VectorTiles** packs a QGIS project into a fully styled vector tile package ready for MapLibre. It allows users to design maps in the familiar and flexible QGIS Desktop and export stunning MapLibre client-side web maps using GDAL’s powerful MVT driver.
 
-👉 **Documentation & full details:**  
-https://gallpeters.github.io/QGIS2VectorTiles/
+👉 For more details, visit the plugin’s [homepage](https://gallpeters.github.io/QGIS2VectorTiles/)
 
 ## Demo
 
