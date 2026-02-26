@@ -43,7 +43,7 @@ if qt_version == 5:
     from PyQt5.QtCore import QSize, QBuffer, QIODevice
     from PyQt5.QtGui import QImage
 else:
-    from PyQt6.QtCore import QSize, QBuffer, QIODevice
+    from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase
     from PyQt6.QtGui import QImage
 
 Img: TypeAlias = Image.Image
@@ -105,7 +105,8 @@ class SymbolImage:
         """Convert Qt QImage to PIL Image with fallback to empty RGBA."""
         try:
             buffer = QBuffer()
-            buffer.open(QIODevice.ReadWrite)
+            read_write = QIODevice.ReadWrite if qt_version == 5 else QIODeviceBase.OpenModeFlag.ReadWrite
+            buffer.open(read_write)
             qt_img.save(buffer, "PNG")
             bio = BytesIO(buffer.data())
             buffer.close()
