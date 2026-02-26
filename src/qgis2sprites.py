@@ -435,7 +435,7 @@ class QGIS2Sprites:
         try:
             is_vector = layer.type() == 0 and layer.geometryType() != 4
             layer_node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
-            is_visible = layer_node.isVisible() if layer_node else False
+            is_visible = layer_node.isVisible() if layer_node is not None else False
             return is_vector and is_visible
         except (RuntimeError, AttributeError):
             return False
