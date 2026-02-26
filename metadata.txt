@@ -2,7 +2,7 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-description=Pack a QGIS project into a fully styled, ready-to-use client-side vector tile package.
+description=Pack a QGIS project into a styled vector tile package that includes a client-side style document, sprites, and a ready-to-use MapLibre viewer.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
 version=2.1
 author=Jossef Kanter
