@@ -4,7 +4,7 @@ qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
 description=Pack a QGIS project into a styled vector tile package including a client-side stylesheet, sprites, and a ready-to-use MapLibre viewer.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
-version=2.1
+version=2.2
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
@@ -17,6 +17,8 @@ icon=icon.png
 hasProcessingProvider=yes
 supportsQt6=True
 changelog=
+	** v2.2 (11.03.26):
+		- Export rules in parallel to speed up tiles generation.
 	** v2.1 (26.02.26):
 		- Bug fixes ensuring proper sprite generation in QT6.
 	** v2.0 (24.02.26):
