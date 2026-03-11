@@ -997,8 +997,8 @@ class QgisMapLibreStyleExporter:
 
             # Outline color (only if applicable)
             outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
-            if outline_color:
-                layer_def["paint"]["fill-outline-color"] = outline_color
+            # if outline_color:
+            #     layer_def["paint"]["fill-outline-color"] = outline_color
 
             # Layout properties
             layer_def["layout"]["visibility"] = "visible"
