@@ -15,7 +15,6 @@ tracker=https://github.com/GallPeters/QGIS2VectorTiles
 tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
 icon=icon.png
 hasProcessingProvider=yes
-supportsQt6=True
 changelog=
 	** v2.2 (11.03.26):
 		- Export rules in parallel to speed up tiles generation.
