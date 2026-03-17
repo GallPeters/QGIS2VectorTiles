@@ -25,14 +25,24 @@ from subprocess import Popen
 from uuid import uuid4
 
 
-from processing import run as _processing_run
+from processing import run
 from osgeo import gdal, ogr, osr
-from qgis.PyQt.QtCore import QEventLoop
+from qgis.PyQt.QtCore import QTimer, QEventLoop
 from qgis.PyQt.QtCore import qVersion
 from qgis.utils import iface
+from tempfile import gettempdir
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsProject,
     QgsTask,
+    QgsProcessingContext,
+    QgsProcessingFeedback,
+    QgsApplication,
+    QgsVectorLayer,
+    QgsExpression,
+    QgsRuleBasedRenderer,
+    QgsRuleBasedLabeling,
+    QgsReadWriteContext,
     QgsProcessingContext,
     QgsRuleBasedRenderer,
     QgsRuleBasedLabeling,
@@ -550,183 +560,43 @@ class GDALTilesGenerator:
         return max_zoom if max_zoom > 0 else 14
 
 
-@dataclass
-class _RuleJobSpec:
-    """
-    Everything needed to export one output-dataset group, expressed entirely
-    in primitive Python types so it is safe to hand off to a background thread.
-    """
-    source_path: str            # Phase-1 .fgb produced from the source layer
-    output_path: str            # Final per-rule .fgb destination
-    layer_name: str             # Value for QgsVectorLayer.setName()
-    field_mapping: List[dict]   # [{"type": int, "expression": str, "name": str}, ...]
-    filter_expression: str      # Rule filter; "" means "no filter"
-    geom_output_type: int       # OUTPUT_GEOMETRY code for native:geometrybyexpression
-    geom_expression: str        # QGIS expression for the geometry transformation
+class _ParallelExportTask(QgsTask):
+    """Internal task for executing export processing in the background safely."""
+    def __init__(self, description, func, *args, **kwargs):
+        super().__init__(description, QgsTask.CanCancel)
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        self.result = None
+        self.exception = None
 
-
-class _BaseLayerExportTask(QgsTask):
-    """
-    Convert a batch of (source_path_string, output_path, gdal_options) tuples
-    to FlatGeobuf via gdal:convertformat.
-
-    Inputs are plain strings extracted from flat_rule.layer on the main thread,
-    so no QObject ever enters this background thread.
-    Each task creates its own QgsProcessingContext and QgsProcessingFeedback.
-    """
-
-    def __init__(self, batch: List[Tuple[str, str, str]]):
-        super().__init__("Q2VT – export base layers", QgsTask.CanCancel)
-        self.batch = batch
-
-    def run(self) -> bool:
-        context = QgsProcessingContext()
-        feedback = QgsProcessingFeedback()
-
-        for source, output_path, options in self.batch:
-            if self.isCanceled():
-                return False
-            if exists(output_path):
-                continue
-            try:
-                _processing_run(
-                    "gdal:convertformat",
-                    {"INPUT": source, "OPTIONS": options, "OUTPUT": output_path}
-                )
-            except Exception as e:  # pylint: disable=broad-except
-                # Missing file is noticed and handled in Phase 0 / collect step.
-                print(e)
-                pass
-
-        return True
-
-    def finished(self, result: bool) -> None:
-        pass
-
-
-class _RuleExportTask(QgsTask):
-    """
-    Process a batch of _RuleJobSpec objects.
-
-    Pipeline per spec:
-      (optional) native:extractbyexpression  — apply rule filter expression
-      native:refactorfields                  — add / compute output fields
-      native:geometrybyexpression            — transform / clip geometry
-      gdal:convertformat                     — persist as .fgb
-
-    All processing.run() calls receive a locally-created QgsProcessingContext
-    so they never touch QgsProject.instance() from a background thread.
-    All inputs are file-path strings or in-thread memory layers that are
-    never shared with any other thread.
-    """
-
-    def __init__(self, batch: List[_RuleJobSpec]):
-        super().__init__("Q2VT – export rules", QgsTask.CanCancel)
-        self.batch = batch
-
-    def run(self) -> bool:
-        for spec in self.batch:
-            if self.isCanceled():
-                return False
-            if exists(spec.output_path):
-                continue
-            try:
-                self._process_spec(spec)
-            except Exception as e:  # pylint: disable=broad-except
-                # Missing output file is handled by the main-thread collect step.
-                pass
-
-        return True
-
-    # ------------------------------------------------------------------
-    def _process_spec(
-        self,
-        spec: _RuleJobSpec,
-        context: QgsProcessingContext,
-        feedback: QgsProcessingFeedback,
-    ) -> None:
-        """Run the complete export pipeline for one _RuleJobSpec."""
-
-        # Step 1 — start from the Phase-1 .fgb (string path, no QObject)
-        layer_input: Union[str, QgsVectorLayer] = spec.source_path
-
-        # Step 2 — apply rule filter expression (optional)
-        if spec.filter_expression:
-            filtered = _processing_run(
-                "native:extractbyexpression",
-                {
-                    "INPUT": layer_input,
-                    "EXPRESSION": spec.filter_expression,
-                    "OUTPUT": "TEMPORARY_OUTPUT",
-                }
-            )["OUTPUT"]
-            if isinstance(filtered, str):
-                filtered = QgsVectorLayer(filtered, "", "ogr")
-            if not filtered or not filtered.isValid() or filtered.featureCount() <= 0:
-                return
-            # In-thread memory layer — safe to forward to the next algorithm
-            layer_input = filtered
-
-        # Step 3 — add computed fields
-        refactored = _processing_run(
-            "native:refactorfields",
-            {
-                "INPUT": layer_input,
-                "FIELDS_MAPPING": spec.field_mapping,
-                "OUTPUT": "TEMPORARY_OUTPUT",
-            }
-        )["OUTPUT"]
-        if isinstance(refactored, str):
-            refactored = QgsVectorLayer(refactored, "", "ogr")
-        if not refactored or not refactored.isValid():
-            return
-        
-        # Step 4 — transform / clip geometry
-        transformed = _processing_run(
-            "native:geometrybyexpression",
-            {
-                "INPUT": refactored,
-                "OUTPUT_GEOMETRY": spec.geom_output_type,
-                "EXPRESSION": spec.geom_expression,
-                "OUTPUT": "TEMPORARY_OUTPUT",
-            }
-        )["OUTPUT"]
-        if isinstance(transformed, str):
-            transformed = QgsVectorLayer(transformed, "", "ogr")
-
-        if not transformed or not transformed.isValid() or transformed.featureCount() <= 0:
-            return
-
-        # Step 5 — persist to FlatGeobuf (final, file-based output)
-        _processing_run(
-            "gdal:convertformat",
-            {
-                "INPUT": transformed,
-                "OPTIONS": "-explodecollections -skipinvalid -skipfailures",
-                "OUTPUT": spec.output_path,
-            }
-        
-        )
-
-    def finished(self, result: bool) -> None:
-        pass
+    def run(self):
+        try:
+            # Minor jitter to prevent concurrent initialization race conditions in GDAL
+            import random
+            sleep(0.5)
+            self.result = self.func(*self.args, **self.kwargs)
+            return True
+        except Exception as e:
+            self.exception = e
+            return False
 
 
 class RulesExporter:
-    """Export all rules to datasets with geometry transformations (parallel)."""
+    """Export all rules to datasets with geometry transformations using parallel processing."""
 
     FIELD_PREFIX = "q2vt"
 
     def __init__(
         self,
-        flattened_rules,
+        flattened_rules: List['FlattenedRule'], 
         extent,
         include_required_fields_only,
         max_zoom,
         utils_dir,
         cent_source,
         feedback: QgsProcessingFeedback,
-        cpu_percent: int = 100,
+        cpu_percent: int = 100
     ):
         self.flattened_rules = flattened_rules
         self.extent = extent
@@ -734,304 +604,208 @@ class RulesExporter:
         self.max_zoom = max_zoom
         self.cent_source = cent_source
         self.utils_dir = utils_dir
-        self.processed_layers: List[QgsVectorLayer] = []
         self.feedback = feedback
-        self.num_workers = max(1, int(cpu_count() * cpu_percent / 100))
+        self.cpu_percent = cpu_percent
+        self.processed_layers = []
 
-    # ======================================================================
-    # Public entry point
-    # ======================================================================
+    def export(self) -> Tuple[List[QgsVectorLayer], List['FlattenedRule']]:
+        """Export all rules to datasets using QgsTask parallel workers."""
+        num_workers = max(1, int(os.cpu_count() * self.cpu_percent / 100))
+        
+        # 1. Export base layers parallelly
+        output_datasets = self._export_base_layers(num_workers)
 
-    def export(self):
-        """Export all rules and return (processed_layers, flattened_rules)."""
+        # 2. Export rules parallelly
+        total_datasets = len(output_datasets)
+        rule_tasks = []
+        
+        for index, flat_rules in enumerate(output_datasets.values()):
+            task_desc = f"Exporting rule {index + 1}/{total_datasets}"
+            task = _ParallelExportTask(task_desc, self._export_rule_thread_safe, flat_rules)
+            rule_tasks.append((task, flat_rules))
 
-        # Build output_dataset → [FlattenedRule, ...] map
-        output_datasets: Dict[str, list] = {
-            r.output_dataset: [] for r in self.flattened_rules
-        }
+        self._run_tasks(rule_tasks, num_workers)
+
+        successful_flat_rules = []
+        for task, flat_rules in rule_tasks:
+            if task.status() == QgsTask.Complete and task.result:
+                layer_path = task.result
+                layer = QgsVectorLayer(layer_path, flat_rules[0].output_dataset, "ogr")
+                if layer.isValid() and layer.featureCount() > 0:
+                    self.processed_layers.append(layer)
+                    successful_flat_rules.extend(flat_rules)
+            else:
+                for rule in flat_rules:
+                    if rule in self.flattened_rules:
+                        self.flattened_rules.remove(rule)
+                        
+        return self.processed_layers, successful_flat_rules
+
+    def _run_tasks(self, tasks_with_meta: list, num_workers: int):
+        """Throttle and process QgsTasks safely waiting for their execution."""
+        manager = QgsApplication.taskManager()
+        active_tasks = []
+        task_queue = list(tasks_with_meta)
+        
+        while task_queue or active_tasks:
+            if self.feedback.isCanceled():
+                for t, _ in active_tasks:
+                    t.cancel()
+                break
+
+            while len(active_tasks) < num_workers and task_queue:
+                t_tuple = task_queue.pop(0)
+                t = t_tuple[0]
+                manager.addTask(t)
+                active_tasks.append(t_tuple)
+            
+            for t_tuple in active_tasks[:]:
+                t = t_tuple[0]
+                if t.status() in [QgsTask.Complete, QgsTask.Terminated]:
+                    active_tasks.remove(t_tuple)
+
+            QCoreApplication.processEvents()
+            sleep(0.5)
+
+    def _export_base_layers(self, num_workers: int):
+        """Export base vector layers to FlatGeobuf format utilizing Tasks."""
+        output_datasets = {flat_rule.output_dataset: [] for flat_rule in self.flattened_rules}
+        
+        tasks_meta = []
+        unique_layer_ids = set()
+        
         for flat_rule in self.flattened_rules:
             output_datasets[flat_rule.output_dataset].append(flat_rule)
-
-        # ------------------------------------------------------------------
-        # Phase 1  (parallel, background) — source layers → FlatGeobuf
-        # ------------------------------------------------------------------
-        self._run_phase1(output_datasets)
-
-        # ------------------------------------------------------------------
-        # Phase 0 / preparation  (main thread)
-        # Every QObject access happens here before any background task starts.
-        # _build_job_specs returns (spec, flat_rules_group) tuples so that
-        # Phase 3 can map each output file back to its flat_rules group using
-        # the POST-mutation output_dataset name stored in spec.layer_name.
-        # ------------------------------------------------------------------
-        spec_groups = self._build_job_specs(output_datasets)
-
-        # ------------------------------------------------------------------
-        # Phase 2  (parallel, background) — per-rule export pipeline
-        # ------------------------------------------------------------------
-        self._run_phase2([sg[0] for sg in spec_groups])
-
-        # ------------------------------------------------------------------
-        # Phase 3  (main thread) — load output files into QgsVectorLayers
-        #
-        # IMPORTANT: _get_geometry_transformation (called inside
-        # _build_job_specs) may call flat_rule.set_attr("c", …), which
-        # mutates flat_rule.output_dataset in-place.  spec.output_path and
-        # spec.layer_name are derived from the POST-mutation value, so we
-        # must use the spec objects — not the original output_datasets keys
-        # — to locate the written files and name the loaded layers.
-        # ------------------------------------------------------------------
-        for spec, flat_rules_group in spec_groups:
-            if exists(spec.output_path):
-                layer = QgsVectorLayer(spec.output_path, spec.layer_name, "ogr")
+            layer_id = flat_rule.layer.id()
+            
+            if layer_id not in unique_layer_ids:
+                output_path = join(self.utils_dir, f"map_layer_{layer_id}.parquet")
+                if not exists(output_path):
+                    input_source = flat_rule.layer.source()
+                    # extent_wkt = self.extent.asWktCoordinates().replace(",", "")
+                    extent = self.extent
+                    output_crs = f'EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
+                    
+                    task = _ParallelExportTask(
+                        f"Base Layer {layer_id}",
+                        self._process_base_layer_thread,
+                        input_source, output_path, extent, output_crs
+                    )
+                    tasks_meta.append((task, None))
+                unique_layer_ids.add(layer_id)
                 
-                if layer and layer.isValid() and layer.featureCount() > 0:
-                    self.processed_layers.append(layer)
-            else:
-                # Export failed → drop these rules so the styler skips them
-                for flat_rule in flat_rules_group:
-                    if flat_rule in self.flattened_rules:
-                        self.flattened_rules.remove(flat_rule)
-        return self.processed_layers, self.flattened_rules
+        if tasks_meta:
+            self._run_tasks(tasks_meta, num_workers)
+            
+        return output_datasets
 
-    # ======================================================================
-    # Phase 1 — parallel base-layer conversion
-    # ======================================================================
+    def _process_base_layer_thread(self, input_source, output_path, extent, output_crs) -> str:
+        """Run inside QgsTask: Thread-safe base layer creation."""
+        # base_options = f"-dim XY -explodecollections -t_srs {output_crs} -skipinvalid -skipfailures"
+        # spat_options = f"-spat {extent} -spat_srs {output_crs}"
+        # options = f"{base_options} {spat_options}"
+        # params = {"INPUT": input_source, "OPTIONS": options, "OUTPUT": output_path}
+        # self._run_alg("convertformat", "gdal", **params)
+        
+        reproject_params = {"INPUT": input_source, "TARGET_CRS": QgsCoordinateReferenceSystem(output_crs)}
+        reprojected = self._run_alg("reprojectlayer", "native", **reproject_params)
+        
+        clip_params = {"INPUT": reprojected, "EXTENT": extent, "CLIP": False}
+        clipped = self._run_alg("extractbyextent", "native", **clip_params)
+        
+        singleparts_params = {"INPUT": clipped, "OUTPUT": output_path}
+        singleparted = self._run_alg("multiparttosingleparts", "native", **singleparts_params)
 
-    def _run_phase1(self, output_datasets: Dict[str, list]) -> None:
-        """
-        Convert every unique source layer to FlatGeobuf.
+        return singleparted
 
-        The layer's source-path string is extracted here on the main thread.
-        Only that string (no QObject) is forwarded to the background task.
-        """
-        extent_wkt = self.extent.asWktCoordinates().replace(",", "")
-        output_crs = f'EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
-        options = (
-            f"-dim XY -explodecollections -t_srs {output_crs}"
-            f" -spat {extent_wkt} -spat_srs {output_crs}"
-        )
+    def _export_rule_thread_safe(self, flat_rules) -> Optional[str]:
+        """Export group of rules sharing the same dataset inside a thread-safe task."""
+        flat_rule = flat_rules[0]
+        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.parquet")
+        
+        if not exists(source_path):
+            return None
+            
+        temp_layer = QgsVectorLayer(source_path, "temp", "ogr")
+        if not temp_layer.isValid() or temp_layer.featureCount() <= 0:
+            return None
+            
+        self._updated_map_scale_variable(flat_rules)
+        fields = self._create_expression_fields(flat_rules)
+        
+        if flat_rule.get_attr("t") == 1:
+            fields = self._add_label_expression_field(flat_rule, fields)
+            
+        transformation = self._get_geometry_transformation(flat_rule)
+        if transformation:
+            return self._apply_field_mapping_thread_safe(source_path, fields, transformation, flat_rule)
+            
+        return None
 
-        seen_ids: set = set()
-        pending: List[Tuple[str, str, str]] = []
+    def _apply_field_mapping_thread_safe(
+        self, source_path: str, fields: Optional[list], transformation, flat_rule
+    ) -> Optional[str]:
+        """Apply field mapping and geometry transformation without touching UI memory layers."""
+        output_dataset = join(self.utils_dir, f"{flat_rule.output_dataset}.parquet")
+        if exists(output_dataset):
+            return output_dataset
 
-        for flat_rule in self.flattened_rules:
-            lid = flat_rule.layer.id()
-            output_path = join(self.utils_dir, f"map_layer_{lid}.fgb")
-            if lid not in seen_ids and not exists(output_path):
-                seen_ids.add(lid)
-                # .source() is a string read from a QObject — main thread only
-                pending.append((flat_rule.layer.source(), output_path, options))
+        field_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
+        if fields:
+            field_mapping.extend(fields)
+        rule_description = f"'{flat_rule.get_description()}'"
+        field_mapping.append((10, rule_description, f"{self.FIELD_PREFIX}_description"))
+        
+        temp_layer = QgsVectorLayer(source_path, "temp", "ogr")
+        if self.include_required_fields_only != 0:
+            all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in temp_layer.fields()]
+            field_mapping.extend(all_fields)
 
-        if pending:
-            self._dispatch_and_wait(_BaseLayerExportTask, pending)
+        field_mapping = [{"type": f[0], "expression": f[1], "name": f[2]} for f in field_mapping]
+        current_input = source_path
 
-    # ======================================================================
-    # Phase 0 — build job specs on the MAIN THREAD
-    # ======================================================================
+        if flat_rule.rule.filterExpression():
+            filtered_output = join(self.utils_dir, f"filt_{uuid4().hex[:8]}.parquet")
+            params = {
+                "INPUT": current_input,
+                "EXPRESSION": flat_rule.rule.filterExpression(),
+                "OUTPUT": filtered_output
+            }
+            extracted_path = self._run_alg("extractbyexpression", "native", **params)
+            
+            check_layer = QgsVectorLayer(extracted_path, "check", "ogr")
+            if not check_layer.isValid() or check_layer.featureCount() <= 0:
+                return None
+            current_input = extracted_path
 
-    def _build_job_specs(self, output_datasets: Dict[str, list]) -> List[Tuple]:
-        """
-        Produce a (_RuleJobSpec, flat_rules_group) tuple for every output-dataset
-        group.
+        refactored = self._run_alg("refactorfields", INPUT=current_input, FIELDS_MAPPING=field_mapping)
+        return self._apply_transformation_thread_safe(refactored, transformation, output_dataset)
 
-        CRITICAL: every method that reads or mutates a QObject
-        (_updated_map_scale_variable, _create_expression_fields,
-        _add_label_expression_field, _get_geometry_transformation,
-        flat_rule.rule.filterExpression, flat_rule.get_description, …)
-        is called here, on the main thread, before any background task starts.
-        The resulting specs are pure Python and safe to pass to workers.
+    def _apply_transformation_thread_safe(
+        self, current_input: str, transformation, output_dataset: str
+    ) -> Optional[str]:
+        """Apply geometry transformation purely resolving file paths inside tasks."""
+        geom_type, expression = abs(transformation[0] - 2), transformation[1]
+        params = {"INPUT": current_input, "OUTPUT_GEOMETRY": geom_type, "EXPRESSION": expression}
+        
+        geom_transformed = self._run_alg("geometrybyexpression", **params)
+        
+        check_layer = QgsVectorLayer(geom_transformed, "check", "ogr")
+        if not check_layer.isValid() or check_layer.featureCount() <= 0:
+            return None
 
-        NOTE ON output_dataset MUTATION
-        --------------------------------
-        _get_geometry_transformation may call flat_rule.set_attr("c", …),
-        which rewrites flat_rule.output_dataset in-place.  For example, a
-        polygon label rule starts with c=2 ("...c02...") but after the
-        centroid branch runs set_attr("c", 0) it becomes "...c00...".
-        The spec's output_path and layer_name are derived from the
-        POST-mutation flat_rule.output_dataset so that TilesStyler (which
-        also reads flat_rule.output_dataset) and the written file all use the
-        same name.
-        """
-        spec_groups: List[Tuple] = []
+        # self._run_alg("convertformat", "gdal", **params)
 
-        for output_dataset, flat_rules in output_datasets.items():
-            flat_rule = flat_rules[0]
-            source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
+        removenull_parameters = {"INPUT": check_layer, "REMOVE_EMPTY": True}
+        removed_nulls = self._run_alg("removenullgeometries", "native", **removenull_parameters)
 
-            if not exists(source_path) or QgsVectorLayer(source_path).featureCount() <= 0:
-                continue
+        singleparts_params = {"INPUT": removed_nulls, "OUTPUT": output_dataset}
+        singleparted = self._run_alg("multiparttosingleparts", "native", **singleparts_params)
 
-            # Probe the file to check for features and to read the field list.
-            # This QgsVectorLayer is created and discarded entirely on the main thread.
-            probe = QgsVectorLayer(source_path, "", "ogr")
-            # if not probe or not probe.isValid() or probe.featureCount() <= 0:
-            #     continue
+        return singleparted
 
-            # 1. Replace @map_scale tokens (mutates rule QObjects — main thread only)
-            self._updated_map_scale_variable(flat_rules)
-
-            # 2. Collect data-driven property fields (reads rule QObjects)
-            fields = self._create_expression_fields(flat_rules)
-            # 3. Label expression field (mutates rule settings — main thread only)
-            if flat_rule.get_attr("t") == 1:
-                fields = self._add_label_expression_field(flat_rule, fields)
-
-            # 4. Geometry transformation (may mutate flat_rule attrs — main thread only)
-            transformation = self._get_geometry_transformation(flat_rule)
-            if not transformation:
-                continue
-
-            # 5. Build field-mapping as pure Python dicts
-            raw_mapping = [(4, '"fid"', f"{self.FIELD_PREFIX}_fid")]
-            if fields:
-                raw_mapping.extend(fields)
-            # get_description() reads rule QObjects — main thread only
-            raw_mapping.append(
-                (10, f"'{flat_rule.get_description()}'", f"{self.FIELD_PREFIX}_description")
-            )
-            if self.include_required_fields_only != 0:
-                # probe.fields() reads file metadata — fine on main thread
-                raw_mapping.extend(
-                    (f.type(), f'"{f.name()}"', f"{f.name()}") for f in probe.fields()
-                )
-
-            # 6. Filter expression is a plain string (reading from QObject — main thread)
-            filter_expr: str = flat_rule.rule.filterExpression() or ""
-
-            # Use flat_rule.output_dataset AFTER _get_geometry_transformation
-            # may have mutated it (e.g. polygon label rule: c2→c0 for centroid).
-            # This ensures the output file, the loaded layer name, and
-            # TilesStyler all agree on the same dataset name.
-            final_dataset = flat_rule.output_dataset
-            spec = _RuleJobSpec(
-                source_path=source_path,
-                output_path=join(self.utils_dir, f"{final_dataset}.fgb"),
-                layer_name=final_dataset,
-                field_mapping=[
-                    {"type": t, "expression": e, "name": n}
-                    for t, e, n in raw_mapping
-                ],
-                
-                filter_expression=filter_expr,
-                
-                # geom_output_type preserves the original abs(target - 2) convention
-                geom_output_type=abs(transformation[0] - 2),
-                geom_expression=transformation[1],
-            )
-            spec_groups.append((spec, flat_rules))
-
-        return spec_groups
-
-    # ======================================================================
-    # Phase 2 — parallel rule export
-    # ======================================================================
-
-    def _run_phase2(self, job_specs: List[_RuleJobSpec]) -> None:
-        if job_specs:
-            self._dispatch_and_wait(_RuleExportTask, job_specs)
-
-    # ======================================================================
-    # Fixed-pool task dispatcher
-    # ======================================================================
-    
-    def _dispatch_and_wait(self, task_cls, items: list) -> None:
-        """
-        Run items directly on the main thread (processing.run is NOT thread-safe).
-        processEvents() keeps the QGIS UI responsive between items.
-        """
-        if task_cls is _BaseLayerExportTask:
-            self._run_base_layer_batch_main_thread(items)
-        elif task_cls is _RuleExportTask:
-            self._run_rule_batch_main_thread(items)
-
-    def _run_base_layer_batch_main_thread(self, batch: List[Tuple[str, str, str]]) -> None:
-        context = QgsProcessingContext()
-        feedback = QgsProcessingFeedback()
-        for source, output_path, options in batch:
-            if exists(output_path):
-                QgsApplication.processEvents()
-                continue
-            try:
-                _processing_run(
-                    "gdal:convertformat",
-                    {"INPUT": source, "OPTIONS": options, "OUTPUT": output_path}
-                )
-            except Exception:
-                pass
-            QgsApplication.processEvents()
-
-    def _run_rule_batch_main_thread(self, specs: List[_RuleJobSpec]) -> None:
-        context = QgsProcessingContext()
-        feedback = QgsProcessingFeedback()
-        for spec in specs:
-            if exists(spec.output_path):
-                QgsApplication.processEvents()
-                continue
-            try:
-                self._process_spec_main_thread(spec)
-            except Exception:
-                pass
-            QgsApplication.processEvents()
-
-    def _process_spec_main_thread(self, spec):
-        """Same pipeline as _RuleExportTask._process_spec but on the main thread."""
-        layer_input = spec.source_path
-        if spec.filter_expression:
-            filtered = _processing_run(
-                "native:extractbyexpression",
-                {"INPUT": layer_input, "EXPRESSION": spec.filter_expression, "OUTPUT": "TEMPORARY_OUTPUT"},
-            )["OUTPUT"]
-            if isinstance(filtered, str):
-                filtered = QgsVectorLayer(filtered, "", "ogr")
-            if not filtered or not filtered.isValid() or filtered.featureCount() <= 0:
-                return
-            layer_input = filtered
-
-        refactored = _processing_run(
-            "native:refactorfields",
-            {"INPUT": layer_input, "FIELDS_MAPPING": spec.field_mapping, "OUTPUT": "TEMPORARY_OUTPUT"}
-        )["OUTPUT"]
-        if isinstance(refactored, str):
-            refactored = QgsVectorLayer(refactored, "", "ogr")
-        if not refactored or not refactored.isValid():
-            return
-
-        transformed = _processing_run(
-            "native:geometrybyexpression",
-            {"INPUT": refactored, "OUTPUT_GEOMETRY": spec.geom_output_type,
-            "EXPRESSION": spec.geom_expression, "OUTPUT": "TEMPORARY_OUTPUT"}
-        )["OUTPUT"]
-        if isinstance(transformed, str):
-            transformed = QgsVectorLayer(transformed, "", "ogr")
-        if not transformed or not transformed.isValid() or transformed.featureCount() <= 0:
-            return
-
-        _processing_run(
-            "gdal:convertformat",
-            {"INPUT": transformed, "OPTIONS": "-explodecollections -skipinvalid -skipfailures",
-            "OUTPUT": spec.output_path}
-        )
-    
-    @staticmethod
-    def _split_into_batches(items: list, num_workers: int) -> List[list]:
-        """
-        Split *items* into exactly *num_workers* non-empty batches.
-        Any remainder from integer division is folded into the last batch
-        so the total batch count never exceeds num_workers.
-        """
-        size = max(1, len(items) // num_workers)
-        batches = [items[i: i + size] for i in range(0, len(items), size)]
-        while len(batches) > num_workers:
-            batches[-2].extend(batches.pop())
-        return batches
-
-    # ======================================================================
-    # Helpers — identical logic to the original, all run on main thread
-    # ======================================================================
-
-    def _updated_map_scale_variable(self, flat_rules) -> None:
-        """Replace @map_scale with the concrete scale value in every rule."""
+    def _updated_map_scale_variable(self, flat_rules):
+        """update expressions included @map_scale and replace it with the curren_scale"""
         for flat_rule in flat_rules:
             rule_type = flat_rule.get_attr("t")
             zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
@@ -1039,57 +813,50 @@ class RulesExporter:
                 settings = flat_rule.rule.settings()
                 label_exp = settings.getLabelExpression().expression()
                 if label_exp:
-                    settings.fieldName = label_exp.replace("@map_scale", zoom_scale)
+                    updated_exp = label_exp.replace("@map_scale", zoom_scale)
+                    settings.fieldName = updated_exp
                 if settings.geometryGeneratorEnabled:
-                    settings.geometryGenerator = settings.geometryGenerator.replace(
-                        "@map_scale", zoom_scale
-                    )
+                    updated_exp = settings.geometryGenerator.replace("@map_scale", zoom_scale)
+                    settings.geometryGenerator = updated_exp
             else:
                 symbol = flat_rule.rule.symbol()
                 if not symbol:
                     continue
-                for slyr in filter(
-                    lambda x: x.layerType() == "GeometryGenerator",
-                    flat_rule.rule.symbol().symbolLayers(),
-                ):
-                    slyr.setGeometryExpression(
-                        slyr.geometryExpression().replace("@map_scale", zoom_scale)
-                    )
+                symbol_layers = flat_rule.rule.symbol().symbolLayers()
+                for layer in filter(lambda x: x.layerType() == "GeometryGenerator", symbol_layers):
+                    generator_exp = layer.geometryExpression()
+                    updated_exp = generator_exp.replace("@map_scale", zoom_scale)
+                    layer.setGeometryExpression(updated_exp)
 
-    def _create_expression_fields(self, flat_rules) -> list:
-        """Collect calculated fields from data-driven properties of all rules."""
-        fields = []
-        for flat_rule in flat_rules:
-            min_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
-            fields_list = DataDefinedPropertiesFetcher(flat_rule.rule, min_zoom).fetch()
-            if fields_list:
-                fields.extend(fields_list)
-        return fields
+    def _get_polygon_centroids_expression(self):
+        """Get polygon centroids expression based on
+        user perference - visible polygon/whole polygon"""
+        if self.cent_source == 1:
+            extent_wkt = self.extent.asWktPolygon()
+            polygons = f"intersection(@geometry, geom_from_wkt('{extent_wkt}'))"
+        else:
+            polygons = "@geometry"
+        centroids = f"with_variable('source', {polygons}, if(intersects(centroid(@source), @source), centroid(@source),  point_on_surface(@source)))"
+        return centroids
 
-    def _add_label_expression_field(self, flat_rule, fields: list) -> list:
-        """Add the label expression as a calculated field."""
+    def _add_label_expression_field(self, flat_rule: 'FlattenedRule', fields: list) -> list:
+        """Add label expression as a calculated field."""
         field_name = f"{self.FIELD_PREFIX}_label"
         if not flat_rule.rule.settings():
             return fields
         label_exp = flat_rule.rule.settings().getLabelExpression().expression()
         if not label_exp:
             return fields
-        filter_exp = (
-            f'"{label_exp}"'
-            if not flat_rule.rule.settings().isExpression
-            else label_exp
-        )
-        if fields is None:
-            fields = []
+        filter_exp = f'"{label_exp}"' if not flat_rule.rule.settings().isExpression else label_exp
         fields.append([10, filter_exp, field_name])
         flat_rule.rule.settings().isExpression = False
         flat_rule.rule.settings().fieldName = field_name
         return fields
 
-    def _get_geometry_transformation(self, flat_rule) -> Optional[Tuple]:
-        """Determine the geometry transformation tuple needed for this rule."""
-        rule_type = flat_rule.get_attr("t")
+    def _get_geometry_transformation(self, flat_rule: 'FlattenedRule') -> Union[str, Tuple, None]:
+        """Determine geometry transformation needed for rule."""
         transformation = None
+        rule_type = flat_rule.get_attr("t")
         if rule_type == 0 and flat_rule.rule.symbol():
             transformation = self._get_renderer_transformation(flat_rule)
         elif rule_type == 1:
@@ -1097,37 +864,36 @@ class RulesExporter:
         if not transformation:
             return None
         extent_wkt = self.extent.asWktPolygon()
-        clipped = (
-            f"with_variable('clip',intersection({transformation[1]},"
-            f"geom_from_wkt('{extent_wkt}')),"
-            f"if(not is_empty_or_null(@clip),@clip,NULL))"
-        )
-        transformation[1] = clipped
+        clipped_geom = f"with_variable('clip',intersection({transformation[1]}, geom_from_wkt('{extent_wkt}')), if(not is_empty_or_null(@clip), @clip, NULL))"
+        transformation[1] = clipped_geom
         return tuple(transformation)
 
-    def _get_labeling_transformation(self, flat_rule) -> list:
-        """Return geometry transformation list for a labeling rule."""
+    def _get_labeling_transformation(self, flat_rule: 'FlattenedRule') -> Union[Tuple, str, None]:
+        """Get geometry transformation for labeling rules."""
         settings = flat_rule.rule.settings()
         target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
+
         if settings and settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
             transform_expr = settings.geometryGenerator
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attr("c", target_geom)
-        elif target_geom == 2:
+        elif target_geom == 2:  # Polygon to centroid
             flat_rule.set_attr("c", 0)
             target_geom = 0
             transform_expr = self._get_polygon_centroids_expression()
         return [target_geom, transform_expr]
 
-    def _get_renderer_transformation(self, flat_rule) -> Optional[list]:
-        """Return geometry transformation list for a renderer rule."""
+    def _get_renderer_transformation(self, flat_rule: 'FlattenedRule') -> Union[Tuple, str, None]:
+        """Get geometry transformation for renderer rules."""
         symbol = flat_rule.rule.symbol()
         if not symbol:
             return None
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
+        target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
+
         if symbol_layer.layerType() == "GeometryGenerator":
             target_geom = symbol_layer.subSymbol().type()
             transform_expr = symbol_layer.geometryExpression()
@@ -1141,18 +907,42 @@ class RulesExporter:
                     transform_expr = "boundary(@geometry)"
         return [target_geom, transform_expr]
 
-    def _get_polygon_centroids_expression(self) -> str:
-        """Return the polygon-to-centroid QGIS expression."""
-        if self.cent_source == 1:
-            extent_wkt = self.extent.asWktPolygon()
-            polygons = f"intersection(@geometry,geom_from_wkt('{extent_wkt}'))"
-        else:
-            polygons = "@geometry"
-        return (
-            f"with_variable('source',{polygons},"
-            f"if(intersects(centroid(@source),@source),"
-            f"centroid(@source),point_on_surface(@source)))"
-        )
+    def _create_expression_fields(self, flat_rules) -> list:
+        """Create calculated fields from data-driven properties."""
+        fields = []
+        for flat_rule in flat_rules:
+            min_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            fields_list = DataDefinedPropertiesFetcher(flat_rule.rule, min_zoom).fetch()
+            if not fields_list:
+                continue
+            fields.extend(fields_list)
+        return fields
+
+    def _run_alg(self, algorithm: str, algorithm_type: str = "native", **params):
+        """Runs the processing algorithms securely inside isolated thread contexts."""
+        # CRITICAL FIX: Instantiate an isolated Context and Feedback for the current thread.
+        # This prevents `processing.run()` from attempting to default to the main thread's QgsProject 
+        # map layer registry (which is precisely what triggers the fatal access violation).
+        context = QgsProcessingContext()
+        context.setExpressionContext(QgsProject.instance().createExpressionContext())
+        
+        task_feedback = QgsProcessingFeedback()
+        
+        if not params.get("OUTPUT") or params.get("OUTPUT") == "TEMPORARY_OUTPUT":
+            ext = ".parquet" if algorithm == "convertformat" else ".gpkg"
+            params["OUTPUT"] = join(self.utils_dir, f"temp_{uuid4().hex[:8]}{ext}")
+            
+        output = run(
+            f"{algorithm_type}:{algorithm}", 
+            params,
+            context=context,
+            feedback=task_feedback
+        )["OUTPUT"] 
+        
+        if isinstance(output, QgsVectorLayer):
+            return output.source()
+            
+        return output
 
 
 class RulesFlattener:
@@ -1667,7 +1457,7 @@ class QGIS2VectorTiles:
     def __init__(
         self,
         min_zoom: int = 0,
-        max_zoom: int = 3,
+        max_zoom: int = 5,
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
