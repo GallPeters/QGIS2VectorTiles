@@ -630,7 +630,8 @@ class RulesExporter:
 
         successful_flat_rules = []
         for task, flat_rules in rule_tasks:
-            if task.status() == QgsTask.Complete and task.result:
+            rules_dataset = join(self.utils_dir, f"{flat_rules[0].output_dataset}.parquet")
+            if exists(rules_dataset):
                 layer_path = task.result
                 layer = QgsVectorLayer(layer_path, flat_rules[0].output_dataset, "ogr")
                 if layer.isValid() and layer.featureCount() > 0:
