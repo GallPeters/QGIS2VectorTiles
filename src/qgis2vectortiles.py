@@ -91,9 +91,11 @@ except ImportError:
 if int(qVersion()[0]) == 5:
     from PyQt5.QtXml import QDomDocument
     from PyQt5.QtCore import QVariant
+    from PyQt5 import sip
 else:
     from PyQt6.QtXml import QDomDocument
     from PyQt6.QtCore import QVariant
+    from PyQt6 import sip
 
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
@@ -661,9 +663,13 @@ class RulesExporter:
             
             for t_tuple in active_tasks[:]:
                 t = t_tuple[0]
-                if t.status() in [QgsTask.Complete, QgsTask.Terminated]:
+                if not t or sip.isdeleted(t):
                     active_tasks.remove(t_tuple)
+                    continue
 
+                if t.status() in (QgsTask.Complete, QgsTask.Terminated):
+                    active_tasks.remove(t_tuple)
+                    
             QCoreApplication.processEvents()
             sleep(0.5)
 
@@ -687,7 +693,7 @@ class RulesExporter:
                     output_crs = f'EPSG:{_TILING_SCHEME["EPSG_CRS"]}'
                     
                     task = _ParallelExportTask(
-                        f"Base Layer {layer_id}",
+                        f"Exporting layer {flat_rule.layer.name()}",
                         self._process_base_layer_thread,
                         input_source, output_path, extent, output_crs
                     )

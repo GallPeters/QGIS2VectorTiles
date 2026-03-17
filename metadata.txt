@@ -16,8 +16,8 @@ tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
-	** v2.3 (16.03.26):
-		- Bug fixes ensuring a safe parallel rules export process that prevents QGIS crashes.
+	** v2.3 (17.03.26):
+		- Bug fixes ensuring a safe parallel rules export process which prevents QGIS crashes.
 	** v2.2 (11.03.26):
 		- Export rules in parallel to speed up tiles generation.
 	** v2.1 (26.02.26):
