@@ -1,6 +1,6 @@
 [general]
 name=QGIS2VectorTiles
-qgisMinimumVersion=3.40
+qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=Pack a QGIS project into a styled vector tile package including a client-side stylesheet, sprites, and a ready-to-use MapLibre viewer.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
@@ -17,9 +17,9 @@ icon=icon.png
 hasProcessingProvider=yes
 changelog=
 	** v2.3 (17.03.26):
-		- Bug fixes ensuring a safe parallel rules export process which prevents QGIS crashes.
+		- Bug fixes ensuring a parallel and stable rules export process using qgis task manager.
 	** v2.2 (11.03.26):
-		- Export rules in parallel to speed up tiles generation.
+		- Export rules in parallel to speed up processings tools runtime.
 	** v2.1 (26.02.26):
 		- Bug fixes ensuring proper sprite generation in QT6.
 	** v2.0 (24.02.26):
