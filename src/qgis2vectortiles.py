@@ -713,17 +713,28 @@ class RulesExporter:
         # options = f"{base_options} {spat_options}"
         # params = {"INPUT": input_source, "OPTIONS": options, "OUTPUT": output_path}
         # self._run_alg("convertformat", "gdal", **params)
-        
-        reproject_params = {"INPUT": input_source, "TARGET_CRS": QgsCoordinateReferenceSystem(output_crs)}
+
+        fix_geom_linework_params = {"INPUT": input_source, 'METHOD':0}
+        fix_geom_linework = self._run_alg("fixgeometries", "native", **fix_geom_linework_params)
+
+        fix_geom_structure_params = {"INPUT": fix_geom_linework, 'METHOD':1}
+        fix_geom_structure = self._run_alg("fixgeometries", "native", **fix_geom_structure_params)
+
+        reproject_params = {"INPUT": fix_geom_structure, "TARGET_CRS": QgsCoordinateReferenceSystem(output_crs)}
         reprojected = self._run_alg("reprojectlayer", "native", **reproject_params)
         
         clip_params = {"INPUT": reprojected, "EXTENT": extent, "CLIP": False}
         clipped = self._run_alg("extractbyextent", "native", **clip_params)
         
-        singleparts_params = {"INPUT": clipped, "OUTPUT": output_path}
+        singleparts_params = {"INPUT": clipped}
         singleparted = self._run_alg("multiparttosingleparts", "native", **singleparts_params)
 
-        return singleparted
+        tolerance = _TILES_CONF["GENERAL_CONF"]["DATA_SIMPLIFICATION_TOLERANCE"]
+        simplify_params = {"INPUT": singleparted, 'METHOD':0, 'TOLERANCE': tolerance,  "OUTPUT": output_path}
+        simplified = self._run_alg("simplifygeometries", "native", **simplify_params)
+
+
+        return simplified
 
     def _export_rule_thread_safe(self, flat_rules) -> Optional[str]:
         """Export group of rules sharing the same dataset inside a thread-safe task."""
