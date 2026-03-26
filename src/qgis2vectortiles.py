@@ -8,7 +8,7 @@ Converts QGIS vector layer styling to vector tiles format by:
 4. Generating vector tiles using GDAL MVT driver
 5. Loading and styling the tiles in QGIS with appropriate symbology
 """
-
+import subprocess
 import platform
 from sys import prefix
 from threading import Lock
@@ -21,7 +21,6 @@ from time import perf_counter, sleep
 from typing import List, Optional, Tuple, Union, Dict
 from urllib.request import pathname2url
 from shutil import rmtree, copy2
-from subprocess import Popen
 from uuid import uuid4
 
 
@@ -443,8 +442,9 @@ class TilesStyler:
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [layer])
 
 
+
 class GDALTilesGenerator:
-    """Generate XYZ tiles from GeoJSON layers using GDAL MVT driver."""
+    """Generate XYZ tiles using GDAL CLI + VRT (fast, multi-layer, per-zoom)."""
 
     def __init__(
         self,
@@ -462,102 +462,121 @@ class GDALTilesGenerator:
         self.cpu_percent = cpu_percent
         self.feedback = feedback
 
-    def generate(self) -> str:
-        """Generate tiles file from configured layers."""
-        self._configure_gdal_threading()
-
-        spatial_ref = osr.SpatialReference()
-        crs_id = _TILING_SCHEME["EPSG_CRS"]
-        spatial_ref.ImportFromEPSG(crs_id)
-
+    def generate(self) -> Tuple[str, int]:
+        """Main entry point."""
         output, uri = self._prepare_output_paths()
-        min_zoom, max_zoom = self._get_global_min_zoom(), self._get_global_max_zoom()
-        creation_options = self._get_creation_options(min_zoom, max_zoom)
+        vrt_path = join(self.output_dir, "layers.vrt")
 
-        driver = gdal.GetDriverByName("MVT")
-        dataset = driver.Create(output, 0, 0, 0, gdal.GDT_Unknown, options=creation_options)
+        min_zoom = self._get_global_min_zoom()
+        max_zoom = self._get_global_max_zoom()
 
-        for layer in self.layers:
-            self._process_layer(dataset, layer, spatial_ref)
-
-        dataset.FlushCache()
-        dataset = None
+        self._build_vrt(vrt_path)
+        self._run_ogr2ogr(vrt_path, output, min_zoom, max_zoom)
 
         return uri, min_zoom
 
-    def _configure_gdal_threading(self):
-        """Configure GDAL threading based on CPU percentage."""
+    # ---------------------------------------------------------------------
+    # VRT CREATION
+    # ---------------------------------------------------------------------
+
+    def _build_vrt(self, vrt_path: str):
+        """Build VRT with per-layer zoom configuration."""
+
+        with open(vrt_path, "w", encoding="utf-8") as f:
+            f.write("<OGRVRTDataSource>\n")
+
+            for layer in self.layers:
+                layer_name = basename(layer.source()).split(".")[0]
+
+                # Extract zooms from your naming convention
+                min_zoom = int(layer_name.split("o")[1][:2])
+                max_zoom = int(layer_name.split("i")[1][:2])
+
+                source = layer.source().split("|layername=")[0]
+
+                f.write(f"""
+    <OGRVRTLayer name="{layer_name}">
+        <SrcDataSource>{source}</SrcDataSource>
+        <LayerSRS>EPSG:3857</LayerSRS>
+        <GeometryType>wkbUnknown</GeometryType>
+        <LayerCreationOption name="MINZOOM" value="{min_zoom}"/>
+        <LayerCreationOption name="MAXZOOM" value="{max_zoom}"/>
+    </OGRVRTLayer>
+""")
+
+            f.write("</OGRVRTDataSource>\n")
+
+    # ---------------------------------------------------------------------
+    # OGR2OGR EXECUTION
+    # ---------------------------------------------------------------------
+
+    def _run_ogr2ogr(self, vrt_path: str, output: str, min_zoom: int, max_zoom: int):
+        """Run single ogr2ogr command."""
 
         cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
-        gdal.SetConfigOption("GDAL_NUM_THREADS", cpu_num)
+        env = os.environ.copy()
+        env["GDAL_NUM_THREADS"] = cpu_num
+
+        cmd = [
+            "ogr2ogr",
+            "-f", "MVT",
+            output,
+            vrt_path,
+            "-dsco", f"MINZOOM={min_zoom}",
+            "-dsco", f"MAXZOOM={max_zoom}",
+            "-dsco", "EXTENT=4096",
+            "-t_srs", "EPSG:3857",
+        ]
+
+        # --- Windows: hide console ---
+        startupinfo = None
+        creationflags = 0
+
+        if os.name == "nt":
+            creationflags = 0x08000000  # CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
+
+        try:
+            subprocess.run(
+                cmd,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                startupinfo=startupinfo,
+                creationflags=creationflags,
+            )
+        except subprocess.CalledProcessError as e:
+            error_msg = f"ogr2ogr failed.\nError: {e.stderr}"
+            if self.feedback:
+                self.feedback.reportError(error_msg)
+            raise RuntimeError(error_msg)
+
+    # ---------------------------------------------------------------------
+    # HELPERS
+    # ---------------------------------------------------------------------
 
     def _prepare_output_paths(self) -> Tuple[str, str]:
-        """Prepare output paths based on output type."""
         template = pathname2url(r"/{z}/{x}/{y}.pbf")
         output = join(self.output_dir, "tiles")
         uri = f"type=xyz&zmin=0&zmax=22&url=file:///{output}{template}"
         return output, uri
 
-    def _get_creation_options(self, min_zoom: int, max_zoom: int) -> List[str]:
-        """Generate GDAL creation options based on output type."""
-        zoom_range = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
-        param_limit = 4 if int(gdal.VersionInfo()) < 3100200 else -1
-        scheme_conf = list(_TILING_SCHEME.values())[:param_limit]
-        scheme_options = [f"TILING_SCHEME=EPSG{','.join([str(val) for val in scheme_conf])}"]
-        extra_options = [f"{key}={value}" for key, value in _TILES_CONF["GDAL_OPTIONS"].items()]
-        return zoom_range + scheme_options + extra_options
-
-    def _process_layer(self, dataset, layer: QgsVectorLayer, spatial_ref):
-        """Process a single layer and add it to the dataset."""
-        layer_name = basename(layer.source()).split(".")[0]
-        min_zoom = int(layer_name.split("o")[1][:2])
-        max_zoom = int(layer_name.split("i")[1][:2])
-
-        source = layer.source().split("|layername=")[0]
-        src_dataset = ogr.Open(source)
-        src_layer = src_dataset.GetLayer(0)
-
-        options = [f"MINZOOM={min_zoom}", f"MAXZOOM={max_zoom}"]
-        geom_type = src_layer.GetGeomType()
-        out_layer = dataset.CreateLayer(layer_name, spatial_ref, geom_type, options)
-
-        # Copy field definitions
-        src_defn = src_layer.GetLayerDefn()
-        for i in range(src_defn.GetFieldCount()):
-            field_defn = src_defn.GetFieldDefn(i)
-            out_layer.CreateField(field_defn)
-
-        # Copy features
-        out_defn = out_layer.GetLayerDefn()
-        src_layer.ResetReading()
-
-        for src_feat in src_layer:
-            out_feat = ogr.Feature(out_defn)
-            out_feat.SetGeometry(src_feat.GetGeometryRef())
-
-            for i in range(out_defn.GetFieldCount()):
-                out_feat.SetField(i, src_feat.GetField(i))
-
-            out_layer.CreateFeature(out_feat)
-            out_feat = None
-
-        src_dataset = None
-
     def _get_global_min_zoom(self) -> int:
-        """Get minimum zoom level across all layers."""
         min_zoom = float("inf")
         for layer in self.layers:
-            layer_name = basename(layer.source()).split(".")[0]
-            zoom = int(layer_name.split("o")[1][:2])
+            name = basename(layer.source()).split(".")[0]
+            zoom = int(name.split("o")[1][:2])
             min_zoom = min(min_zoom, zoom)
         return int(min_zoom) if min_zoom != float("inf") else 0
 
     def _get_global_max_zoom(self) -> int:
-        """Get maximum zoom level across all layers."""
         max_zoom = 0
         for layer in self.layers:
-            layer_name = basename(layer.source()).split(".")[0]
-            zoom = int(layer_name.split("i")[1][:2])
+            name = basename(layer.source()).split(".")[0]
+            zoom = int(name.split("i")[1][:2])
             max_zoom = max(max_zoom, zoom)
         return max_zoom if max_zoom > 0 else 14
 
@@ -1703,7 +1722,7 @@ class QGIS2VectorTiles:
             '\nSet WshShell = Nothing'
             )
         command = ["wscript.exe", launcher]
-        Popen(command)
+        subprocess.Popen(command)
 
     def _create_unix_script(self, output_folder, utilities_folder):
         """Create and execute Unix/Linux/macOS shell script."""
@@ -1732,7 +1751,7 @@ class QGIS2VectorTiles:
                 f"    open {html_path}\n"
                 "fi\n"
             )
-        Popen(["bash", launcher], cwd=output_folder)
+        subprocess.Popen(["bash", launcher], cwd=output_folder)
         
 
 
