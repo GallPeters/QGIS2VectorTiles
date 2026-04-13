@@ -21,7 +21,7 @@ from qgis.core import (
     QgsTextBackgroundSettings,
 )
 from qgis.utils import iface
-from .qgis2sprites import SpriteGenerator
+from .sprite_generator import SpriteGenerator
 
 
 class PropertyExtractor:
@@ -686,7 +686,9 @@ class TextPropertyExtractor:
 class QgisMapLibreStyleExporter:
     """Export QGIS Vector Tile Layer styles to MapLibre GL style JSON."""
 
-    def __init__(self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None, background_type = 0):
+    def __init__(
+        self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None, background_type=0
+    ):
         """Initialize converter with output directory and optional QgsVectorTileLayer."""
         self.output_dir = output_dir
         self.marker_symbols = {}  # Dict to collect marker symbols for sprite generation
@@ -723,27 +725,23 @@ class QgisMapLibreStyleExporter:
         }
         if background_type == 0:
             background = {
-            "id": 'osm-background',
-            "type": 'raster',
-            "source": 'osm',
-            "minzoom": 0,
-            "maxzoom": 22
-        }
+                "id": "osm-background",
+                "type": "raster",
+                "source": "osm",
+                "minzoom": 0,
+                "maxzoom": 22,
+            }
         else:
             background_qcolor = QgsProject.instance().backgroundColor()
             background_color = PropertyExtractor.convert_qcolor_to_maplibre(background_qcolor)
-            background =  {
-      "id": "background",
-      "type": "background",
-      "minzoom": 0,
-      "maxzoom": 22,
-      "paint": {
-        "background-color": background_color
-      }
-    }
+            background = {
+                "id": "background",
+                "type": "background",
+                "minzoom": 0,
+                "maxzoom": 22,
+                "paint": {"background-color": background_color},
+            }
         self.style["layers"].append(background)
-            
-
 
     def export(self) -> Dict[str, Any]:
         """Convert all styles from QgsVectorTileLayer to MapLibre GL style."""
@@ -996,7 +994,7 @@ class QgisMapLibreStyleExporter:
             ] = FillPropertyExtractor.get_fill_translate_anchor()
 
             # Outline color (only if applicable)
-            outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
+            # outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
             # if outline_color:
             #     layer_def["paint"]["fill-outline-color"] = outline_color
 
@@ -1082,7 +1080,6 @@ class QgisMapLibreStyleExporter:
         layer_def["paint"]["text-halo-width"] = TextPropertyExtractor.get_text_halo_width(
             text_format
         )
-        # layer_def["paint"]["text-halo-blur"] = TextPropertyExtractor.get_text_halo_blur(text_format)
         layer_def["paint"]["text-translate"] = TextPropertyExtractor.get_text_translate()
         layer_def["paint"][
             "text-translate-anchor"

@@ -1,7 +1,7 @@
 """QGIS2VectorTiles plugin for QGIS"""
 
 from qgis.core import QgsApplication
-from .src.provider import QGIS2VectorTilesPorvider
+from .src.processing.provider import QGIS2VectorTilesPorvider
 
 
 class QGIS2VectorTiles:

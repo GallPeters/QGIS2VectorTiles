@@ -12,7 +12,8 @@ from qgis.core import (
     QgsProcessingParameterEnum,
 )
 from qgis.utils import iface
-from .qgis2vectortiles import QGIS2VectorTiles, _PLUGIN_DIR
+from ..qgis2vectortiles import QGIS2VectorTiles
+from ..utils.config import _PLUGIN_DIR, _EPSG_CRS
 
 _ICON = QIcon(join(_PLUGIN_DIR, "icon.png"))
 
@@ -33,7 +34,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
-    BACKGROUND_TYPE = "BACKGROUND_TYPE" 
+    BACKGROUND_TYPE = "BACKGROUND_TYPE"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -162,7 +163,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 optional=False,
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterEnum(
                 self.BACKGROUND_TYPE,
@@ -214,7 +215,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         min_zoom = self.parameterAsInt(parameters, self.MIN_ZOOM, context)
         max_zoom = self.parameterAsInt(parameters, self.MAX_ZOOM, context)
         extent = self.parameterAsExtent(
-            parameters, self.EXTENT, context, QgsCoordinateReferenceSystem("EPSG:3857")
+            parameters, self.EXTENT, context, QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
         )
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)

@@ -3,131 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MapLibre Vector Tiles Viewer</title>
-    <script src="http://localhost:_PORT/utilities_dir_name/maplibre-gl.js"></script>
-    <link href="http://localhost:_PORT/utilities_dir_name/maplibre-gl.css" rel="stylesheet">
+    <title>MapLibre Viewer</title>
+
+    <!-- Served from utils -->
+    <script src="http://localhost:9000/maplibre-gl.js"></script>
+    <link href="http://localhost:9000/maplibre-gl.css" rel="stylesheet">
+
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-        }
-        #map {
+        body { margin: 0; }
+        #map { position: absolute; inset: 0; }
+        #zoom-indicator {
             position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 100%;
-        }
-        #zoom-indicator {   
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(255, 255, 255, 0.9);
+            top: 10px; left: 10px;
+            background: rgba(255,255,255,.9);
             padding: 8px 12px;
             border-radius: 4px;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            z-index: 1;
+            font: bold 14px Arial;
         }
     </style>
 </head>
 <body>
-    <div id="zoom-indicator">Zoom: 0</div>
-    <div id="map"></div>
 
-    <script>
-        const map = new maplibregl.Map({
-            container: 'map',
-            style: {
-                // Provide a default glyphs URL so symbol layers can render text
-                version: 8,
-                sources: {
-                    'osm': {
-                        type: 'raster',
-                        tiles: [
-                            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-                        ],
-                        tileSize: 256,
-                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    },
-                    'vector_tiles': {
+<div id="zoom-indicator">Zoom: 0</div>
+<div id="map"></div>
+
+<script>
+const map = new maplibregl.Map({
+    container: 'map',
+    style: 'http://localhost:9000/style/style.json',
+    center: [0, 20],
+    zoom: 2
+});
+
+map.addControl(new maplibregl.NavigationControl());
+
+map.on('load', () => {
+    map.addSource('osm', {
+        type: 'raster',
+        tiles: [
+            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize: 256
+    });
+
+    const firstLayerId = map.getStyle().layers[0]?.id;
+    map.addLayer({ id: 'osm', type: 'raster', source: 'osm' }, firstLayerId);
+
+    fetch('http://localhost:9000/layers')
+        .then(r => r.json())
+        .then(layers => {
+            layers.forEach(({ layer, minzoom, maxzoom, bounds }) => {
+                if (!map.getSource(layer)) {
+                    map.addSource(layer, {
                         type: 'vector',
-                        tiles: ['http://localhost:9000/tiles/{z}/{x}/{y}.pbf'],
-                        bounds: [-180, -90, 180, 90]
-                    }
-                },
-                sprite: 'http://localhost:9000/style/sprite/sprite',
-                layers: []
-            },
-            center: [0, 0],
-            zoom: 2
+                        tiles: [`http://localhost:9000/tiles/${layer}/{z}/{x}/{y}.pbf`],
+                        minzoom: Number(minzoom ?? 0),
+                        maxzoom: Number(maxzoom ?? 14),
+                        bounds: bounds
+                            ? bounds.split(',').map(Number)
+                            : [-180, -85.05, 180, 85.05]
+                    });
+                }
+            });
         });
+});
 
-        // Add navigation controls
-        map.addControl(new maplibregl.NavigationControl());
+map.on('zoom', () => {
+    document.getElementById('zoom-indicator').textContent =
+        'Zoom: ' + map.getZoom().toFixed(2);
+});
+</script>
 
-        // Load the custom style and add vector layers on top of OSM
-        map.on('load', () => {
-            fetch('http://localhost:9000/style/style.json')
-                .then(response => response.json())
-                .then(styleData => {
-                        // Merge sources from fetched style into the current map (if missing)
-                        if (styleData.sources) {
-                            Object.entries(styleData.sources).forEach(([name, src]) => {
-                                if (!map.getSource(name)) {
-                                    try {
-                                        map.addSource(name, src);
-                                    } catch (e) {
-                                        console.warn('Could not add source', name, e);
-                                    }
-                                }
-                            });
-                        }
-
-                        // If the map's style lacks sprite or glyphs, copy them from fetched style
-                        const baseStyle = map.getStyle();
-                        if (!baseStyle.sprite && styleData.sprite) baseStyle.sprite = styleData.sprite;
-                        if (!baseStyle.glyphs && styleData.glyphs) baseStyle.glyphs = styleData.glyphs;
-
-                        // Add all layers from the style safely
-                        if (Array.isArray(styleData.layers)) {
-                            styleData.layers.forEach(layer => {
-                                try {
-                                    if (!map.getLayer(layer.id)) {
-                                        map.addLayer(layer);
-                                    }
-                                } catch (e) {
-                                    console.error('Error adding layer', layer && layer.id, e);
-                                }
-                            });
-                            
-                            // Set zoom level and center to specific coordinates
-                            map.setZoom(2);
-                            map.setCenter([32, 32]);
-                        } else {
-                            console.warn('Fetched style has no layers array');
-                        }
-                })
-                .catch(error => {
-                    console.error('Error loading style:', error);
-                });
-
-            // Update zoom indicator
-            updateZoomIndicator();
-        });
-
-        // Update zoom level on map move
-        map.on('zoom', updateZoomIndicator);
-        map.on('zoomend', updateZoomIndicator);
-
-        function updateZoomIndicator() {
-            const zoom = map.getZoom();
-            document.getElementById('zoom-indicator').textContent = 
-                'Zoom: ' + zoom.toFixed(2);
-        }
-    </script>
 </body>
 </html>
