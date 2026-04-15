@@ -716,7 +716,7 @@ class QgisMapLibreStyleExporter:
             "sources": {
                 self.source_name: {
                     "type": "vector",
-                    "tiles": ["http://localhost:9000/tiles/{z}/{x}/{y}.pbf"],
+                    "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf"],
                 }
             },
             "glyphs": "local://{fontstack}/{range}.pbf",
@@ -1192,6 +1192,8 @@ class QgisMapLibreStyleExporter:
                 self.marker_symbols, full_output_dir, scale_factor=1, test_mode=False
             )
             sprite_gen.generate()
+        else:
+            del self.style["sprite"]  # Remove sprite reference if no sprites
 
         # Save style.json
         filepath = os.path.join(full_output_dir, filename)

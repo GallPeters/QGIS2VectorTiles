@@ -16,9 +16,9 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("text/html", ".html")
 mimetypes.add_type("application/json", ".json")
 
+ROOT_DIR = Path(dirname(__file__)).parent.resolve()
 UTILITIES_DIR = Path(__file__).parent.resolve()
-ROOT_DIR = Path(dirname(UTILITIES_DIR))
-
+_Q2VTPORT = 9000
 
 def xyz_y_to_tms(zoom, y):
     """Convert XYZ tile Y coordinate to TMS format."""
@@ -46,7 +46,7 @@ def _mercator_bounds_to_wgs84(bounds_str: str) -> str:
         north = y_to_lat(ymax)
         return f"{west:.6f},{south:.6f},{east:.6f},{north:.6f}"
 
-    except ExceptionGroup:
+    except (ValueError, TypeError):
         return "-180,-85.05,180,85.05"
 
 
@@ -76,7 +76,7 @@ def load_mbtiles(directory: Path):
 
             print(f"Loaded {f.name} (zoom {layers[name]['minzoom']}-{layers[name]['maxzoom']})")
 
-        except ExceptionGroup as e:
+        except (sqlite3.Error, OSError) as e:
             print(f"Failed to load {f.name}: {e}")
 
     return layers
@@ -89,23 +89,23 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(self.path).lstrip("/")
 
         # Root → viewer
-        if not path or path == "index.html":
+        if 'maplibre_viewer' in path:
             return self._serve_file(UTILITIES_DIR / "maplibre_viewer.html")
 
         # Vector tiles
-        elif path.startswith("tiles/"):
+        elif path.startswith('tiles/'):
             return self._serve_tile(path)
 
         # Layers metadata
-        elif path == "layers":
+        elif path == 'layers':
             return self._serve_layers()
 
         # Style + sprites (served from root/style)
-        elif path.startswith("style/"):
+        elif path.startswith('style'):
             return self._serve_file(ROOT_DIR / path)
 
         # Static files (maplibre js/css in utils)
-        elif (UTILITIES_DIR / path).is_file():
+        elif 'maplibre-gl' in path:
             return self._serve_file(UTILITIES_DIR / path)
 
         else:
@@ -120,10 +120,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
-        except ExceptionGroup:
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            print(f"File not found: {file_path} — {e}")
             self.send_error(404)
 
     def _serve_tile(self, path: str):
+        # path format: tiles/{layer}/{z}/{x}/{y}.pbf
         parts = path.split("/")
         if len(parts) < 5:
             return self.send_error(400)
@@ -183,8 +185,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def log_message(self, format, *args): # pylint: disable=W0622, W0621
+        # Suppress per-request console noise; remove this to re-enable access logs
+        pass
 
-def run(port: int = 9000):
+
+def run(port: int = _Q2VTPORT):
     """Start the MBTiles server on the specified port."""
     layers = load_mbtiles(ROOT_DIR)
 
@@ -194,12 +200,14 @@ def run(port: int = 9000):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.layers = layers
 
-    print(f"\nServer running at http://localhost:{port}\n")
+    print(f"\nServer running at http://localhost:{port}")
+    print(f"Viewer:  http://localhost:{port}/maplibre_viewer.html")
+    print(f"Layers:  http://localhost:{port}/layers\n")
     server.serve_forever()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MBTiles tile server")
-    parser.add_argument("--port", type=int, default=9000)
+    parser.add_argument("--port", type=int, default=_Q2VTPORT)
     args = parser.parse_args()
     run(args.port)

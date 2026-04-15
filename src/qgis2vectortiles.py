@@ -16,9 +16,9 @@ import platform
 import subprocess
 from datetime import datetime
 from os import makedirs, listdir
-from os.path import join, basename
+from os.path import join, exists
 from shutil import rmtree, copy2
-from sys import prefix
+# from sys import prefix
 from time import perf_counter
 from typing import List, Optional
 from uuid import uuid4
@@ -35,7 +35,7 @@ from qgis.core import (
     QgsCoordinateTransform,
 )
 
-from .utils.config import _VIEWER, _MAPLIBRE, _PORT, _EPSG_CRS, _SERVER
+from .utils.config import _VIEWER, _MAPLIBRE, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH
 from .utils.flattened_rule import FlattenedRule
 from .core.rules_flattener import RulesFlattener
 from .core.rules_exporter import RulesExporter
@@ -61,7 +61,6 @@ class QGIS2VectorTiles:
         extent=None,
         output_dir: str = None,
         include_required_fields_only=0,
-        output_type: str = "xyz",
         cpu_percent: int = 100,
         cent_source: int = 0,
         background_type: int = 0,
@@ -73,7 +72,6 @@ class QGIS2VectorTiles:
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir
         self.include_required_fields_only = include_required_fields_only
-        self.output_type = output_type.lower()
         self.cpu_percent = min(cpu_percent, 90)
         self.cent_source = cent_source
         self.background_type = background_type
@@ -187,7 +185,7 @@ class QGIS2VectorTiles:
     def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str) -> str:
         """Generate vector tiles."""
         generator = GDALTilesGenerator(
-            layers, temp_dir, self.output_type, self.extent, self.cpu_percent, self.feedback
+            layers, temp_dir, self.extent, self.cpu_percent, self.feedback
         )
         tiles_uri, min_zoom = generator.generate()
         self.min_zoom = min_zoom
@@ -219,9 +217,17 @@ class QGIS2VectorTiles:
     def serve_tiles(self, output_folder):
         """Serve generated tiles using a simple HTTP server (cross-platform)."""
         # Create utilities directory
-        utilitie_dir_name = "utilities"
-        utilities = join(output_folder, utilitie_dir_name)
-        makedirs(utilities, exist_ok=True)
+        utils_dir_name = "utils"
+        utils_dir = join(output_folder, utils_dir_name)
+        makedirs(utils_dir, exist_ok=True)
+
+        # Copy utils files to utils directory
+        activator = _BAT if platform.system() == "Windows" else _SH
+        copy2(activator, output_folder)
+        copy2(_SERVER, utils_dir)
+        copy2(_VIEWER, utils_dir)
+        copy2(f"{_MAPLIBRE}.js", utils_dir)
+        copy2(f"{_MAPLIBRE}.css", utils_dir)
 
         # Get the extent of the tiles in EPSG:4326 for the MapLibre viewer
         src_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
@@ -233,92 +239,37 @@ class QGIS2VectorTiles:
         center_4326 = coord_transform.transform(center_src_crs)
         center_corrd = f"[{center_4326.x()}, {center_4326.y()}]"
 
-        # Write the MapLibre viewer HTML with the correct bounds and serve the tiles
-        with open(_VIEWER, "r", encoding="utf-8") as html_source:
-            html_content = html_source.read()
-            html_content = html_content.replace("map.setZoom(2)", f"map.setZoom({self.min_zoom})")
-            html_content = html_content.replace(
-                "map.setCenter([32, 32])", f"map.setCenter({center_corrd})"
-            )
-            html_content = html_content.replace(
-                "_PORT/utilities_dir_name", f"{_PORT}/{utilitie_dir_name}"
-            )
+        # Replace placeholders in viewer HTML and launch server
+        self.replace_in_file(
+            join(utils_dir, _VIEWER),
+            {
+                "_Q2VT_MINZOOM": self.min_zoom,
+                "_Q2VT_CENTER": center_corrd,
+                "_Q2VT_PORT": str(_PORT),
+            },
+        )
+        self.replace_in_file(join(utils_dir, _SERVER), {"_Q2VT_PORT": str(_PORT)})
+        self.replace_in_file(join(utils_dir, activator), {"_Q2VT_PORT": str(_PORT)})
 
-        html_source.close()
-        with open(join(utilities, "maplibre_viewer.html"), "w", encoding="utf-8") as html_copy:
-            html_copy.write(html_content)
-        html_copy.close()
+        # Start the server and open viewer using the activator script
+        subprocess.Popen(["bash", join(output_folder, activator)], cwd=output_folder)
 
-        # Copy maplibre-gl js and css files
-        copy2(f"{_SERVER}", utilities)
-        copy2(f"{_MAPLIBRE}.js", utilities)
-        copy2(f"{_MAPLIBRE}.css", utilities)
+    def replace_in_file(self, file_path: str, replacements: dict[str, str]) -> None:
+        """Replace all occurrences of keys in a file with their corresponding values."""
+        if not exists(file_path):
+            raise FileNotFoundError(file_path)
+        if not replacements:
+            raise ValueError("empty replacements")
 
-        # Create platform-specific script to serve the tiles and open the viewer
-        system = platform.system()
-
-        if system == "Windows":
-            self._create_windows_script(output_folder, utilities)
-        else:  # Linux and macOS
-            self._create_unix_script(output_folder, utilities)
-
-    def _create_windows_script(self, output_folder, utilities_folder):
-        """Create and execute Windows batch script."""
-        python_exe = join(prefix, "python3.exe")
-
-        utilities_dir_name = basename(utilities_folder)
-        html_path = f"http://localhost:{_PORT}/{utilities_dir_name}/maplibre_viewer.html"
-        activator = join(utilities_folder, "activate_server.bat")
-        with open(activator, "w", encoding="utf-8") as bat:
-            bat.write(
-                "@echo off\n"
-                f'for /f "tokens=5" %%a in (\'netstat -aon ^| find ":{_PORT}" ^| find "LISTENING"\') do (\n'  # pylint: disable=C0301
-                "  taskkill /F /PID %%a >nul 2>&1\n"
-                ")\n"
-                f'start /B "" "{python_exe}" -m http.server {_PORT} -d "{output_folder}"'
-                "\ntimeout /t 2 /nobreak >nul\n"
-                f'start "" "{html_path}"\n'
-            )
-
-        launcher = join(output_folder, "launch_viewer.vbs")
-
-        with open(launcher, "w", encoding="utf-8") as bat:
-            bat.write(
-                'Set WshShell = CreateObject("WScript.Shell")\n'
-                f'WshShell.Run  "cmd /c ""{activator}""" , 0'
-                "\nSet WshShell = Nothing"
-            )
-        command = ["wscript.exe", launcher]
-        subprocess.Popen(command)
-
-    def _create_unix_script(self, output_folder, utilities_folder):
-        """Create and execute Unix/Linux/macOS shell script."""
-        html_path = f"http://localhost:{_PORT}/{basename(utilities_folder)}/maplibre_viewer.html"
-        if platform.system() == "Linux":
-            python_exe = join(prefix, "bin", "python3")
-        else:
-            python_exe = join(prefix, "python3")
-
-        launcher = join(output_folder, "launch_viewer.sh")
-        with open(launcher, "w", encoding="utf-8") as sh:
-            sh.write(
-                "#!/bin/bash\n"
-                f"PID=$(lsof -ti:{_PORT})\n"
-                'if [ ! -z "$PID" ]; then\n'
-                "  kill -9 $PID\n"
-                "fi\n"
-                # start server
-                f'"{python_exe}" -m http.server {_PORT} &\n'
-                # wait
-                "sleep 2\n"
-                # open browser
-                "if command -v xdg-open >/dev/null 2>&1; then\n"
-                f"    xdg-open {html_path}\n"
-                "elif command -v open >/dev/null 2>&1; then\n"
-                f"    open {html_path}\n"
-                "fi\n"
-            )
-        subprocess.Popen(["bash", launcher], cwd=output_folder)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            for old, new in replacements.items():
+                content = content.replace(old, new)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except OSError as exc:
+            raise OSError(f"failed: {file_path}") from exc
 
 
 if __name__ == "__console__":

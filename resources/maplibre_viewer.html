@@ -6,8 +6,8 @@
     <title>MapLibre Viewer</title>
 
     <!-- Served from utils -->
-    <script src="http://localhost:9000/maplibre-gl.js"></script>
-    <link href="http://localhost:9000/maplibre-gl.css" rel="stylesheet">
+    <script src="http://localhost:_Q2VTPORT/maplibre-gl.js"></script>
+    <link href="http://localhost:_Q2VTPORT/maplibre-gl.css" rel="stylesheet">
 
     <style>
         body { margin: 0; }
@@ -30,7 +30,7 @@
 <script>
 const map = new maplibregl.Map({
     container: 'map',
-    style: 'http://localhost:9000/style/style.json',
+    style: 'http://localhost:_Q2VTPORT/style/style.json',
     center: [0, 20],
     zoom: 2
 });
@@ -51,14 +51,14 @@ map.on('load', () => {
     const firstLayerId = map.getStyle().layers[0]?.id;
     map.addLayer({ id: 'osm', type: 'raster', source: 'osm' }, firstLayerId);
 
-    fetch('http://localhost:9000/layers')
+    fetch('http://localhost:_Q2VTPORT/layers')
         .then(r => r.json())
         .then(layers => {
             layers.forEach(({ layer, minzoom, maxzoom, bounds }) => {
                 if (!map.getSource(layer)) {
                     map.addSource(layer, {
                         type: 'vector',
-                        tiles: [`http://localhost:9000/tiles/${layer}/{z}/{x}/{y}.pbf`],
+                        tiles: [`http://localhost:_Q2VTPORT/tiles/${layer}/{z}/{x}/{y}.pbf`],
                         minzoom: Number(minzoom ?? 0),
                         maxzoom: Number(maxzoom ?? 14),
                         bounds: bounds

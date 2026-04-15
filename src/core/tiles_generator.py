@@ -24,14 +24,12 @@ class GDALTilesGenerator:
         self,
         layers: List[QgsVectorLayer],
         output_dir: str,
-        output_type: str,
         extent,
         cpu_percent: int,
         feedback: QgsProcessingFeedback,
     ):
         self.layers = layers
         self.output_dir = output_dir
-        self.output_type = output_type
         self.extent = extent
         self.cpu_percent = cpu_percent
         self.feedback = feedback
