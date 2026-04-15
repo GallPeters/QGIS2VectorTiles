@@ -724,6 +724,18 @@ class QgisMapLibreStyleExporter:
             "layers": [],
         }
         if background_type == 0:
+            self.style["sources"]["osm"] = {
+                "type": "raster",
+                "tiles": [
+                    "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                    "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                    "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                ],
+                "tileSize": 256,
+                "attribution": (
+                    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'  # pylint: disable=C0301
+                ),
+            }
             background = {
                 "id": "osm-background",
                 "type": "raster",

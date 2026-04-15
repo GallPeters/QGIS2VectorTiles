@@ -12,6 +12,7 @@ Depends on: config, zoom_levels, flattened_rule, data_defined_properties
 """
 
 import os
+import threading
 from os.path import join, exists
 from time import sleep
 from typing import List, Optional, Tuple, Union
@@ -79,6 +80,8 @@ class RulesExporter:
         self.feedback = feedback
         self.cpu_percent = cpu_percent
         self.processed_layers = []
+        self._source_locks: dict = {}
+        self._source_locks_mutex = threading.Lock()
 
     def export(self) -> Tuple[List[QgsVectorLayer], List[FlattenedRule]]:
         """Export all rules to datasets using QgsTask parallel workers."""
@@ -178,10 +181,34 @@ class RulesExporter:
 
         return output_datasets
 
+    def _get_source_lock(self, input_source: str) -> threading.Lock:
+        """Return a per-file lock for the given source path.
+
+        GeoPackage files are backed by SQLite, which uses file-level locking.
+        When two tasks open the same .gpkg concurrently (e.g. two layers from
+        the same file), GDAL may request a write lock for metadata updates,
+        causing the second task to block indefinitely.  Serialising all access
+        to the same base file path avoids the deadlock.
+        """
+        base_path = input_source.split("|")[0]
+        with self._source_locks_mutex:
+            if base_path not in self._source_locks:
+                self._source_locks[base_path] = threading.Lock()
+            return self._source_locks[base_path]
+
     def _process_base_layer_thread(self, input_source, output_path, extent, output_crs) -> str:
         """Run inside QgsTask: Thread-safe base layer creation."""
-        fix_geom_linework_params = {"INPUT": input_source, "METHOD": 0}
-        fix_geom_linework = self._run_alg("fixgeometries", "native", **fix_geom_linework_params)
+        # Serialise the initial read from the source file.  GeoPackage is
+        # backed by SQLite with file-level locking; two concurrent tasks
+        # opening the same .gpkg (e.g. two different layers from one file)
+        # can cause GDAL to deadlock waiting for the write lock that it
+        # requests when updating metadata.  Once the first algorithm has
+        # produced an intermediate file all subsequent steps are safe to
+        # run in parallel.
+        lock = self._get_source_lock(input_source)
+        with lock:
+            fix_geom_linework_params = {"INPUT": input_source, "METHOD": 0}
+            fix_geom_linework = self._run_alg("fixgeometries", "native", **fix_geom_linework_params)
 
         fix_geom_structure_params = {"INPUT": fix_geom_linework, "METHOD": 1}
         fix_geom_structure = self._run_alg("fixgeometries", "native", **fix_geom_structure_params)

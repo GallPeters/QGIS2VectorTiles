@@ -4,7 +4,7 @@ qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=Pack a QGIS project into a styled vector tile package including a client-side stylesheet, sprites, and a ready-to-use MapLibre viewer.
 about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
-version=2.3
+version=2.4
 author=Jossef Kanter
 email=jossefkan@gmail.com
 experimental=False
@@ -16,6 +16,10 @@ tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
+	** v2.4 (17.04.26):
+		- Output single mbtiles file (instead of XYZ directory).
+		- Switch tiles generator from GDAL python bindings to GDAL CLI.
+		- Bug fixes ensuring a smooth export process avoiding locking mechanism when multiple layers using the same gpkg.
 	** v2.3 (17.03.26):
 		- Bug fixes ensuring a parallel and stable rules export process using qgis task manager.
 	** v2.2 (11.03.26):

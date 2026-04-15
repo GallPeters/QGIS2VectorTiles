@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MapLibre Viewer</title>
-
-    <!-- Served from utils -->
-    <script src="http://localhost:_Q2VTPORT/maplibre-gl.js"></script>
-    <link href="http://localhost:_Q2VTPORT/maplibre-gl.css" rel="stylesheet">
+    <script src="http://localhost:18111991/maplibre-gl.js"></script>
+    <link href="http://localhost:18111991/maplibre-gl.css" rel="stylesheet">
 
     <style>
         body { margin: 0; }
@@ -30,35 +28,37 @@
 <script>
 const map = new maplibregl.Map({
     container: 'map',
-    style: 'http://localhost:_Q2VTPORT/style/style.json',
+    style: 'http://localhost:18111991/style/style.json',
     center: [0, 20],
     zoom: 2
 });
 
-map.addControl(new maplibregl.NavigationControl());
 
+map.addControl(new maplibregl.NavigationControl());
+map.setZoom(_Q2VT_MINZOOM);
+map.setCenter(_Q2VT_CENTER);
 map.on('load', () => {
     map.addSource('osm', {
-        type: 'raster',
-        tiles: [
-            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        ],
-        tileSize: 256
-    });
+            type: 'raster',
+            tiles: [
+                'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+            ],
+            tileSize: 256
+        });
 
     const firstLayerId = map.getStyle().layers[0]?.id;
     map.addLayer({ id: 'osm', type: 'raster', source: 'osm' }, firstLayerId);
 
-    fetch('http://localhost:_Q2VTPORT/layers')
+    fetch('http://localhost:18111991/layers')
         .then(r => r.json())
         .then(layers => {
             layers.forEach(({ layer, minzoom, maxzoom, bounds }) => {
                 if (!map.getSource(layer)) {
                     map.addSource(layer, {
                         type: 'vector',
-                        tiles: [`http://localhost:_Q2VTPORT/tiles/${layer}/{z}/{x}/{y}.pbf`],
+                        tiles: [`http://localhost:18111991/tiles/${layer}/{z}/{x}/{y}.pbf`],
                         minzoom: Number(minzoom ?? 0),
                         maxzoom: Number(maxzoom ?? 14),
                         bounds: bounds
@@ -70,10 +70,8 @@ map.on('load', () => {
         });
 });
 
-map.on('zoom', () => {
-    document.getElementById('zoom-indicator').textContent =
-        'Zoom: ' + map.getZoom().toFixed(2);
-});
+
+
 </script>
 
 </body>

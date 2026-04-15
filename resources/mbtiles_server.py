@@ -18,7 +18,7 @@ mimetypes.add_type("application/json", ".json")
 
 ROOT_DIR = Path(dirname(__file__)).parent.resolve()
 UTILITIES_DIR = Path(__file__).parent.resolve()
-_Q2VTPORT = 9000
+
 
 def xyz_y_to_tms(zoom, y):
     """Convert XYZ tile Y coordinate to TMS format."""
@@ -84,28 +84,29 @@ def load_mbtiles(directory: Path):
 
 class Handler(BaseHTTPRequestHandler):
     """HTTP request handler for serving tiles and metadata."""
+
     def do_GET(self):
-        """ Handle GET requests for tiles, metadata, and static files. """
+        """Handle GET requests for tiles, metadata, and static files."""
         path = unquote(self.path).lstrip("/")
 
         # Root → viewer
-        if 'maplibre_viewer' in path:
+        if "maplibre_viewer" in path:
             return self._serve_file(UTILITIES_DIR / "maplibre_viewer.html")
 
         # Vector tiles
-        elif path.startswith('tiles/'):
+        elif path.startswith("tiles/"):
             return self._serve_tile(path)
 
         # Layers metadata
-        elif path == 'layers':
+        elif path == "layers":
             return self._serve_layers()
 
         # Style + sprites (served from root/style)
-        elif path.startswith('style'):
+        elif path.startswith("style"):
             return self._serve_file(ROOT_DIR / path)
 
         # Static files (maplibre js/css in utils)
-        elif 'maplibre-gl' in path:
+        elif "maplibre-gl" in path:
             return self._serve_file(UTILITIES_DIR / path)
 
         else:
@@ -185,12 +186,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, format, *args): # pylint: disable=W0622, W0621
+    def log_message(self, format, *args):  # pylint: disable=W0622, W0621
         # Suppress per-request console noise; remove this to re-enable access logs
         pass
 
 
-def run(port: int = _Q2VTPORT):
+def run(port: int = 18111991):
     """Start the MBTiles server on the specified port."""
     layers = load_mbtiles(ROOT_DIR)
 
@@ -208,6 +209,6 @@ def run(port: int = _Q2VTPORT):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MBTiles tile server")
-    parser.add_argument("--port", type=int, default=_Q2VTPORT)
+    parser.add_argument("--port", type=int, default=18111991)
     args = parser.parse_args()
     run(args.port)

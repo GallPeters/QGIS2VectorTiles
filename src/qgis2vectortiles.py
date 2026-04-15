@@ -16,9 +16,10 @@ import platform
 import subprocess
 from datetime import datetime
 from os import makedirs, listdir
-from os.path import join, exists
+from os.path import join, exists, basename
 from shutil import rmtree, copy2
-# from sys import prefix
+
+from sys import prefix
 from time import perf_counter
 from typing import List, Optional
 from uuid import uuid4
@@ -35,7 +36,7 @@ from qgis.core import (
     QgsCoordinateTransform,
 )
 
-from .utils.config import _VIEWER, _MAPLIBRE, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH
+from .utils.config import _VIEWER, _MAPLIBRE, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
 from .utils.flattened_rule import FlattenedRule
 from .core.rules_flattener import RulesFlattener
 from .core.rules_exporter import RulesExporter
@@ -223,7 +224,12 @@ class QGIS2VectorTiles:
 
         # Copy utils files to utils directory
         activator = _BAT if platform.system() == "Windows" else _SH
-        copy2(activator, output_folder)
+        wrapper = _VB if platform.system() == "Windows" else None
+        if wrapper:
+            copy2(activator, utils_dir)
+            copy2(wrapper, output_folder)
+        else:
+            copy2(activator, output_folder)
         copy2(_SERVER, utils_dir)
         copy2(_VIEWER, utils_dir)
         copy2(f"{_MAPLIBRE}.js", utils_dir)
@@ -239,20 +245,38 @@ class QGIS2VectorTiles:
         center_4326 = coord_transform.transform(center_src_crs)
         center_corrd = f"[{center_4326.x()}, {center_4326.y()}]"
 
-        # Replace placeholders in viewer HTML and launch server
+        # Get python exe path
+        if platform.system() == "Windows":
+            python_exe = join(prefix, "pythonw.exe")
+        elif platform.system() == "Linux":
+            python_exe = join(prefix, "bin", "python3")
+        else:
+            python_exe = join(prefix, "python3")
+
+        # Replace placeholders in the utils
         self.replace_in_file(
-            join(utils_dir, _VIEWER),
+            join(utils_dir,basename(_VIEWER)),
             {
-                "_Q2VT_MINZOOM": self.min_zoom,
+                "_Q2VT_MINZOOM": str(self.min_zoom),
                 "_Q2VT_CENTER": center_corrd,
-                "_Q2VT_PORT": str(_PORT),
+                "18111991": str(_PORT),
             },
         )
-        self.replace_in_file(join(utils_dir, _SERVER), {"_Q2VT_PORT": str(_PORT)})
-        self.replace_in_file(join(utils_dir, activator), {"_Q2VT_PORT": str(_PORT)})
 
-        # Start the server and open viewer using the activator script
-        subprocess.Popen(["bash", join(output_folder, activator)], cwd=output_folder)
+        self.replace_in_file(join(utils_dir, basename(_SERVER)), {"18111991": str(_PORT)})
+        self.replace_in_file(
+            join(utils_dir if wrapper else output_folder, basename(activator)),
+            {
+                "18111991": str(_PORT),
+                "_Q2VT_PYTHON": python_exe,
+                "_Q2VT_UTILS": join(utils_dir, "mbtiles_server.py"),
+            },
+        )
+
+        # Launch server and viewer
+        
+        command = "wscript.exe" if wrapper else 'bash'
+        subprocess.Popen([command, join(output_folder, basename(wrapper) or basename(activator))])
 
     def replace_in_file(self, file_path: str, replacements: dict[str, str]) -> None:
         """Replace all occurrences of keys in a file with their corresponding values."""

@@ -17,6 +17,7 @@ _MAPLIBRE = join(_RESOURCES, "maplibre-gl")
 _SERVER = join(_RESOURCES, "mbtiles_server.py")
 _BAT = join(_RESOURCES, "activate_server.bat")
 _SH = join(_RESOURCES, "activate_server.sh")
+_VB = join(_RESOURCES, "activate_server.vbs")
 _PORT = 9000
 _EPSG_CRS = 3857
 _DATA_SIMPLIFICATION_TOLERANCE = 1  # CRS Units
@@ -36,6 +37,7 @@ else:
 
 __all__ = [
     "_RESOURCES",
+    "_VB",
     "_BAT",
     "_SH",
     "_SERVER",
