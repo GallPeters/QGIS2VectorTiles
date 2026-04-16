@@ -8,15 +8,28 @@
     <link href="http://localhost:18111991/maplibre-gl.css" rel="stylesheet">
 
     <style>
-        body { margin: 0; }
-        #map { position: absolute; inset: 0; }
-        #zoom-indicator {
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #map {
             position: absolute;
-            top: 10px; left: 10px;
-            background: rgba(255,255,255,.9);
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+        #zoom-indicator {   
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
             padding: 8px 12px;
             border-radius: 4px;
-            font: bold 14px Arial;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 1;
         }
     </style>
 </head>
@@ -68,10 +81,19 @@ map.on('load', () => {
                 }
             });
         });
+        // Update zoom indicator
+        updateZoomIndicator();
 });
 
+// Update zoom level on map move
+map.on('zoom', updateZoomIndicator);
+map.on('zoomend', updateZoomIndicator);
 
-
+function updateZoomIndicator() {
+    const zoom = map.getZoom();
+    document.getElementById('zoom-indicator').textContent = 
+        'Zoom: ' + zoom.toFixed(2);
+        }
 </script>
 
 </body>

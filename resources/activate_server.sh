@@ -1,27 +1,22 @@
-#!/usr/bin/env bash
-# Start the MBTiles server in the background, then open the viewer.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#!/bin/bash
+
+# Kill processes using selected port
+lsof -ti :18111991 | xargs kill -9 2>/dev/null
+
+# Go to project root (one level above this script's location)
+cd "$(dirname "$0")"
 
 echo "Starting MBTiles server..."
-_Q2VT_PYTHON "$SCRIPT_DIR/mbtiles_server.py" --port 18111991 &
-SERVER_PID=$!
 
-# Wait for the server to be ready (poll the port, timeout after 10 s).
-for i in $(seq 1 10); do
-    sleep 1
-    if python3 -c "import socket; s=socket.create_connection(('127.0.0.1',18111991),1); s.close()" 2>/dev/null; then
-        break
-    fi
-done
+# Launch the server in the background (non-blocking)
+_Q2VT_PYTHON _Q2VT_UTILS --port 18111991 &
 
-# Open the viewer — works on macOS (open) and most Linux desktops (xdg-open).
+# Give the server a moment to start before opening the browser
+sleep 2
+
+# Open the viewer in the default browser
 if command -v xdg-open &>/dev/null; then
-    xdg-open "http://localhost:18111991/"
+    xdg-open "http://localhost:18111991/maplibre_viewer.html"   # Linux
 elif command -v open &>/dev/null; then
-    open "http://localhost:18111991/"
-else
-    echo "Server running. Open http://localhost:18111991/ in your browser."
+    open "http://localhost:18111991/maplibre_viewer.html"       # macOS
 fi
-
-# Keep the script alive so Ctrl-C stops the server cleanly.
-wait $SERVER_PID

@@ -68,7 +68,7 @@ class QGIS2VectorTiles:
         feedback: QgsProcessingFeedback = None,
     ):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom
+        self.max_zoom = max_zoom + 1
         self.extent = extent or iface.mapCanvas().extent()
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir
@@ -255,7 +255,7 @@ class QGIS2VectorTiles:
 
         # Replace placeholders in the utils
         self.replace_in_file(
-            join(utils_dir,basename(_VIEWER)),
+            join(utils_dir, basename(_VIEWER)),
             {
                 "_Q2VT_MINZOOM": str(self.min_zoom),
                 "_Q2VT_CENTER": center_corrd,
@@ -274,9 +274,10 @@ class QGIS2VectorTiles:
         )
 
         # Launch server and viewer
-        
-        command = "wscript.exe" if wrapper else 'bash'
-        subprocess.Popen([command, join(output_folder, basename(wrapper) or basename(activator))])
+
+        command = "wscript.exe" if wrapper else "bash"
+        popen_file = wrapper if wrapper else activator
+        subprocess.Popen([command, join(output_folder, basename(popen_file))], cwd=output_folder)
 
     def replace_in_file(self, file_path: str, replacements: dict[str, str]) -> None:
         """Replace all occurrences of keys in a file with their corresponding values."""

@@ -4,7 +4,7 @@ rules_exporter.py
 _ParallelExportTask — lightweight QgsTask wrapper that runs a callable in a
                       background QGIS task (internal to this module).
 
-RulesExporter — exports every FlattenedRule to a GeoParquet dataset on disk,
+RulesExporter — exports every FlattenedRule to a FlatGeobuf dataset on disk,
 applying geometry transformations, field mappings, and data-defined-property
 fields.  Uses _ParallelExportTask for parallelism.
 
@@ -103,7 +103,7 @@ class RulesExporter:
 
         successful_flat_rules = []
         for task, flat_rules in rule_tasks:
-            rules_dataset = join(self.utils_dir, f"{flat_rules[0].output_dataset}.parquet")
+            rules_dataset = join(self.utils_dir, f"{flat_rules[0].output_dataset}.fgb")
             if exists(rules_dataset):
                 layer_path = task.result
                 layer = QgsVectorLayer(layer_path, flat_rules[0].output_dataset, "ogr")
@@ -159,7 +159,7 @@ class RulesExporter:
             layer_id = flat_rule.layer.id()
 
             if layer_id not in unique_layer_ids:
-                output_path = join(self.utils_dir, f"map_layer_{layer_id}.parquet")
+                output_path = join(self.utils_dir, f"map_layer_{layer_id}.fgb")
                 if not exists(output_path):
                     input_source = flat_rule.layer.source()
                     extent = self.extent
@@ -239,7 +239,7 @@ class RulesExporter:
     def _export_rule_thread_safe(self, flat_rules) -> Optional[str]:
         """Export group of rules sharing the same dataset inside a thread-safe task."""
         flat_rule = flat_rules[0]
-        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.parquet")
+        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
 
         if not exists(source_path):
             return None
@@ -264,7 +264,7 @@ class RulesExporter:
         self, source_path: str, fields: Optional[list], transformation, flat_rule
     ) -> Optional[str]:
         """Apply field mapping and geometry transformation without touching UI memory layers."""
-        output_dataset = join(self.utils_dir, f"{flat_rule.output_dataset}.parquet")
+        output_dataset = join(self.utils_dir, f"{flat_rule.output_dataset}.fgb")
         if exists(output_dataset):
             return output_dataset
 
@@ -276,14 +276,14 @@ class RulesExporter:
 
         temp_layer = QgsVectorLayer(source_path, "temp", "ogr")
         if self.include_required_fields_only != 0:
-            all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in temp_layer.fields()]
+            all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in temp_layer.fields()] # pylint: disable=E1101
             field_mapping.extend(all_fields)
 
         field_mapping = [{"type": f[0], "expression": f[1], "name": f[2]} for f in field_mapping]
         current_input = source_path
 
         if flat_rule.rule.filterExpression():
-            filtered_output = join(self.utils_dir, f"filt_{uuid4().hex[:8]}.parquet")
+            filtered_output = join(self.utils_dir, f"filt_{uuid4().hex[:8]}.fgb")
             params = {
                 "INPUT": current_input,
                 "EXPRESSION": flat_rule.rule.filterExpression(),
@@ -447,7 +447,7 @@ class RulesExporter:
         task_feedback = QgsProcessingFeedback()
 
         if not params.get("OUTPUT") or params.get("OUTPUT") == "TEMPORARY_OUTPUT":
-            ext = ".parquet" if algorithm == "convertformat" else ".gpkg"
+            ext = ".fgb" if algorithm == "convertformat" else ".gpkg"
             params["OUTPUT"] = join(self.utils_dir, f"temp_{uuid4().hex[:8]}{ext}")
 
         # pylint: disable=E1136
