@@ -103,7 +103,7 @@ class RulesExporter:
 
         successful_flat_rules = []
         for task, flat_rules in rule_tasks:
-            rules_dataset = join(self.utils_dir, f"{flat_rules[0].output_dataset}.fgb")
+            rules_dataset = join(self.utils_dir, f"{flat_rules[0].output_dataset}.parquet")
             if exists(rules_dataset):
                 layer_path = task.result
                 layer = QgsVectorLayer(layer_path, flat_rules[0].output_dataset, "ogr")
@@ -159,7 +159,7 @@ class RulesExporter:
             layer_id = flat_rule.layer.id()
 
             if layer_id not in unique_layer_ids:
-                output_path = join(self.utils_dir, f"map_layer_{layer_id}.fgb")
+                output_path = join(self.utils_dir, f"map_layer_{layer_id}.parquet")
                 if not exists(output_path):
                     input_source = flat_rule.layer.source()
                     extent = self.extent
@@ -239,7 +239,7 @@ class RulesExporter:
     def _export_rule_thread_safe(self, flat_rules) -> Optional[str]:
         """Export group of rules sharing the same dataset inside a thread-safe task."""
         flat_rule = flat_rules[0]
-        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.fgb")
+        source_path = join(self.utils_dir, f"map_layer_{flat_rule.layer.id()}.parquet")
 
         if not exists(source_path):
             return None
@@ -283,7 +283,7 @@ class RulesExporter:
         current_input = source_path
 
         if flat_rule.rule.filterExpression():
-            filtered_output = join(self.utils_dir, f"filt_{uuid4().hex[:8]}.fgb")
+            filtered_output = join(self.utils_dir, f"filt_{uuid4().hex[:8]}.parquet")
             params = {
                 "INPUT": current_input,
                 "EXPRESSION": flat_rule.rule.filterExpression(),
@@ -447,8 +447,7 @@ class RulesExporter:
         task_feedback = QgsProcessingFeedback()
 
         if not params.get("OUTPUT") or params.get("OUTPUT") == "TEMPORARY_OUTPUT":
-            ext = ".fgb" if algorithm == "convertformat" else ".gpkg"
-            params["OUTPUT"] = join(self.utils_dir, f"temp_{uuid4().hex[:8]}{ext}")
+            params["OUTPUT"] = join(self.utils_dir, f"temp_{uuid4().hex[:8]}.parquet")
 
         # pylint: disable=E1136
         output = run_processing(

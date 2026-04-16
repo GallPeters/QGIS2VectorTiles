@@ -96,6 +96,15 @@ class GDALTilesGenerator:
             f"MAXZOOM={max_zoom}",
             "-t_srs",
             f"EPSG:{_EPSG_CRS}",
+            "-makevalid",
+            "-dim",
+            "XY",
+            "-explodecollections",
+            "-dsco",
+            "MAX_SIZE=1000000",
+            "-dsco",
+            "MAX_SIZE=400000",
+
         ]
 
         # Windows: hide console window
