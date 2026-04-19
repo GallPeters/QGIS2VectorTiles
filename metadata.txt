@@ -16,11 +16,14 @@ tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
-	** v2.4 (16.04.26):
-		- Export MBTiles instead of XYZ directories
-		- Use GDAL CLI for tile generation (replacing Python bindings)
-		- Fix GeoPackage locking when exporting multiple layers
-		- Fix color conversion for data-defined properties
+	** v2.4 (19.04.26):
+		- Export data to a single MBTiles file instead of XYZ directories.
+		- Add option to use NASA's Blue Marble as a background layer in the MapLibre viewer.
+		- Support alpha channel in MapLibre style color properties including data-defined properties.
+		- Improve performance by switching tile generation from GDAL Python bindings to GDAL CLI.
+		- Fix GeoPackage locking when exporting multiple layers from the same source.
+		- Fix issue where layers from PostgreSQL connections are ignored.
+		- Fix color conversion for data-defined properties.
 	** v2.3 (17.03.26):	
 		- Bug fixes ensuring a parallel and stable rules export process using qgis task manager.
 	** v2.2 (11.03.26):
