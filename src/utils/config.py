@@ -51,5 +51,5 @@ __all__ = [
     "_PLUGIN_DIR",
     "QDomDocument",
     "QVariant",
-    "sip"
+    "sip",
 ]

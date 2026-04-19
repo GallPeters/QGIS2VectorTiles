@@ -161,14 +161,14 @@ class RulesExporter:
             if layer_id not in unique_layer_ids:
                 output_path = join(self.utils_dir, f"map_layer_{layer_id}.parquet")
                 if not exists(output_path):
-                    input_source = flat_rule.layer.source()
+                    input_layer = flat_rule.layer
                     extent = self.extent
                     output_crs = f"EPSG:{_EPSG_CRS}"
 
                     task = _ParallelExportTask(
                         f"Exporting layer {flat_rule.layer.name()}",
                         self._process_base_layer_thread,
-                        input_source,
+                        input_layer,
                         output_path,
                         extent,
                         output_crs,
@@ -196,7 +196,7 @@ class RulesExporter:
                 self._source_locks[base_path] = threading.Lock()
             return self._source_locks[base_path]
 
-    def _process_base_layer_thread(self, input_source, output_path, extent, output_crs) -> str:
+    def _process_base_layer_thread(self, input_layer, output_path, extent, output_crs) -> str:
         """Run inside QgsTask: Thread-safe base layer creation."""
         # Serialise the initial read from the source file.  GeoPackage is
         # backed by SQLite with file-level locking; two concurrent tasks
@@ -205,10 +205,12 @@ class RulesExporter:
         # requests when updating metadata.  Once the first algorithm has
         # produced an intermediate file all subsequent steps are safe to
         # run in parallel.
-        lock = self._get_source_lock(input_source)
+        lock = self._get_source_lock(input_layer.source())
         with lock:
-            fix_geom_linework_params = {"INPUT": input_source, "METHOD": 0}
-            fix_geom_linework = self._run_alg("fixgeometries", "native", **fix_geom_linework_params)
+            fix_geom_linework_params = {"INPUT": input_layer, "METHOD": 0}
+            fix_geom_linework = self._run_alg(
+                "fixgeometries", "native", **fix_geom_linework_params
+            )
 
         fix_geom_structure_params = {"INPUT": fix_geom_linework, "METHOD": 1}
         fix_geom_structure = self._run_alg("fixgeometries", "native", **fix_geom_structure_params)
@@ -264,7 +266,7 @@ class RulesExporter:
         self, source_path: str, fields: Optional[list], transformation, flat_rule
     ) -> Optional[str]:
         """Apply field mapping and geometry transformation without touching UI memory layers."""
-        output_dataset = join(self.utils_dir, f"{flat_rule.output_dataset}.fgb")
+        output_dataset = join(self.utils_dir, f"{flat_rule.output_dataset}.parquet")
         if exists(output_dataset):
             return output_dataset
 
@@ -276,7 +278,9 @@ class RulesExporter:
 
         temp_layer = QgsVectorLayer(source_path, "temp", "ogr")
         if self.include_required_fields_only != 0:
-            all_fields = [(f.type(), f'"{f.name()}"', f"{f.name()}") for f in temp_layer.fields()] # pylint: disable=E1101
+            all_fields = [
+                (f.type(), f'"{f.name()}"', f"{f.name()}") for f in temp_layer.fields()
+            ]  # pylint: disable=E1101
             field_mapping.extend(all_fields)
 
         field_mapping = [{"type": f[0], "expression": f[1], "name": f[2]} for f in field_mapping]
@@ -429,8 +433,8 @@ class RulesExporter:
         """Create calculated fields from data-driven properties."""
         fields = []
         for flat_rule in flat_rules:
-            min_zoom = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
-            fields_list = DataDefinedPropertiesFetcher(flat_rule.rule, min_zoom).fetch()
+            min_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            fields_list = DataDefinedPropertiesFetcher(flat_rule.rule, min_scale).fetch()
             if not fields_list:
                 continue
             fields.extend(fields_list)

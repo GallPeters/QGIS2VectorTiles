@@ -168,7 +168,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterEnum(
                 self.BACKGROUND_TYPE,
                 self.tr("Background Type"),
-                options=["OpenStreetMap", "Project Background Color"],
+                options=["OpenStreetMap", "NASA's BlueMarble Imagery", "Project Background Color"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
             )

@@ -5,14 +5,11 @@ FlattenedRule — shared data-transfer object (dataclass) that carries a
 flattened QGIS rule together with its source layer and export dataset path.
 Imported by RulesFlattener, RulesExporter, and TilesStyler.
 """
+
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from qgis.core import (
-    QgsRuleBasedRenderer,
-    QgsRuleBasedLabeling,
-    QgsVectorLayer,
-)
+from qgis.core import QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsVectorLayer
 
 
 @dataclass

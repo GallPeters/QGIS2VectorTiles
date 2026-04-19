@@ -68,7 +68,7 @@ class QGIS2VectorTiles:
         feedback: QgsProcessingFeedback = None,
     ):
         self.min_zoom = min_zoom
-        self.max_zoom = max_zoom + 1
+        self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir

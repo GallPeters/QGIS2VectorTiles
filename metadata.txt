@@ -16,12 +16,12 @@ tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
-	** v2.4 (17.04.26):
-		- Output single mbtiles file instead of XYZ directory.
-		- Switch tiles generator from GDAL python bindings to GDAL CLI.
-		- Bug fixes ensuring a smooth export process avoiding locking mechanism when multiple layers using the same gpkg.
-		- Bug fixes ensuring a smooth color convertion process for data defined properties.
-	** v2.3 (17.03.26):
+	** v2.4 (16.04.26):
+		- Export MBTiles instead of XYZ directories
+		- Use GDAL CLI for tile generation (replacing Python bindings)
+		- Fix GeoPackage locking when exporting multiple layers
+		- Fix color conversion for data-defined properties
+	** v2.3 (17.03.26):	
 		- Bug fixes ensuring a parallel and stable rules export process using qgis task manager.
 	** v2.2 (11.03.26):
 		- Export rules in parallel to speed up processings tools runtime.

@@ -41,18 +41,21 @@ class PropertyExtractor:
         """
         if prop and prop.isActive():
             expression = prop.expressionString()
-            evaluation = QgsExpression(expression).evaluate()
-            if evaluation is not None:
+            qexpression = QgsExpression(expression)
+            evaluation = qexpression.evaluate()
+            if evaluation is not None and not qexpression.needsGeometry():
                 return evaluation
             field_name = expression.replace('"', "")
-            if field_name:
+            field_name_index = field_name.find("q2vt")
+            if field_name and field_name_index != -1:
+                field_name = field_name[field_name_index : field_name_index + 13]
                 return ["get", field_name]
         return value
 
     @staticmethod
     def convert_qcolor_to_maplibre(color: QColor) -> str:
         """Convert QColor to MapLibre RGB format."""
-        return f"rgba({color.red()}, {color.green()}, {color.blue()})"
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF()})"
 
     @staticmethod
     def convert_length_to_pixels(value: float, unit_obj=None) -> float:
@@ -743,6 +746,21 @@ class QgisMapLibreStyleExporter:
                 "minzoom": 0,
                 "maxzoom": 22,
             }
+        elif background_type == 1:
+            self.style["sources"]["bluemarbel"] = {
+                "type": "raster",
+                "tiles": [
+                    "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"
+                ],
+                "tileSize": 256,
+            }
+            background = {
+                "id": "bluemarbel-background",
+                "type": "raster",
+                "source": "bluemarbel",
+                "minzoom": 0,
+                "maxzoom": 22,
+            }
         else:
             background_qcolor = QgsProject.instance().backgroundColor()
             background_color = PropertyExtractor.convert_qcolor_to_maplibre(background_qcolor)
@@ -792,9 +810,7 @@ class QgisMapLibreStyleExporter:
         style_name = style.styleName()
         symbol = style.symbol()
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel()
-        if min_zoom == max_zoom:
-            max_zoom += 1
+        max_zoom = style.maxZoomLevel() + 1
         enabled = style.isEnabled()
         if not enabled or not symbol:
             return

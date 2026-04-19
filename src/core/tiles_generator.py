@@ -13,7 +13,7 @@ import subprocess
 from os.path import join, basename
 from os import cpu_count
 from typing import List, Tuple
-from qgis.core import QgsVectorLayer, QgsProcessingFeedback
+from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 from ..utils.config import _EPSG_CRS
 
 
@@ -37,7 +37,7 @@ class GDALTilesGenerator:
     def generate(self) -> Tuple[str, int]:
         """Main entry point."""
         output, uri = self._prepare_output_paths()
-        vrt_path = join(self.output_dir, "layers.vrt")
+        vrt_path = join(QgsProcessingUtils.tempFolder(), "layers.vrt")
 
         min_zoom = self._get_global_min_zoom()
         max_zoom = self._get_global_max_zoom()
@@ -96,15 +96,10 @@ class GDALTilesGenerator:
             f"MAXZOOM={max_zoom}",
             "-t_srs",
             f"EPSG:{_EPSG_CRS}",
-            "-makevalid",
-            "-dim",
-            "XY",
-            "-explodecollections",
             "-dsco",
             "MAX_SIZE=1000000",
             "-dsco",
-            "MAX_SIZE=400000",
-
+            "MAX_FEATURES=400000"
         ]
 
         # Windows: hide console window

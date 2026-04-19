@@ -8,6 +8,7 @@ recursively flattens the rule hierarchy with full property inheritance
 
 Depends on: config, zoom_levels, f;lattened_rule, data_defined_properties
 """
+
 from typing import List, Optional, Union
 
 from qgis.core import (

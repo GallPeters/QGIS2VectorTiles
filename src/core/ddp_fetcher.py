@@ -46,9 +46,9 @@ class DataDefinedPropertiesFetcher:
     }
     FIELD_PREFIX = "q2vt"
 
-    def __init__(self, qgis_object, min_zoom):
+    def __init__(self, qgis_object, min_scale):
         self.qgis_object = qgis_object
-        self.min_zoom = min_zoom
+        self.min_scale = min_scale
         self.dd_properties = []
 
     def fetch(self):
@@ -122,17 +122,21 @@ class DataDefinedPropertiesFetcher:
                 props_collection.setProperty(key, exp_prop)
                 prop = props_collection.property(key)
             else:
-                expression = prop.expressionString().replace("@map_scale", self.min_zoom)
+                expression = prop.expressionString().replace("@map_scale", self.min_scale)
+                ddp_expression = f'"{field_name}"'
                 if "color" in prop_def.name().lower() and field_type == 10:
                     # Convert color to hex string in order to be used in MapLibre style
-                    expression = f"'''#' || with_variable('hex', array_cat(generate_series(0,9),array('A','B','C','D','E','F')), array_to_string (array_foreach (array ('red','green','blue'),with_variable('colo',color_part ({expression}, @element),@hex[floor(@colo/16)] || @hex[@colo%16] )),'')) || ''''"  # pylint: disable=C0301
-                evaluation = QgsExpression(expression).evaluate()
-                if evaluation is not None:
+                    expression = f"'#' || with_variable('hex', array_cat(generate_series(0,9),array('A','B','C','D','E','F')), array_to_string (array_foreach (array ('red','green','blue', 'alpha'),with_variable('colo',color_part ({expression}, @element),@hex[floor(@colo/16)] || @hex[@colo%16] )),''))"  # pylint: disable=C0301
+                qexpression = QgsExpression(expression)
+                evaluation = qexpression.evaluate()
+                if evaluation is not None and not qexpression.needsGeometry():
                     prop.setExpressionString(str(evaluation))
                     continue
+                if "color" in prop_def.name().lower() and field_type == 10:
+                    ddp_expression = f"""with_variable('color',  "{field_name}", '#' || substr(@color,8,2) || substr(@color,2,6))"""
                 if "array" in expression:
                     expression = f"try(array_to_string({expression}), {expression})"
-                prop.setExpressionString(f'"{field_name}"')
+                prop.setExpressionString(ddp_expression)
 
             field_map = [field_type, expression, field_name]
 
