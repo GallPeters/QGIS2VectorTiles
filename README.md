@@ -2,6 +2,7 @@
 
 **QGIS2VectorTiles** is a QGIS plugin which packs the current project into a fully styled vector tile package ready for MapLibre. It allows users to design maps in the familiar and flexible QGIS Desktop and export stunning MapLibre client-side web maps using GDAL’s powerful MVT driver.
 
+🚀 Contributions welcome! Open an Issue or submit a PR.  
 👉 For more details, visit the plugin’s **[homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**
 
 ## Demos
@@ -11,9 +12,10 @@
 ![q2vt_v2_3 (online-video-cutter com)](https://github.com/user-attachments/assets/91be21ba-2eab-4ebe-8bf2-e584aab589ec)
 
 
+
 ## Output Package
 
-- Vector tiles source (`XYZ` directory)
+- Vector tiles (`.mbtiles`)
 - Styled QGIS layer file (`.qlr`)
 - MapLibre style (`.json`)
 - MapLibre sprites *(optional)* (`.png` + `.json`)
@@ -25,7 +27,7 @@
 - **Lightweight WMS/WMTS vector tile serving** — GeoServer and QGIS Server
 - **Sharing complex, multi-source styled QGIS projects** — packaged as a single data source and layer file
 
-## Contributing & License
+## License
 
-Contributions welcome! Open an **Issue** or submit a **PR**.  
-Licensed under **[GNU GPL v2.0](https://www.gnu.org/licenses/gpl-2.0-standalone.html)**.
+
+Licensed under [GNU GPL v2.0](https://www.gnu.org/licenses/gpl-2.0-standalone.html).
