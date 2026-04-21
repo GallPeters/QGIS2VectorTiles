@@ -2,7 +2,8 @@
 
 import json
 import os
-from typing import Dict, Any, Optional, Union, List
+from typing import Any, Dict, List, Optional, Union
+
 from qgis.PyQt.QtGui import QColor
 from qgis.core import (
     QgsVectorTileLayer,
@@ -27,247 +28,182 @@ from .sprite_generator import SpriteGenerator
 class PropertyExtractor:
     """Utility class for extracting and converting PyQGIS properties to MapLibre format."""
 
+    # Conversion factors to pixels at 96 DPI, keyed by unit string keywords.
+    _UNIT_KEYWORDS: dict = {
+        "millimeter": 3.78, "mm": 3.78,
+        "inch": 96.0, "in": 96.0,
+        "point": 96.0 / 72.0, "pt": 96.0 / 72.0,
+        "pixel": 1.0, "px": 1.0,
+    }
+    # QgsUnitTypes enum integer values → conversion factors.
+    _UNIT_ENUMS: dict = {0: 3.78, 2: 1.0, 4: 96.0 / 72.0, 5: 96.0}
+
     @staticmethod
     def get_value_or_expression(value: Any, prop: QgsProperty) -> Union[Any, List]:
-        """
-        Return either the static value or a MapLibre expression for data-defined properties.
-
-        Args:
-            value: The static value to return if not data-defined
-            prop: The QgsProperty to check for data-defined behavior
-
-        Returns:
-            Either the static value or a MapLibre ["get", "field_name"] expression
-        """
+        """Return static value or a MapLibre ["get", field] expression for data-defined props."""
         if prop and prop.isActive():
             expression = prop.expressionString()
-            qexpression = QgsExpression(expression)
-            evaluation = qexpression.evaluate()
-            if evaluation is not None and not qexpression.needsGeometry():
+            qexpr = QgsExpression(expression)
+            evaluation = qexpr.evaluate()
+            if evaluation is not None and not qexpr.needsGeometry():
                 return evaluation
             field_name = expression.replace('"', "")
-            field_name_index = field_name.find("q2vt")
-            if field_name and field_name_index != -1:
-                field_name = field_name[field_name_index : field_name_index + 13]
-                return ["get", field_name]
+            idx = field_name.find("q2vt")
+            if field_name and idx != -1:
+                return ["get", field_name[idx: idx + 13]]
         return value
 
     @staticmethod
     def convert_qcolor_to_maplibre(color: QColor) -> str:
-        """Convert QColor to MapLibre RGB format."""
+        """Convert QColor to a MapLibre rgba() string."""
         return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF()})"
 
-    @staticmethod
-    def convert_length_to_pixels(value: float, unit_obj=None) -> float:
-        """
-        Convert a length value from various QGIS units to pixels.
-
-        Assumes 96 DPI. If unit_obj is an enum or string, attempts to infer
-        unit from its string representation. Falls back to treating the value
-        as millimeters (common default in QGIS symbol sizes).
-        """
+    @classmethod
+    def convert_length_to_pixels(cls, value: float, unit_obj=None) -> float:
+        """Convert a length value from QGIS units to pixels (assumes 96 DPI)."""
         if value is None:
             return value
 
-        # If unit object provided, try to get a descriptive string
-        unit_str = ""
         try:
-            if unit_obj is not None:
-                try:
-                    unit_str = str(unit_obj).lower()
-                except (OSError, RuntimeError):
-                    unit_str = ""
+            unit_str = str(unit_obj).lower() if unit_obj is not None else ""
         except (OSError, RuntimeError):
             unit_str = ""
 
-        # Interpret unit strings heuristically
-        if "millimeter" in unit_str or "mm" in unit_str:
-            return value * 3.78
-        if "inch" in unit_str or "in" in unit_str:
-            return value * 96.0
-        if "point" in unit_str or "pt" in unit_str:
-            return value * (96.0 / 72.0)
-        if "pixel" in unit_str or "px" in unit_str:
-            return value
+        for keyword, factor in cls._UNIT_KEYWORDS.items():
+            if keyword in unit_str:
+                return value * factor
 
-        # Try to handle known QgsUnitTypes enums by value
         try:
-            if unit_obj == 0:
-                return value * 3.78
-            if unit_obj == 5:
-                return value * 96.0
-            if unit_obj == 4:
-                return value * (96.0 / 72.0)
-            if unit_obj == 2:
-                return value
+            factor = cls._UNIT_ENUMS.get(unit_obj)
+            if factor is not None:
+                return value * factor
         except (RuntimeError, AttributeError):
             pass
 
-        # Fallback: assume millimeters
-        return value * 3.78
+        return value * 3.78  # Default: treat as millimeters
 
 
 class LinePropertyExtractor:
-    """Extract line properties from QGIS symbol layers."""
+    """Extract line paint and layout properties from QGIS symbol layers."""
 
     @staticmethod
     def get_line_color(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[str, List]:
-        """Get line-color property."""
-        color = symbol_layer.color()
-        base_color = PropertyExtractor.convert_qcolor_to_maplibre(color)
-
-        dd_props = symbol_layer.dataDefinedProperties()
-        color_prop = dd_props.property(QgsSymbolLayer.PropertyFillColor)
-
+        """Get line-color."""
+        base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
+        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertyFillColor)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_line_width(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[float, List]:
-        """Get line-width property in pixels."""
-        width = symbol_layer.width()
-
-        # Detect unit for line width
+        """Get line-width in pixels."""
         width_unit = None
         for attr in ("widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"):
             if hasattr(symbol_layer, attr):
                 u = getattr(symbol_layer, attr)
                 width_unit = u() if callable(u) else u
                 break
-
-        width_px = PropertyExtractor.convert_length_to_pixels(width, width_unit)
-
-        dd_props = symbol_layer.dataDefinedProperties()
-        width_prop = dd_props.property(QgsSymbolLayer.PropertyStrokeWidth)
-
+        width_px = PropertyExtractor.convert_length_to_pixels(symbol_layer.width(), width_unit)
+        width_prop = symbol_layer.dataDefinedProperties().property(
+            QgsSymbolLayer.PropertyStrokeWidth
+        )
         return PropertyExtractor.get_value_or_expression(width_px, width_prop)
 
     @staticmethod
     def get_line_opacity(symbol_layer: QgsSimpleLineSymbolLayer) -> float:
-        """Get line-opacity property."""
-        color = symbol_layer.color()
-        return color.alphaF()
+        """Get line-opacity from alpha channel."""
+        return symbol_layer.color().alphaF()
 
     @staticmethod
     def get_line_cap(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
-        """Get line-cap property."""
-        pen_cap_style = symbol_layer.penCapStyle()
-        cap_map = {
-            0: "butt",  # Qt.FlatCap
-            16: "square",  # Qt.SquareCap
-            32: "round",  # Qt.RoundCap
-        }
-        return cap_map.get(pen_cap_style, "butt")
+        """Get line-cap from pen cap style."""
+        cap_map = {0: "butt", 16: "square", 32: "round"}
+        return cap_map.get(symbol_layer.penCapStyle(), "butt")
 
     @staticmethod
     def get_line_join(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
-        """Get line-join property."""
-        pen_join_style = symbol_layer.penJoinStyle()
-        join_map = {
-            0: "miter",  # Qt.MiterJoin
-            64: "bevel",  # Qt.BevelJoin
-            128: "round",  # Qt.RoundJoin
-        }
-        return join_map.get(pen_join_style, "miter")
+        """Get line-join from pen join style."""
+        join_map = {0: "miter", 64: "bevel", 128: "round"}
+        return join_map.get(symbol_layer.penJoinStyle(), "miter")
 
     @staticmethod
     def get_line_miter_limit() -> float:
-        """Get line-miter-limit property (default MapLibre value)."""
         return 2.0
 
     @staticmethod
     def get_line_round_limit() -> float:
-        """Get line-round-limit property (default MapLibre value)."""
         return 1.05
 
     @staticmethod
     def get_line_dasharray(
         symbol_layer: QgsSimpleLineSymbolLayer, width_px: float
     ) -> Optional[List[float]]:
-        """Get line-dasharray property."""
+        """Get line-dasharray from custom dash pattern or pen style preset."""
         dash_vector = None
         try:
             dash_vector = symbol_layer.customDashVector()
         except (RuntimeError, AttributeError):
-            dash_vector = None
+            pass
 
-        # Detect if custom dash pattern is enabled
         custom_dash_enabled = False
         try:
-            if hasattr(symbol_layer, "useCustomDashPattern"):
-                custom_dash_enabled = bool(symbol_layer.useCustomDashPattern())
-            elif hasattr(symbol_layer, "customDashEnabled"):
-                custom_dash_enabled = bool(symbol_layer.customDashEnabled())
-            elif hasattr(symbol_layer, "isCustomDash"):
-                custom_dash_enabled = bool(symbol_layer.isCustomDash())
+            for attr in ("useCustomDashPattern", "customDashEnabled", "isCustomDash"):
+                if hasattr(symbol_layer, attr):
+                    custom_dash_enabled = bool(getattr(symbol_layer, attr)())
+                    break
         except (RuntimeError, AttributeError):
-            custom_dash_enabled = False
+            pass
 
-        # Get pen style
         pen_style = None
         try:
-            if hasattr(symbol_layer, "penStyle"):
-                pen_style = symbol_layer.penStyle()
-            elif hasattr(symbol_layer, "strokeStyle"):
-                pen_style = symbol_layer.strokeStyle()
-            elif hasattr(symbol_layer, "pen_style"):
-                v = getattr(symbol_layer, "pen_style")
-                pen_style = v() if callable(v) else v
+            for attr in ("penStyle", "strokeStyle", "pen_style"):
+                if hasattr(symbol_layer, attr):
+                    v = getattr(symbol_layer, attr)
+                    pen_style = v() if callable(v) else v
+                    break
         except (RuntimeError, AttributeError):
-            pen_style = None
+            pass
 
-        fixed_dashed_types = {2, 3, 4, 5}
+        if custom_dash_enabled and dash_vector:
+            dash_unit = None
+            for attr in ("dashUnit", "dashUnits", "customDashUnits"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    dash_unit = u() if callable(u) else u
+                    break
+            width_unit = None
+            for attr in ("widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"):
+                if hasattr(symbol_layer, attr):
+                    u = getattr(symbol_layer, attr)
+                    width_unit = u() if callable(u) else u
+                    break
+            return [
+                PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit)
+                for d in dash_vector
+            ]
 
-        # If custom dash is enabled, prefer the custom dash vector
-        if custom_dash_enabled:
-            if dash_vector and len(dash_vector) > 0:
-                dash_unit = None
-                for attr in ("dashUnit", "dashUnits", "customDashUnits"):
-                    if hasattr(symbol_layer, attr):
-                        u = getattr(symbol_layer, attr)
-                        dash_unit = u() if callable(u) else u
-                        break
-
-                width_unit = None
-                for attr in ("widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"):
-                    if hasattr(symbol_layer, attr):
-                        u = getattr(symbol_layer, attr)
-                        width_unit = u() if callable(u) else u
-                        break
-
-                dasharray = [
-                    PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit)
-                    for d in dash_vector
-                ]
-                return dasharray
-
-        # If not custom but pen style is one of the fixed dashed presets
-        elif pen_style in fixed_dashed_types:
-            try:
-                w = width_px
-            except (RuntimeError, ValueError):
-                w = 1.0
-            preset = {
-                2: [4 * w, 2 * w],
-                3: [1 * w, 1 * w],
-                4: [4 * w, 2 * w, 1 * w, 2 * w],
-                5: [4 * w, 2 * w, 1 * w, 2 * w, 1 * w, 2 * w],
-            }
-            return preset.get(pen_style)
+        fixed_presets = {
+            2: [4 * width_px, 2 * width_px],
+            3: [1 * width_px, 1 * width_px],
+            4: [4 * width_px, 2 * width_px, 1 * width_px, 2 * width_px],
+            5: [4 * width_px, 2 * width_px, 1 * width_px, 2 * width_px, 1 * width_px, 2 * width_px],
+        }
+        if pen_style in fixed_presets:
+            return fixed_presets[pen_style]
 
         return None
 
     @staticmethod
     def get_line_offset(symbol_layer: QgsSimpleLineSymbolLayer) -> float:
-        """Get line-offset property in pixels."""
+        """Get line-offset in pixels."""
         try:
             offset = symbol_layer.offset()
-            offset_unit = None
-            for attr in ("offsetUnit", "offsetUnits"):
-                if hasattr(symbol_layer, attr):
-                    u = getattr(symbol_layer, attr)
-                    offset_unit = u() if callable(u) else u
-                    break
             if offset != 0:
+                offset_unit = None
+                for attr in ("offsetUnit", "offsetUnits"):
+                    if hasattr(symbol_layer, attr):
+                        u = getattr(symbol_layer, attr)
+                        offset_unit = u() if callable(u) else u
+                        break
                 return PropertyExtractor.convert_length_to_pixels(offset, offset_unit)
         except (RuntimeError, AttributeError):
             pass
@@ -275,162 +211,137 @@ class LinePropertyExtractor:
 
     @staticmethod
     def get_line_blur() -> float:
-        """Get line-blur property (default value)."""
         return 0
 
     @staticmethod
     def get_line_gap_width() -> float:
-        """Get line-gap-width property (default value)."""
         return 0
 
     @staticmethod
     def get_line_translate() -> List[float]:
-        """Get line-translate property (default value)."""
         return [0, 0]
 
     @staticmethod
     def get_line_translate_anchor() -> str:
-        """Get line-translate-anchor property (default value)."""
         return "map"
 
 
 class FillPropertyExtractor:
-    """Extract fill properties from QGIS symbol layers."""
+    """Extract fill paint and layout properties from QGIS symbol layers."""
 
     @staticmethod
     def get_fill_color(symbol_layer: QgsSimpleFillSymbolLayer) -> Union[str, List]:
-        """Get fill-color property."""
-        fill_color = symbol_layer.color()
-        base_color = PropertyExtractor.convert_qcolor_to_maplibre(fill_color)
-
-        dd_props = symbol_layer.dataDefinedProperties()
-        color_prop = dd_props.property(QgsSymbolLayer.PropertyFillColor)
-
+        """Get fill-color."""
+        base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
+        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertyFillColor)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_fill_opacity(symbol_layer: QgsSimpleFillSymbolLayer) -> float:
-        """Get fill-opacity property."""
-        fill_color = symbol_layer.color()
-        return fill_color.alphaF()
+        """Get fill-opacity from alpha channel."""
+        return symbol_layer.color().alphaF()
 
     @staticmethod
     def get_fill_outline_color(symbol_layer: QgsSimpleFillSymbolLayer) -> Union[str, List, None]:
-        """Get fill-outline-color property."""
-        stroke_width = symbol_layer.strokeWidth()
-        stroke_style = symbol_layer.strokeStyle()
-
-        # Only add outline if stroke width is greater than 0
-        if stroke_width > 0 and stroke_style != 0:
-            stroke_color = symbol_layer.strokeColor()
-            base_color = PropertyExtractor.convert_qcolor_to_maplibre(stroke_color)
-
-            dd_props = symbol_layer.dataDefinedProperties()
-            color_prop = dd_props.property(QgsSymbolLayer.PropertyStrokeColor)
-
+        """Get fill-outline-color if stroke is visible."""
+        if symbol_layer.strokeWidth() > 0 and symbol_layer.strokeStyle() != 0:
+            base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.strokeColor())
+            color_prop = symbol_layer.dataDefinedProperties().property(
+                QgsSymbolLayer.PropertyStrokeColor
+            )
             return PropertyExtractor.get_value_or_expression(base_color, color_prop)
         return None
 
     @staticmethod
     def get_fill_antialias() -> bool:
-        """Get fill-antialias property (default value)."""
         return True
 
     @staticmethod
     def get_fill_translate() -> List[float]:
-        """Get fill-translate property (default value)."""
         return [0, 0]
 
     @staticmethod
     def get_fill_translate_anchor() -> str:
-        """Get fill-translate-anchor property (default value)."""
         return "map"
 
 
 class IconPropertyExtractor:
-    """Extract icon properties for symbol layers."""
+    """Extract icon paint and layout properties for symbol layers."""
 
     @staticmethod
     def get_icon_image(marker_name: str) -> str:
-        """Get icon-image property."""
         return marker_name
 
     @staticmethod
     def get_icon_size(
         symbol_layer: QgsSymbolLayer, default_size: float = 1.0
     ) -> Union[float, List]:
-        """Get icon-size property."""
-        dd_props = symbol_layer.dataDefinedProperties()
-        size_prop = dd_props.property(QgsSymbolLayer.PropertySize)
-
+        """Get icon-size, respecting data-defined overrides."""
+        size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
         return PropertyExtractor.get_value_or_expression(default_size, size_prop)
 
     @staticmethod
     def get_icon_rotation_alignment() -> str:
-        """Get icon-rotation-alignment property (default value)."""
         return "map"
 
     @staticmethod
     def get_icon_pitch_alignment() -> str:
-        """Get icon-pitch-alignment property (default value)."""
         return "viewport"
 
     @staticmethod
     def get_icon_anchor() -> str:
-        """Get icon-anchor property (default value)."""
         return "center"
 
     @staticmethod
     def get_icon_allow_overlap() -> bool:
-        """Get icon-allow-overlap property (default value)."""
         return False
 
     @staticmethod
     def get_icon_ignore_placement() -> bool:
-        """Get icon-ignore-placement property (default value)."""
         return False
 
     @staticmethod
     def get_icon_optional() -> bool:
-        """Get icon-optional property (default value)."""
         return False
 
     @staticmethod
     def get_icon_keep_upright() -> bool:
-        """Get icon-keep-upright property (default value)."""
         return True
 
     @staticmethod
     def get_icon_text_fit(background: QgsTextBackgroundSettings) -> Optional[str]:
-        """Get icon-text-fit property."""
-        if background.enabled() and background.sizeType() == 0:  # Buffer type
+        """Get icon-text-fit if background uses buffer sizing."""
+        if background.enabled() and background.sizeType() == 0:
             return "both"
         return None
 
     @staticmethod
-    def get_icon_text_fit_padding(background: QgsTextBackgroundSettings) -> Optional[List[float]]:
-        """Get icon-text-fit-padding property."""
-        if background.enabled() and background.sizeType() == 0:  # Buffer type
-            buffer_size = background.size().width()
-            buffer_unit = background.sizeUnit()
-            buffer_px = PropertyExtractor.convert_length_to_pixels(buffer_size, buffer_unit)
-            return [buffer_px * 2, buffer_px, buffer_px * 2, buffer_px]
+    def get_icon_text_fit_padding(
+        background: QgsTextBackgroundSettings,
+    ) -> Optional[List[float]]:
+        """Get icon-text-fit-padding from background buffer size."""
+        if background.enabled() and background.sizeType() == 0:
+            buf_px = PropertyExtractor.convert_length_to_pixels(
+                background.size().width(), background.sizeUnit()
+            )
+            return [buf_px * 2, buf_px, buf_px * 2, buf_px]
         return None
 
     @staticmethod
     def get_icon_offset(background: QgsTextBackgroundSettings = None) -> List[float]:
-        """Get icon-offset property."""
+        """Get icon-offset from background offset settings."""
         if background and background.enabled():
-            offset_unit = background.offsetUnit()
             offset = background.offset()
-            offset_x = PropertyExtractor.convert_length_to_pixels(offset.x(), offset_unit)
-            offset_y = PropertyExtractor.convert_length_to_pixels(offset.y(), offset_unit)
-            return [offset_x, offset_y]
+            unit = background.offsetUnit()
+            return [
+                PropertyExtractor.convert_length_to_pixels(offset.x(), unit),
+                PropertyExtractor.convert_length_to_pixels(offset.y(), unit),
+            ]
         return [0, 0]
 
     @staticmethod
     def get_icon_opacity(background: QgsTextBackgroundSettings = None) -> float:
-        """Get icon-opacity property."""
+        """Get icon-opacity from background settings."""
         if background and background.enabled():
             try:
                 return background.opacity()
@@ -440,55 +351,48 @@ class IconPropertyExtractor:
 
     @staticmethod
     def get_icon_color(background: QgsTextBackgroundSettings = None) -> str:
-        """Get icon-color property."""
+        """Get icon-color from background fill color."""
         if background and background.enabled():
             try:
-                bg_color = background.fillColor()
-                return PropertyExtractor.convert_qcolor_to_maplibre(bg_color)
+                return PropertyExtractor.convert_qcolor_to_maplibre(background.fillColor())
             except (OSError, RuntimeError):
                 pass
         return "rgb(255, 255, 255)"
 
     @staticmethod
     def get_icon_halo_color() -> str:
-        """Get icon-halo-color property (default value)."""
         return "rgb(0, 0, 0)"
 
     @staticmethod
     def get_icon_halo_width() -> float:
-        """Get icon-halo-width property (default value)."""
         return 0
 
     @staticmethod
     def get_icon_halo_blur() -> float:
-        """Get icon-halo-blur property (default value)."""
         return 0
 
     @staticmethod
     def get_icon_translate() -> List[float]:
-        """Get icon-translate property (default value)."""
         return [0, 0]
 
     @staticmethod
     def get_icon_translate_anchor() -> str:
-        """Get icon-translate-anchor property (default value)."""
         return "map"
 
 
 class TextPropertyExtractor:
-    """Extract text properties from QGIS label settings."""
+    """Extract text paint and layout properties from QGIS label settings."""
 
     @staticmethod
     def get_text_field(label_settings: QgsPalLayerSettings) -> Optional[List]:
-        """Get text-field property."""
-        field_name = label_settings.fieldName
-        if field_name:
-            return ["get", field_name]
+        """Get text-field expression."""
+        if label_settings.fieldName:
+            return ["get", label_settings.fieldName]
         return None
 
     @staticmethod
     def get_text_font(text_format: QgsTextFormat) -> List[str]:
-        """Get text-font property."""
+        """Get text-font as [family + style] list."""
         font = text_format.font()
         return [f"{font.family()} {font.styleName()}"]
 
@@ -496,39 +400,28 @@ class TextPropertyExtractor:
     def get_text_size(
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[float, List]:
-        """Get text-size property in pixels."""
-        font = text_format.font()
-        # Convert QGIS font point size to pixels (MapLibre uses pixels)
-        # 1pt = 1/72in; at 96 DPI => px = pt * 96/72
-        base_size = font.pointSizeF() * (96.0 / 72.0)
-
-        dd_props = label_settings.dataDefinedProperties()
-        size_prop = dd_props.property(QgsPalLayerSettings.Size)
-
+        """Get text-size in pixels, respecting data-defined overrides."""
+        base_size = text_format.font().pointSizeF() * (96.0 / 72.0)
+        size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
     @staticmethod
     def get_text_color(
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[str, List]:
-        """Get text-color property."""
-        color = text_format.color()
-        base_color = PropertyExtractor.convert_qcolor_to_maplibre(color)
-
-        dd_props = label_settings.dataDefinedProperties()
-        color_prop = dd_props.property(QgsPalLayerSettings.Color)
-
+        """Get text-color, respecting data-defined overrides."""
+        base_color = PropertyExtractor.convert_qcolor_to_maplibre(text_format.color())
+        color_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Color)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_text_opacity(text_format: QgsTextFormat) -> float:
-        """Get text-opacity property."""
-        color = text_format.color()
-        return color.alphaF()
+        """Get text-opacity from alpha channel."""
+        return text_format.color().alphaF()
 
     @staticmethod
     def get_text_halo_color(text_format: QgsTextFormat) -> str:
-        """Get text-halo-color property."""
+        """Get text-halo-color from buffer settings."""
         buffer = text_format.buffer()
         if buffer.enabled():
             return PropertyExtractor.convert_qcolor_to_maplibre(buffer.color())
@@ -536,42 +429,29 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_halo_width(text_format: QgsTextFormat) -> float:
-        """Get text-halo-width property."""
+        """Get text-halo-width from buffer size."""
         buffer = text_format.buffer()
-        if buffer.enabled():
-            return buffer.size()
-        return 0
+        return buffer.size() if buffer.enabled() else 0
 
     @staticmethod
     def get_text_halo_blur(text_format: QgsTextFormat) -> float:
-        """Get text-halo-blur property."""
+        """Get text-halo-blur as half the buffer size."""
         buffer = text_format.buffer()
-        if buffer.enabled():
-            return buffer.size() * 0.5
-        return 0
+        return buffer.size() * 0.5 if buffer.enabled() else 0
 
     @staticmethod
     def get_text_anchor(label_settings: QgsPalLayerSettings) -> str:
-        """Get text-anchor property."""
-        quad = label_settings.quadOffset
-
+        """Get text-anchor from quadrant offset."""
         anchor_map = {
-            0: "bottom-right",  # QuadrantAboveLeft
-            1: "bottom",  # QuadrantAbove
-            2: "bottom-left",  # QuadrantAboveRight
-            3: "right",  # QuadrantLeft
-            4: "center",  # QuadrantOver
-            5: "left",  # QuadrantRight
-            6: "top-right",  # QuadrantBelowLeft
-            7: "top",  # QuadrantBelow
-            8: "top-left",  # QuadrantBelowRight
+            0: "bottom-right", 1: "bottom",  2: "bottom-left",
+            3: "right",        4: "center",  5: "left",
+            6: "top-right",    7: "top",     8: "top-left",
         }
-
-        return anchor_map.get(quad, "center")
+        return anchor_map.get(label_settings.quadOffset, "center")
 
     @staticmethod
     def get_text_justify(label_settings: QgsPalLayerSettings) -> str:
-        """Get text-justify property."""
+        """Get text-justify from multi-line alignment."""
         try:
             justification = label_settings.multiLineAlignment
         except AttributeError:
@@ -579,29 +459,21 @@ class TextPropertyExtractor:
                 justification = label_settings.alignment
             except AttributeError:
                 justification = 1
-
-        justify_map = {
-            0: "left",
-            1: "center",
-            2: "right",
-            3: "center",  # Justify (MapLibre doesn't have justify, use center)
-        }
+        justify_map = {0: "left", 1: "center", 2: "right", 3: "center"}
         return justify_map.get(justification, "left")
 
     @staticmethod
     def get_text_offset(label_settings: QgsPalLayerSettings) -> List[float]:
-        """Get text-offset property."""
+        """Get text-offset in pixels."""
         x_offset = label_settings.xOffset
         y_offset = label_settings.yOffset
-
-        offset_unit = None
-        for attr in ("xOffsetUnit", "offsetUnit", "units"):
-            if hasattr(label_settings, attr):
-                u = getattr(label_settings, attr)
-                offset_unit = u() if callable(u) else u
-                break
-
         if x_offset != 0 or y_offset != 0:
+            offset_unit = None
+            for attr in ("xOffsetUnit", "offsetUnit", "units"):
+                if hasattr(label_settings, attr):
+                    u = getattr(label_settings, attr)
+                    offset_unit = u() if callable(u) else u
+                    break
             return [
                 PropertyExtractor.convert_length_to_pixels(x_offset, offset_unit),
                 PropertyExtractor.convert_length_to_pixels(y_offset, offset_unit),
@@ -610,94 +482,88 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_allow_overlap() -> bool:
-        """Get text-allow-overlap property (default value)."""
         return False
 
     @staticmethod
     def get_text_ignore_placement() -> bool:
-        """Get text-ignore-placement property (default value)."""
         return False
 
     @staticmethod
     def get_text_optional() -> bool:
-        """Get text-optional property (default value)."""
         return False
 
     @staticmethod
     def get_text_padding() -> float:
-        """Get text-padding property (default value)."""
         return 0
 
     @staticmethod
     def get_text_line_height() -> float:
-        """Get text-line-height property (default value)."""
         return 1.2
 
     @staticmethod
     def get_text_letter_spacing() -> float:
-        """Get text-letter-spacing property (default value)."""
         return 0
 
     @staticmethod
     def get_text_transform() -> str:
-        """Get text-transform property (default value)."""
         return "none"
 
     @staticmethod
     def get_text_max_width(label_settings: QgsPalLayerSettings) -> float:
-        """Get text-max-width property."""
+        """Get text-max-width; large value means no effective limit."""
         if label_settings.autoWrapLength > 0:
             return label_settings.autoWrapLength
-        return 999  # Effectively no max width
+        return 999
 
     @staticmethod
     def get_text_keep_upright() -> bool:
-        """Get text-keep-upright property (default value)."""
         return True
 
     @staticmethod
     def get_text_rotate(label_settings: QgsPalLayerSettings) -> Union[float, List]:
-        """Get text-rotate property."""
+        """Get text-rotate, respecting data-defined overrides."""
         base_rotation = label_settings.angleOffset if label_settings.angleOffset != 0 else 0
-
-        dd_props = label_settings.dataDefinedProperties()
-        rotation_prop = dd_props.property(QgsPalLayerSettings.LabelRotation)
-
+        rotation_prop = label_settings.dataDefinedProperties().property(
+            QgsPalLayerSettings.LabelRotation
+        )
         return PropertyExtractor.get_value_or_expression(base_rotation, rotation_prop)
 
     @staticmethod
     def get_text_rotation_alignment() -> str:
-        """Get text-rotation-alignment property (default value)."""
         return "map"
 
     @staticmethod
     def get_text_pitch_alignment() -> str:
-        """Get text-pitch-alignment property (default value)."""
         return "viewport"
 
     @staticmethod
     def get_text_translate() -> List[float]:
-        """Get text-translate property (default value)."""
         return [0, 0]
 
     @staticmethod
     def get_text_translate_anchor() -> str:
-        """Get text-translate-anchor property (default value)."""
         return "map"
 
 
 class QgisMapLibreStyleExporter:
-    """Export QGIS Vector Tile Layer styles to MapLibre GL style JSON."""
+    """Export QGIS Vector Tile Layer styles to a MapLibre GL style JSON."""
 
     def __init__(
-        self, output_dir: str, layer: Optional[QgsVectorTileLayer] = None, background_type=0
+        self,
+        output_dir: str,
+        layer: Optional[QgsVectorTileLayer] = None,
+        background_type: int = 0,
     ):
-        """Initialize converter with output directory and optional QgsVectorTileLayer."""
         self.output_dir = output_dir
-        self.marker_symbols = {}  # Dict to collect marker symbols for sprite generation
-        self.marker_counter = 0  # Counter for unique marker names
+        self.marker_symbols: dict = {}
+        self.marker_counter = 0
 
-        # Get layer (use active layer if not provided)
+        self.layer = self._resolve_layer(layer)
+        self.source_name = "q2vt_tiles"
+        self.style = self._build_style_skeleton()
+        self.style["layers"].append(self._build_background_layer(background_type))
+
+    def _resolve_layer(self, layer: Optional[QgsVectorTileLayer]) -> QgsVectorTileLayer:
         if layer is None:
             try:
                 if iface and iface.activeLayer():
@@ -706,14 +572,12 @@ class QgisMapLibreStyleExporter:
                     raise ValueError("No active layer found and no layer provided")
             except (ImportError, ValueError) as e:
                 raise e
-
         if not isinstance(layer, QgsVectorTileLayer):
             raise ValueError(f"Layer must be a QgsVectorTileLayer, got {type(layer).__name__}")
+        return layer
 
-        self.layer = layer
-        self.source_name = "q2vt_tiles"  # Fixed source name for simplicity
-        # Initialize style structure
-        self.style = {
+    def _build_style_skeleton(self) -> dict:
+        return {
             "version": 8,
             "name": f"{self.source_name}_style",
             "sources": {
@@ -726,6 +590,9 @@ class QgisMapLibreStyleExporter:
             "sprite": "http://localhost:9000/style/sprite/sprite",
             "layers": [],
         }
+
+    def _build_background_layer(self, background_type: int) -> dict:
+        """Add background tile source to style and return the corresponding layer definition."""
         if background_type == 0:
             self.style["sources"]["osm"] = {
                 "type": "raster",
@@ -736,55 +603,42 @@ class QgisMapLibreStyleExporter:
                 ],
                 "tileSize": 256,
                 "attribution": (
-                    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'  # pylint: disable=C0301
+                    '&copy; <a href="https://www.openstreetmap.org/copyright">'
+                    "OpenStreetMap</a> contributors"
                 ),
             }
-            background = {
-                "id": "osm-background",
-                "type": "raster",
-                "source": "osm",
-                "minzoom": 0,
-                "maxzoom": 22,
-            }
-        elif background_type == 1:
+            return {"id": "osm-background", "type": "raster", "source": "osm",
+                    "minzoom": 0, "maxzoom": 22}
+
+        if background_type == 1:
             self.style["sources"]["bluemarbel"] = {
                 "type": "raster",
                 "tiles": [
-                    "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"
+                    "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
+                    "BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"
                 ],
                 "tileSize": 256,
             }
-            background = {
-                "id": "bluemarbel-background",
-                "type": "raster",
-                "source": "bluemarbel",
-                "minzoom": 0,
-                "maxzoom": 22,
-            }
-        else:
-            background_qcolor = QgsProject.instance().backgroundColor()
-            background_color = PropertyExtractor.convert_qcolor_to_maplibre(background_qcolor)
-            background = {
-                "id": "background",
-                "type": "background",
-                "minzoom": 0,
-                "maxzoom": 22,
-                "paint": {"background-color": background_color},
-            }
-        self.style["layers"].append(background)
+            return {"id": "bluemarbel-background", "type": "raster", "source": "bluemarbel",
+                    "minzoom": 0, "maxzoom": 22}
+
+        bg_color = PropertyExtractor.convert_qcolor_to_maplibre(
+            QgsProject.instance().backgroundColor()
+        )
+        return {
+            "id": "background", "type": "background", "minzoom": 0, "maxzoom": 22,
+            "paint": {"background-color": bg_color},
+        }
 
     def export(self) -> Dict[str, Any]:
-        """Convert all styles from QgsVectorTileLayer to MapLibre GL style."""
-        # Add source for the layer
+        """Convert all styles from the layer to MapLibre GL style and save to disk."""
         self.layer.source()
 
-        # Extract renderer styles
         renderer = self.layer.renderer()
         if isinstance(renderer, QgsVectorTileBasicRenderer):
             for style in renderer.styles():
                 self._convert_renderer_style(style)
 
-        # Extract labeling styles
         labeling = self.layer.labeling()
         if isinstance(labeling, QgsVectorTileBasicLabeling):
             for style in labeling.styles():
@@ -793,46 +647,26 @@ class QgisMapLibreStyleExporter:
         self.save_to_file()
         return self.style
 
-    def _get_symbol_type_code(self, symbol_type) -> str:
-        """Convert QgsSymbol type to short code."""
-        if symbol_type == QgsSymbol.Marker:
-            return "marker"
-        elif symbol_type == QgsSymbol.Line:
-            return "line"
-        elif symbol_type == QgsSymbol.Fill:
-            return "fill"
-        else:
-            return "symbol"
-
     def _convert_renderer_style(self, style):
-        """Convert a single renderer style from QgsVectorTileBasicRendererStyle."""
-        layer_name = style.layerName()
-        style_name = style.styleName()
-        symbol = style.symbol()
-        min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1
-        enabled = style.isEnabled()
-        if not enabled or not symbol:
+        """Convert a single QgsVectorTileBasicRendererStyle to MapLibre layer(s)."""
+        if not style.isEnabled() or not style.symbol():
             return
-
-        self._convert_symbol(symbol, style_name, layer_name, self.source_name, min_zoom, max_zoom)
+        self._convert_symbol(
+            style.symbol(), style.styleName(), style.layerName(),
+            self.source_name, style.minZoomLevel(), style.maxZoomLevel() + 1,
+        )
 
     def _convert_labeling_style(self, style):
-        """Convert a single labeling style from QgsVectorTileBasicLabelingStyle."""
-        layer_name = style.layerName()
-        style_name = style.styleName()
-        label_settings = style.labelSettings()
+        """Convert a single QgsVectorTileBasicLabelingStyle to a MapLibre symbol layer."""
+        if not style.isEnabled() or not style.labelSettings():
+            return
         min_zoom = style.minZoomLevel()
         max_zoom = style.maxZoomLevel()
         if min_zoom == max_zoom:
             max_zoom += 1
-        enabled = style.isEnabled()
-
-        if not enabled or not label_settings:
-            return
-
         self._convert_label(
-            label_settings, style_name, layer_name, self.source_name, min_zoom, max_zoom
+            style.labelSettings(), style.styleName(), style.layerName(),
+            self.source_name, min_zoom, max_zoom,
         )
 
     def _convert_symbol(
@@ -844,30 +678,49 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert QgsSymbol to MapLibre layer(s) with zoom levels."""
+        """Dispatch symbol conversion by type."""
+        if symbol.symbolLayerCount() == 0:
+            return
+        symbol_layer = symbol.symbolLayer(0)
         symbol_type = symbol.type()
 
-        if symbol.symbolLayerCount() > 0:
-            symbol_layer = symbol.symbolLayer(0)
+        if symbol_type == QgsSymbol.Marker:
+            self._convert_marker_symbol(
+                symbol_layer, symbol, style_name, source_layer_name,
+                source_name, min_zoom, max_zoom,
+            )
+        elif symbol_type == QgsSymbol.Line:
+            self._convert_line_symbol(
+                symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
+            )
+        elif symbol_type == QgsSymbol.Fill:
+            self._convert_fill_symbol(
+                symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
+            )
 
-            if symbol_type == QgsSymbol.Marker:
-                self._convert_marker_symbol(
-                    symbol_layer,
-                    symbol,
-                    style_name,
-                    source_layer_name,
-                    source_name,
-                    min_zoom,
-                    max_zoom,
-                )
-            elif symbol_type == QgsSymbol.Line:
-                self._convert_line_symbol(
-                    symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
-                )
-            elif symbol_type == QgsSymbol.Fill:
-                self._convert_fill_symbol(
-                    symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
-                )
+    def _base_layer_def(
+        self,
+        layer_type: str,
+        style_name: str,
+        source_layer_name: str,
+        source_name: str,
+        min_zoom: int,
+        max_zoom: int,
+    ) -> dict:
+        """Build the common layer definition skeleton."""
+        layer_def: dict = {
+            "id": style_name,
+            "type": layer_type,
+            "source": source_name,
+            "source-layer": source_layer_name,
+            "paint": {},
+            "layout": {},
+        }
+        if min_zoom >= 0:
+            layer_def["minzoom"] = min_zoom
+        if max_zoom >= 0:
+            layer_def["maxzoom"] = max_zoom
+        return layer_def
 
     def _convert_marker_symbol(
         self,
@@ -879,48 +732,30 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert marker symbol to MapLibre symbol layer using property extractors."""
-        layer_def = {
-            "id": style_name,
-            "type": "symbol",
-            "source": source_name,
-            "source-layer": source_layer_name,
-            "paint": {},
-            "layout": {},
-        }
+        """Convert marker symbol to a MapLibre symbol layer."""
+        layer_def = self._base_layer_def(
+            "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
+        )
 
-        # Add zoom levels if specified
-        if min_zoom >= 0:
-            layer_def["minzoom"] = min_zoom
-        if max_zoom >= 0:
-            layer_def["maxzoom"] = max_zoom
-
-        # Collect marker for sprite generation
         marker_name = f"marker_{self.marker_counter}"
         self.marker_counter += 1
         self.marker_symbols[marker_name] = symbol.clone()
 
-        # Icon properties using extractors
-        layer_def["layout"]["icon-image"] = IconPropertyExtractor.get_icon_image(marker_name)
-        layer_def["layout"]["icon-size"] = IconPropertyExtractor.get_icon_size(symbol_layer, 1.0)
-        layer_def["layout"][
-            "icon-rotation-alignment"
-        ] = IconPropertyExtractor.get_icon_rotation_alignment()
-        layer_def["layout"][
-            "icon-pitch-alignment"
-        ] = IconPropertyExtractor.get_icon_pitch_alignment()
-        layer_def["layout"]["icon-anchor"] = IconPropertyExtractor.get_icon_anchor()
-        layer_def["layout"]["icon-allow-overlap"] = IconPropertyExtractor.get_icon_allow_overlap()
-        layer_def["layout"][
-            "icon-ignore-placement"
-        ] = IconPropertyExtractor.get_icon_ignore_placement()
-        layer_def["layout"]["visibility"] = "visible"
-
-        layer_def["paint"]["icon-opacity"] = IconPropertyExtractor.get_icon_opacity()
-        layer_def["paint"]["icon-translate"] = IconPropertyExtractor.get_icon_translate()
-        layer_def["paint"][
-            "icon-translate-anchor"
-        ] = IconPropertyExtractor.get_icon_translate_anchor()
+        layer_def["layout"].update({
+            "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
+            "icon-size": IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
+            "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
+            "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
+            "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
+            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(),
+            "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
+            "visibility": "visible",
+        })
+        layer_def["paint"].update({
+            "icon-opacity": IconPropertyExtractor.get_icon_opacity(),
+            "icon-translate": IconPropertyExtractor.get_icon_translate(),
+            "icon-translate-anchor": IconPropertyExtractor.get_icon_translate_anchor(),
+        })
 
         self.style["layers"].append(layer_def)
 
@@ -933,54 +768,39 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert line symbol to MapLibre line layer using property extractors."""
-        layer_def = {
-            "id": style_name,
-            "type": "line",
-            "source": source_name,
-            "source-layer": source_layer_name,
-            "paint": {},
-            "layout": {},
-        }
-
-        # Add zoom levels if specified
-        if min_zoom >= 0:
-            layer_def["minzoom"] = min_zoom
-        if max_zoom >= 0:
-            layer_def["maxzoom"] = max_zoom
+        """Convert line symbol to a MapLibre line layer."""
+        layer_def = self._base_layer_def(
+            "line", style_name, source_layer_name, source_name, min_zoom, max_zoom
+        )
 
         if isinstance(symbol_layer, QgsSimpleLineSymbolLayer):
-            # Paint properties using extractors
-            layer_def["paint"]["line-color"] = LinePropertyExtractor.get_line_color(symbol_layer)
-            layer_def["paint"]["line-width"] = LinePropertyExtractor.get_line_width(symbol_layer)
-            layer_def["paint"]["line-opacity"] = LinePropertyExtractor.get_line_opacity(
-                symbol_layer
-            )
-            # layer_def["paint"]["line-blur"] = LinePropertyExtractor.get_line_blur()
-            layer_def["paint"]["line-gap-width"] = LinePropertyExtractor.get_line_gap_width()
-            layer_def["paint"]["line-translate"] = LinePropertyExtractor.get_line_translate()
-            layer_def["paint"][
-                "line-translate-anchor"
-            ] = LinePropertyExtractor.get_line_translate_anchor()
+            layer_def["paint"].update({
+                "line-color": LinePropertyExtractor.get_line_color(symbol_layer),
+                "line-width": LinePropertyExtractor.get_line_width(symbol_layer),
+                "line-opacity": LinePropertyExtractor.get_line_opacity(symbol_layer),
+                # "line-blur": LinePropertyExtractor.get_line_blur(),
+                "line-gap-width": LinePropertyExtractor.get_line_gap_width(),
+                "line-translate": LinePropertyExtractor.get_line_translate(),
+                "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(),
+            })
 
-            # Line offset
             offset = LinePropertyExtractor.get_line_offset(symbol_layer)
             if offset != 0:
                 layer_def["paint"]["line-offset"] = offset
 
-            # Line dasharray
             width_value = layer_def["paint"]["line-width"]
             width_px = width_value if isinstance(width_value, (int, float)) else 1.0
             dasharray = LinePropertyExtractor.get_line_dasharray(symbol_layer, width_px)
             if dasharray:
                 layer_def["paint"]["line-dasharray"] = dasharray
 
-            # Layout properties using extractors
-            layer_def["layout"]["line-cap"] = LinePropertyExtractor.get_line_cap(symbol_layer)
-            layer_def["layout"]["line-join"] = LinePropertyExtractor.get_line_join(symbol_layer)
-            layer_def["layout"]["line-miter-limit"] = LinePropertyExtractor.get_line_miter_limit()
-            layer_def["layout"]["line-round-limit"] = LinePropertyExtractor.get_line_round_limit()
-            layer_def["layout"]["visibility"] = "visible"
+            layer_def["layout"].update({
+                "line-cap": LinePropertyExtractor.get_line_cap(symbol_layer),
+                "line-join": LinePropertyExtractor.get_line_join(symbol_layer),
+                "line-miter-limit": LinePropertyExtractor.get_line_miter_limit(),
+                "line-round-limit": LinePropertyExtractor.get_line_round_limit(),
+                "visibility": "visible",
+            })
 
         self.style["layers"].append(layer_def)
 
@@ -993,40 +813,23 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert fill symbol to MapLibre fill layer using property extractors."""
-        layer_def = {
-            "id": style_name,
-            "type": "fill",
-            "source": source_name,
-            "source-layer": source_layer_name,
-            "paint": {},
-            "layout": {},
-        }
-
-        # Add zoom levels if specified
-        if min_zoom >= 0:
-            layer_def["minzoom"] = min_zoom
-        if max_zoom >= 0:
-            layer_def["maxzoom"] = max_zoom
+        """Convert fill symbol to a MapLibre fill layer."""
+        layer_def = self._base_layer_def(
+            "fill", style_name, source_layer_name, source_name, min_zoom, max_zoom
+        )
 
         if isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
-            # Paint properties using extractors
-            layer_def["paint"]["fill-color"] = FillPropertyExtractor.get_fill_color(symbol_layer)
-            layer_def["paint"]["fill-opacity"] = FillPropertyExtractor.get_fill_opacity(
-                symbol_layer
-            )
-            layer_def["paint"]["fill-antialias"] = FillPropertyExtractor.get_fill_antialias()
-            layer_def["paint"]["fill-translate"] = FillPropertyExtractor.get_fill_translate()
-            layer_def["paint"][
-                "fill-translate-anchor"
-            ] = FillPropertyExtractor.get_fill_translate_anchor()
-
-            # Outline color (only if applicable)
+            layer_def["paint"].update({
+                "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
+                "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer),
+                "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
+                "fill-translate": FillPropertyExtractor.get_fill_translate(),
+                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+            })
             # outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
             # if outline_color:
             #     layer_def["paint"]["fill-outline-color"] = outline_color
 
-            # Layout properties
             layer_def["layout"]["visibility"] = "visible"
 
         self.style["layers"].append(layer_def)
@@ -1040,80 +843,48 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert QgsPalLayerSettings to MapLibre symbol layer using property extractors."""
-        layer_def = {
-            "id": f"{style_name}_label",
-            "type": "symbol",
-            "source": source_name,
-            "source-layer": source_layer_name,
-            "paint": {},
-            "layout": {},
-        }
+        """Convert QgsPalLayerSettings to a MapLibre symbol layer."""
+        layer_def = self._base_layer_def(
+            "symbol", f"{style_name}_label", source_layer_name, source_name, min_zoom, max_zoom
+        )
 
-        # Add zoom levels if specified
-        if min_zoom >= 0:
-            layer_def["minzoom"] = min_zoom
-        if max_zoom >= 0:
-            layer_def["maxzoom"] = max_zoom
-
-        # Text format
         text_format = label_settings.format()
 
-        # Layout properties using extractors
         text_field = TextPropertyExtractor.get_text_field(label_settings)
         if text_field:
             layer_def["layout"]["text-field"] = text_field
 
-        layer_def["layout"]["text-font"] = TextPropertyExtractor.get_text_font(text_format)
-        layer_def["layout"]["text-size"] = TextPropertyExtractor.get_text_size(
-            text_format, label_settings
-        )
-        layer_def["layout"]["text-anchor"] = TextPropertyExtractor.get_text_anchor(label_settings)
-        layer_def["layout"]["text-justify"] = TextPropertyExtractor.get_text_justify(
-            label_settings
-        )
-        layer_def["layout"]["text-offset"] = TextPropertyExtractor.get_text_offset(label_settings)
-        layer_def["layout"]["text-allow-overlap"] = TextPropertyExtractor.get_text_allow_overlap()
-        layer_def["layout"][
-            "text-ignore-placement"
-        ] = TextPropertyExtractor.get_text_ignore_placement()
-        layer_def["layout"]["text-optional"] = TextPropertyExtractor.get_text_optional()
-        layer_def["layout"]["text-padding"] = TextPropertyExtractor.get_text_padding()
-        layer_def["layout"]["text-line-height"] = TextPropertyExtractor.get_text_line_height()
-        layer_def["layout"][
-            "text-letter-spacing"
-        ] = TextPropertyExtractor.get_text_letter_spacing()
-        layer_def["layout"]["text-transform"] = TextPropertyExtractor.get_text_transform()
-        layer_def["layout"]["text-max-width"] = TextPropertyExtractor.get_text_max_width(
-            label_settings
-        )
-        layer_def["layout"]["text-keep-upright"] = TextPropertyExtractor.get_text_keep_upright()
-        layer_def["layout"]["text-rotate"] = TextPropertyExtractor.get_text_rotate(label_settings)
-        layer_def["layout"][
-            "text-rotation-alignment"
-        ] = TextPropertyExtractor.get_text_rotation_alignment()
-        layer_def["layout"][
-            "text-pitch-alignment"
-        ] = TextPropertyExtractor.get_text_pitch_alignment()
-        layer_def["layout"]["visibility"] = "visible"
+        layer_def["layout"].update({
+            "text-font": TextPropertyExtractor.get_text_font(text_format),
+            "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
+            "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
+            "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
+            "text-offset": TextPropertyExtractor.get_text_offset(label_settings),
+            "text-allow-overlap": TextPropertyExtractor.get_text_allow_overlap(),
+            "text-ignore-placement": TextPropertyExtractor.get_text_ignore_placement(),
+            "text-optional": TextPropertyExtractor.get_text_optional(),
+            "text-padding": TextPropertyExtractor.get_text_padding(),
+            "text-line-height": TextPropertyExtractor.get_text_line_height(),
+            "text-letter-spacing": TextPropertyExtractor.get_text_letter_spacing(),
+            "text-transform": TextPropertyExtractor.get_text_transform(),
+            "text-max-width": TextPropertyExtractor.get_text_max_width(label_settings),
+            "text-keep-upright": TextPropertyExtractor.get_text_keep_upright(),
+            "text-rotate": TextPropertyExtractor.get_text_rotate(label_settings),
+            "text-rotation-alignment": TextPropertyExtractor.get_text_rotation_alignment(),
+            "text-pitch-alignment": TextPropertyExtractor.get_text_pitch_alignment(),
+            "visibility": "visible",
+        })
 
-        # Paint properties using extractors
-        layer_def["paint"]["text-color"] = TextPropertyExtractor.get_text_color(
-            text_format, label_settings
-        )
-        layer_def["paint"]["text-opacity"] = TextPropertyExtractor.get_text_opacity(text_format)
-        layer_def["paint"]["text-halo-color"] = TextPropertyExtractor.get_text_halo_color(
-            text_format
-        )
-        layer_def["paint"]["text-halo-width"] = TextPropertyExtractor.get_text_halo_width(
-            text_format
-        )
-        layer_def["paint"]["text-translate"] = TextPropertyExtractor.get_text_translate()
-        layer_def["paint"][
-            "text-translate-anchor"
-        ] = TextPropertyExtractor.get_text_translate_anchor()
+        layer_def["paint"].update({
+            "text-color": TextPropertyExtractor.get_text_color(text_format, label_settings),
+            "text-opacity": TextPropertyExtractor.get_text_opacity(text_format),
+            "text-halo-color": TextPropertyExtractor.get_text_halo_color(text_format),
+            "text-halo-width": TextPropertyExtractor.get_text_halo_width(text_format),
+            "text-translate": TextPropertyExtractor.get_text_translate(),
+            "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
+        })
 
-        # Background (icon) properties using extractors
+        # Deep-copy label settings to avoid mutating the caller's object.
         label_settings = QgsPalLayerSettings(label_settings)
         label_format = QgsTextFormat(label_settings.format())
         background = QgsTextBackgroundSettings(label_format.background())
@@ -1123,116 +894,96 @@ class QgisMapLibreStyleExporter:
         label_settings.setFormat(label_format)
 
         if background.enabled() and background.markerSymbol():
-            # Try to extract marker from background
-            try:
-                if hasattr(background, "markerSymbol"):
-                    marker = background.markerSymbol()
-                    if marker and marker.type() == QgsSymbol.Marker:
-                        marker_name = f"marker_{self.marker_counter}"
-                        self.marker_counter += 1
-                        self.marker_symbols[marker_name] = marker.clone()
-                        layer_def["layout"]["icon-image"] = marker_name
-                    else:
-                        layer_def["layout"]["icon-image"] = style_name
-                else:
-                    layer_def["layout"]["icon-image"] = style_name
-            except (RuntimeError, AttributeError):
-                layer_def["layout"]["icon-image"] = style_name
-
-            # Icon layout properties
-            icon_text_fit = IconPropertyExtractor.get_icon_text_fit(background)
-            if icon_text_fit:
-                layer_def["layout"]["icon-text-fit"] = icon_text_fit
-
-            icon_text_fit_padding = IconPropertyExtractor.get_icon_text_fit_padding(background)
-            if icon_text_fit_padding:
-                layer_def["layout"]["icon-text-fit-padding"] = icon_text_fit_padding
-
-            layer_def["layout"]["icon-anchor"] = IconPropertyExtractor.get_icon_anchor()
-            layer_def["layout"][
-                "icon-rotation-alignment"
-            ] = IconPropertyExtractor.get_icon_rotation_alignment()
-            layer_def["layout"][
-                "icon-pitch-alignment"
-            ] = IconPropertyExtractor.get_icon_pitch_alignment()
-            layer_def["layout"][
-                "icon-allow-overlap"
-            ] = IconPropertyExtractor.get_icon_allow_overlap()
-            layer_def["layout"][
-                "icon-ignore-placement"
-            ] = IconPropertyExtractor.get_icon_ignore_placement()
-            layer_def["layout"][
-                "icon-keep-upright"
-            ] = IconPropertyExtractor.get_icon_keep_upright()
-            layer_def["layout"]["icon-offset"] = IconPropertyExtractor.get_icon_offset(background)
-
-            # Icon paint properties
-            try:
-                layer_def["paint"]["icon-opacity"] = IconPropertyExtractor.get_icon_opacity(
-                    background
-                )
-                layer_def["paint"]["icon-color"] = IconPropertyExtractor.get_icon_color(background)
-                layer_def["paint"]["icon-halo-color"] = IconPropertyExtractor.get_icon_halo_color()
-                layer_def["paint"]["icon-halo-width"] = IconPropertyExtractor.get_icon_halo_width()
-                # layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
-                layer_def["paint"]["icon-translate"] = IconPropertyExtractor.get_icon_translate()
-                layer_def["paint"][
-                    "icon-translate-anchor"
-                ] = IconPropertyExtractor.get_icon_translate_anchor()
-            except (OSError, RuntimeError):
-                pass
+            self._apply_icon_from_background(layer_def, background, style_name)
         else:
-            # Default icon properties even without background
-            layer_def["layout"][
-                "icon-allow-overlap"
-            ] = IconPropertyExtractor.get_icon_allow_overlap()
-            layer_def["layout"][
-                "icon-ignore-placement"
-            ] = IconPropertyExtractor.get_icon_ignore_placement()
-            layer_def["layout"]["icon-optional"] = IconPropertyExtractor.get_icon_optional()
-            layer_def["paint"]["icon-opacity"] = IconPropertyExtractor.get_icon_opacity()
-            layer_def["paint"]["icon-halo-color"] = IconPropertyExtractor.get_icon_halo_color()
-            layer_def["paint"]["icon-halo-width"] = IconPropertyExtractor.get_icon_halo_width()
-            # layer_def["paint"]["icon-halo-blur"] = IconPropertyExtractor.get_icon_halo_blur()
-            layer_def["paint"]["icon-translate"] = IconPropertyExtractor.get_icon_translate()
-            layer_def["paint"][
-                "icon-translate-anchor"
-            ] = IconPropertyExtractor.get_icon_translate_anchor()
+            self._apply_default_icon_props(layer_def)
 
         self.style["layers"].append(layer_def)
 
+    def _apply_icon_from_background(self, layer_def: dict, background, style_name: str):
+        """Configure icon layout/paint from a label background marker symbol."""
+        try:
+            marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
+            if marker and marker.type() == QgsSymbol.Marker:
+                marker_name = f"marker_{self.marker_counter}"
+                self.marker_counter += 1
+                self.marker_symbols[marker_name] = marker.clone()
+                layer_def["layout"]["icon-image"] = marker_name
+            else:
+                layer_def["layout"]["icon-image"] = style_name
+        except (RuntimeError, AttributeError):
+            layer_def["layout"]["icon-image"] = style_name
+
+        text_fit = IconPropertyExtractor.get_icon_text_fit(background)
+        if text_fit:
+            layer_def["layout"]["icon-text-fit"] = text_fit
+
+        text_fit_padding = IconPropertyExtractor.get_icon_text_fit_padding(background)
+        if text_fit_padding:
+            layer_def["layout"]["icon-text-fit-padding"] = text_fit_padding
+
+        layer_def["layout"].update({
+            "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
+            "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
+            "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
+            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(),
+            "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
+            "icon-keep-upright": IconPropertyExtractor.get_icon_keep_upright(),
+            "icon-offset": IconPropertyExtractor.get_icon_offset(background),
+        })
+
+        try:
+            layer_def["paint"].update({
+                "icon-opacity": IconPropertyExtractor.get_icon_opacity(background),
+                "icon-color": IconPropertyExtractor.get_icon_color(background),
+                "icon-halo-color": IconPropertyExtractor.get_icon_halo_color(),
+                "icon-halo-width": IconPropertyExtractor.get_icon_halo_width(),
+                # "icon-halo-blur": IconPropertyExtractor.get_icon_halo_blur(),
+                "icon-translate": IconPropertyExtractor.get_icon_translate(),
+                "icon-translate-anchor": IconPropertyExtractor.get_icon_translate_anchor(),
+            })
+        except (OSError, RuntimeError):
+            pass
+
+    def _apply_default_icon_props(self, layer_def: dict):
+        """Apply default icon layout/paint when no background marker is present."""
+        layer_def["layout"].update({
+            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(),
+            "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
+            "icon-optional": IconPropertyExtractor.get_icon_optional(),
+        })
+        layer_def["paint"].update({
+            "icon-opacity": IconPropertyExtractor.get_icon_opacity(),
+            "icon-halo-color": IconPropertyExtractor.get_icon_halo_color(),
+            "icon-halo-width": IconPropertyExtractor.get_icon_halo_width(),
+            # "icon-halo-blur": IconPropertyExtractor.get_icon_halo_blur(),
+            "icon-translate": IconPropertyExtractor.get_icon_translate(),
+            "icon-translate-anchor": IconPropertyExtractor.get_icon_translate_anchor(),
+        })
+
     def to_json(self, indent: int = 2) -> str:
-        """Convert the style to JSON string."""
+        """Serialize the style dict to a JSON string."""
         return json.dumps(self.style, indent=indent)
 
-    def save_to_file(self, filename: str = "style.json", indent: int = 2):
-        """Save style and sprites to same directory; add sprite source to style.json."""
-        # Create style subdirectory
-        style_subdir = "style"
-        full_output_dir = os.path.join(self.output_dir, style_subdir)
+    def save_to_file(self, filename: str = "style.json", indent: int = 2) -> str:
+        """Save style JSON and sprites to the output directory."""
+        style_dir = os.path.join(self.output_dir, "style")
+        os.makedirs(style_dir, exist_ok=True)
 
-        if not os.path.exists(full_output_dir):
-            os.makedirs(full_output_dir)
-
-        # Generate sprites if markers were collected
         if self.marker_symbols:
-            sprite_gen = SpriteGenerator(
-                self.marker_symbols, full_output_dir, scale_factor=1, test_mode=False
-            )
-            sprite_gen.generate()
+            SpriteGenerator(
+                self.marker_symbols, style_dir, scale_factor=1, test_mode=False
+            ).generate()
         else:
-            del self.style["sprite"]  # Remove sprite reference if no sprites
+            del self.style["sprite"]
 
-        # Save style.json
-        filepath = os.path.join(full_output_dir, filename)
+        filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
             json.dump(self.style, f, indent=indent)
 
         return filepath
 
 
-# Example usage - run in QGIS Python console
 if __name__ == "__console__":
-    # Convert active layer to MapLibre style
     exporter = QgisMapLibreStyleExporter(output_dir=QgsProcessingUtils.tempFolder())
     output_file = exporter.export()

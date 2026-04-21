@@ -18,7 +18,6 @@ from datetime import datetime
 from os import makedirs, listdir
 from os.path import join, exists, basename
 from shutil import rmtree, copy2
-
 from sys import prefix
 from time import perf_counter
 from typing import List, Optional
@@ -50,10 +49,7 @@ except ImportError:
 
 
 class QGIS2VectorTiles:
-    """
-    Main adapter class that orchestrates the conversion process from QGIS
-    vector layer styling to vector tiles format.
-    """
+    """Orchestrate the conversion from QGIS project styling to vector tiles."""
 
     def __init__(
         self,
@@ -79,76 +75,68 @@ class QGIS2VectorTiles:
         self.feedback = feedback or QgsProcessingFeedback()
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
-        """
-        Convert current QGIS project to vector tiles format.
-
-        Returns:
-            QgsVectorTileLayer: The created vector tiles layer, or None if failed
-        """
+        """Run the full conversion pipeline; return the styled tiles layer or None."""
         try:
             self._clear_project()
             temp_dir = self._create_temp_directory()
             self._log(". Starting conversion process...")
             start_time = perf_counter()
 
-            # Step 1: Flatten all rules
             self._log(". Flattening rules...")
             rules = self._flatten_rules()
             if not rules:
                 self._log(". No visible vector layers found in project.")
-                return
+                return None
+            self._log(f". Successfully extracted {len(rules)} rules "
+                      f"({self._elapsed_minutes(start_time)} minutes).")
 
-            flatten_finish_time = perf_counter()
-            flatten_time = self._elapsed_minutes(start_time, flatten_finish_time)
-            self._log(f". Successfully extracted {len(rules)} rules ({flatten_time} minutes).")
-            tiles_uri = layers = None
-
-            # Step 2: Export rules to datasets
+            flatten_time = perf_counter()
             self._log(". Exporting rules to datasets...")
             layers, rules = self._export_rules(rules)
-            export_finish_time = perf_counter()
-            export_time = self._elapsed_minutes(flatten_finish_time, export_finish_time)
-            self._log(f". Successfully exported {len(layers)} layers ({export_time} minutes).")
+            self._log(f". Successfully exported {len(layers)} layers "
+                      f"({self._elapsed_minutes(flatten_time)} minutes).")
 
-            # Step 3: Generate and style tiles
+            tiles_uri = None
+            export_time = perf_counter()
             if self._has_features(layers):
                 self._log(". Generating tiles...")
                 tiles_uri = self._generate_tiles(layers, temp_dir)
-                tiles_finish_time = perf_counter()
-                tiles_time = self._elapsed_minutes(export_finish_time, tiles_finish_time)
-                self._log(f". Successfully generated tiles ({tiles_time} minutes).")
+                self._log(f". Successfully generated tiles "
+                          f"({self._elapsed_minutes(export_time)} minutes).")
 
             self._log(". Loading and styling tiles...")
-            styled_layer = self._sytle_tiles(rules, temp_dir, tiles_uri)
+            styled_layer = self._style_tiles(rules, temp_dir, tiles_uri)
             self._log(". Successfully loaded and styled tiles.")
 
             self._log(". Exporting tiles style to MapLibre style package...")
             self._export_maplibre_style(temp_dir, styled_layer)
             self._log(". Successfully exported MapLibre style package.")
 
-            total_time = self._elapsed_minutes(start_time, perf_counter())
-            self._log(f". Process completed successfully ({total_time} minutes).")
+            self._log(f". Process completed successfully "
+                      f"({self._elapsed_minutes(start_time)} minutes).")
             self._clear_project()
             self.serve_tiles(temp_dir)
+
         except QgsProcessingException as e:
             self._log(f". Processing failed: {str(e)}")
             self._clear_project()
             return None
 
     def _clear_project(self):
-        """Clear temp layers which are not visible in the project legend."""
-        legend_layers = QgsProject.instance().layerTreeRoot().findLayers()
-        legend_layers_ids = [layer.layer().id() for layer in legend_layers]
-        for layer in list(QgsProject.instance().mapLayers().values()):
-            if layer.id() not in legend_layers_ids:
-                QgsProject.instance().removeMapLayer(layer)
+        """Remove all map layers not visible in the project legend."""
+        legend_ids = {
+            node.layer().id()
+            for node in QgsProject.instance().layerTreeRoot().findLayers()
+        }
+        for layer_id in list(QgsProject.instance().mapLayers()):
+            if layer_id not in legend_ids:
+                QgsProject.instance().removeMapLayer(layer_id)
 
     def _get_utils_dir(self) -> str:
-        """Clear utils dir."""
-        for subfile in listdir(QgsProcessingUtils.tempFolder()):
+        """Clear the QGIS temp folder and create a fresh working directory."""
+        for entry in listdir(QgsProcessingUtils.tempFolder()):
             try:
-                path = join(QgsProcessingUtils.tempFolder(), subfile)
-                rmtree(path)
+                rmtree(join(QgsProcessingUtils.tempFolder(), entry))
             except (PermissionError, NotADirectoryError):
                 continue
         utils_dir = join(QgsProcessingUtils.tempFolder(), f"q2styledtiles_{uuid4().hex}")
@@ -156,75 +144,70 @@ class QGIS2VectorTiles:
         return utils_dir
 
     def _create_temp_directory(self) -> str:
-        """Create temporary directory for processing."""
         temp_dir = join(self.output_dir, datetime.now().strftime("%d_%m_%Y_%H_%M_%S_%f"))
         makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
     def _flatten_rules(self) -> List[FlattenedRule]:
-        """Flatten all rules from project layers."""
-        flattener = RulesFlattener(self.min_zoom, self.max_zoom, self.utils_dir, self.feedback)
-        return flattener.flatten_all_rules()
+        return RulesFlattener(
+            self.min_zoom, self.max_zoom, self.utils_dir, self.feedback
+        ).flatten_all_rules()
 
-    def _export_rules(self, rules: List[FlattenedRule]) -> List[QgsVectorLayer]:
-        """Export rules to vector layers."""
-        exporter = RulesExporter(
-            rules,
-            self.extent,
-            self.include_required_fields_only,
-            self.max_zoom,
-            self.utils_dir,
-            self.cent_source,
-            self.feedback,
-        )
-        return exporter.export()
+    def _export_rules(self, rules: List[FlattenedRule]):
+        return RulesExporter(
+            rules, self.extent, self.include_required_fields_only,
+            self.max_zoom, self.utils_dir, self.cent_source, self.feedback,
+        ).export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
-        """Check if any layer has features."""
         return any(layer.featureCount() > 0 for layer in layers)
 
     def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str) -> str:
-        """Generate vector tiles."""
-        generator = GDALTilesGenerator(
+        tiles_uri, min_zoom = GDALTilesGenerator(
             layers, temp_dir, self.extent, self.cpu_percent, self.feedback
-        )
-        tiles_uri, min_zoom = generator.generate()
+        ).generate()
         self.min_zoom = min_zoom
         return tiles_uri
 
-    def _sytle_tiles(self, rules, temp_dir, tiles_uri) -> Optional[QgsVectorTileLayer]:
-        """Style tiles."""
-        styler = TilesStyler(rules, temp_dir, tiles_uri)
-        styled_layer = styler.apply_styling()
-        return styled_layer
+    def _style_tiles(self, rules, temp_dir, tiles_uri) -> Optional[QgsVectorTileLayer]:
+        return TilesStyler(rules, temp_dir, tiles_uri).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        """Export MapLibre style."""
-        exporter = QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type)
-        exporter.export()
+        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type).export()
 
     def _log(self, message: str):
-        """Log message to feedback or console."""
         if __name__ != "__console__":
             self.feedback.pushInfo(message)
         else:
             print(message)
 
-    @staticmethod
-    def _elapsed_minutes(start: float, end: float) -> str:
-        """Calculate elapsed time in minutes."""
-        return f"{round((end - start) / 60, 2)}"
+    def _elapsed_minutes(self, start: float) -> str:
+        """Return elapsed time in minutes since start, rounded to 2 decimal places."""
+        return f"{round((perf_counter() - start) / 60, 2)}"
 
-    def serve_tiles(self, output_folder):
-        """Serve generated tiles using a simple HTTP server (cross-platform)."""
-        # Create utilities directory
-        utils_dir_name = "utils"
-        utils_dir = join(output_folder, utils_dir_name)
+    # --- Tile server ---
+
+    def serve_tiles(self, output_folder: str):
+        """Copy server utilities and launch the local tile server."""
+        utils_dir = join(output_folder, "utils")
         makedirs(utils_dir, exist_ok=True)
 
-        # Copy utils files to utils directory
         activator = _BAT if platform.system() == "Windows" else _SH
         wrapper = _VB if platform.system() == "Windows" else None
+
+        self._copy_server_files(output_folder, utils_dir, activator, wrapper)
+
+        center = self._get_center_wgs84()
+        python_exe = self._get_python_exe()
+        self._configure_server_placeholders(
+            output_folder, utils_dir, activator, wrapper, center, python_exe
+        )
+        self._launch_server(output_folder, activator, wrapper)
+
+    def _copy_server_files(
+        self, output_folder: str, utils_dir: str, activator: str, wrapper: Optional[str]
+    ):
+        """Copy the server, viewer, and launcher files to the output directory."""
         if wrapper:
             copy2(activator, utils_dir)
             copy2(wrapper, output_folder)
@@ -235,37 +218,50 @@ class QGIS2VectorTiles:
         copy2(f"{_MAPLIBRE}.js", utils_dir)
         copy2(f"{_MAPLIBRE}.css", utils_dir)
 
-        # Get the extent of the tiles in EPSG:4326 for the MapLibre viewer
+    def _get_center_wgs84(self) -> str:
+        """Return the map extent center as a '[lon, lat]' string in EPSG:4326."""
         src_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
         dest_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-        coord_transform = QgsCoordinateTransform(
+        transform = QgsCoordinateTransform(
             src_crs, dest_crs, QgsProject.instance().transformContext()
         )
-        center_src_crs = self.extent.center()
-        center_4326 = coord_transform.transform(center_src_crs)
-        center_corrd = f"[{center_4326.x()}, {center_4326.y()}]"
+        center = transform.transform(self.extent.center())
+        return f"[{center.x()}, {center.y()}]"
 
-        # Get python exe path
-        if platform.system() == "Windows":
-            python_exe = join(prefix, "pythonw.exe")
-        elif platform.system() == "Linux":
-            python_exe = join(prefix, "bin", "python3")
-        else:
-            python_exe = join(prefix, "python3")
+    def _get_python_exe(self) -> str:
+        """Return the Python executable path for the current platform."""
+        system = platform.system()
+        if system == "Windows":
+            return join(prefix, "pythonw.exe")
+        if system == "Linux":
+            return join(prefix, "bin", "python3")
+        return join(prefix, "python3")
 
-        # Replace placeholders in the utils
+    def _configure_server_placeholders(
+        self,
+        output_folder: str,
+        utils_dir: str,
+        activator: str,
+        wrapper: Optional[str],
+        center: str,
+        python_exe: str,
+    ):
+        """Replace template placeholders in server, viewer, and launcher files."""
         self.replace_in_file(
             join(utils_dir, basename(_VIEWER)),
             {
                 "_Q2VT_MINZOOM": str(self.min_zoom),
-                "_Q2VT_CENTER": center_corrd,
+                "_Q2VT_CENTER": center,
                 "18111991": str(_PORT),
             },
         )
-
-        self.replace_in_file(join(utils_dir, basename(_SERVER)), {"18111991": str(_PORT)})
         self.replace_in_file(
-            join(utils_dir if wrapper else output_folder, basename(activator)),
+            join(utils_dir, basename(_SERVER)),
+            {"18111991": str(_PORT)},
+        )
+        activator_dir = utils_dir if wrapper else output_folder
+        self.replace_in_file(
+            join(activator_dir, basename(activator)),
             {
                 "18111991": str(_PORT),
                 "_Q2VT_PYTHON": python_exe,
@@ -273,19 +269,22 @@ class QGIS2VectorTiles:
             },
         )
 
-        # Launch server and viewer
-
+    def _launch_server(
+        self, output_folder: str, activator: str, wrapper: Optional[str]
+    ):
+        """Launch the tile server subprocess."""
         command = "wscript.exe" if wrapper else "bash"
-        popen_file = wrapper if wrapper else activator
-        subprocess.Popen([command, join(output_folder, basename(popen_file))], cwd=output_folder)
+        launch_file = wrapper if wrapper else activator
+        subprocess.Popen(
+            [command, join(output_folder, basename(launch_file))], cwd=output_folder
+        )
 
-    def replace_in_file(self, file_path: str, replacements: dict[str, str]) -> None:
-        """Replace all occurrences of keys in a file with their corresponding values."""
+    def replace_in_file(self, file_path: str, replacements: dict) -> None:
+        """Replace all keys with their values in the given file."""
         if not exists(file_path):
             raise FileNotFoundError(file_path)
         if not replacements:
             raise ValueError("empty replacements")
-
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()

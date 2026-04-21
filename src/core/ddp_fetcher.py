@@ -1,10 +1,9 @@
 """
-data_defined_properties.py
+ddp_fetcher.py
 
 DataDefinedPropertiesFetcher — recursively walks a QGIS symbol/label object
-tree and collects all active data-defined properties, converting them into
-(field_type, expression, field_name) triples that RulesExporter can materialise
-as calculated fields.
+tree and collects all active data-defined properties, returning
+(field_type, expression, field_name) triples for use as calculated fields.
 """
 
 from uuid import uuid4
@@ -14,130 +13,158 @@ from qgis.core import QgsProperty, QgsPropertyDefinition, QgsExpression
 from ..utils.config import QVariant
 
 
-class DataDefinedPropertiesFetcher:
-    """Fetch recursively all data defined properties in a given object"""
+def _to_color_hex_expr(inner_expr: str) -> str:
+    """Wrap a color expression to produce an 8-character hex RRGGBBAA string."""
+    return (
+        f"'#' || with_variable('hex', array_cat(generate_series(0,9),"
+        f"array('A','B','C','D','E','F')), array_to_string("
+        f"array_foreach(array('red','green','blue','alpha'),"
+        f"with_variable('colo', color_part({inner_expr}, @element),"
+        f"@hex[floor(@colo/16)] || @hex[@colo%16])), ''))"
+    )
 
-    CRASHING_ATTRS = [
-        "_",
-        "value",
-        "index",
-        "available",
-        "config",
-        "next",
-        "attr",
-        "clone",
-        "function",
-        "flag",
-        "capabil",
-        "remove",
-        "symbols",
-        "clear",
-        "prepare",
-        "dump",
-        "copy",
-        "create",
-        "update",
-        "replace",
-    ]
-    TYPES_MAP = {
+
+class DataDefinedPropertiesFetcher:
+    """Recursively fetch active data-defined properties from a QGIS symbol/label object."""
+
+    # Attribute name fragments whose getters are unsafe to call reflectively.
+    _SKIP_FRAGMENTS: frozenset = frozenset({
+        "_", "value", "index", "available", "config", "next", "attr",
+        "clone", "function", "flag", "capabil", "remove", "symbols",
+        "clear", "prepare", "dump", "copy", "create", "update", "replace",
+    })
+
+    _DATA_TYPE_MAP: dict = {
         QgsPropertyDefinition.DataTypeString: QVariant.String,
         QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
         QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool,
     }
+
     FIELD_PREFIX = "q2vt"
 
     def __init__(self, qgis_object, min_scale):
-        self.qgis_object = qgis_object
-        self.min_scale = min_scale
-        self.dd_properties = []
+        self._root = qgis_object
+        self._min_scale = str(min_scale)
+        self._results: list = []
 
-    def fetch(self):
-        """Fetch data defined properties from main instance object"""
-        self._fetch_ddp(self.qgis_object)
-        return self.dd_properties
+    def fetch(self) -> list:
+        """Return [[field_type, expression, field_name], ...] for all active DDPs."""
+        self._walk(self._root)
+        return self._results
 
-    def _fetch_ddp(self, qgis_object):
-        """Get data defined properties from current object's subobjects"""
-        for attr in dir(qgis_object):
+    def _is_safe_attr(self, attr: str) -> bool:
+        lower = attr.lower()
+        return not (
+            any(frag in lower for frag in self._SKIP_FRAGMENTS)
+            or (attr.startswith("set") and attr != lower)
+            or attr[0].isupper()
+        )
+
+    def _walk(self, obj):
+        """Recursively introspect obj's QGIS sub-objects for data-defined properties."""
+        for attr in dir(obj):
+            if not self._is_safe_attr(attr):
+                continue
             try:
-                if any(word.lower() in attr.lower() for word in self.CRASHING_ATTRS):
-                    continue
-                if attr.startswith("set") and attr != attr.lower():
-                    continue
-                if attr[0].isupper():
-                    continue
-                getter = getattr(qgis_object, attr)
+                getter = getattr(obj, attr)
                 if not callable(getter):
                     continue
-                qgis_subobjects = None
-                qgis_subobjects = [getter()] if not isinstance(getter(), list) else getter()
-                if not qgis_subobjects:
+
+                result = getter()
+                children = result if isinstance(result, list) else [result]
+                if not children:
                     continue
-                first_subobject = qgis_subobjects[0]
-                if isinstance(first_subobject, type(qgis_object)):
+
+                first = children[0]
+                if (
+                    isinstance(first, type(obj))
+                    or "qgis." not in str(type(first))
+                    or first in self._results
+                ):
                     continue
-                if "qgis." not in str(type(first_subobject)):
+
+                prop_defs = self._resolve_prop_definitions(first, obj)
+                if not prop_defs:
                     continue
-                if first_subobject in self.dd_properties:
-                    continue
-                if hasattr(first_subobject, "propertyDefinitions"):
-                    props_defintions = getattr(first_subobject, "propertyDefinitions")()
-                elif hasattr(qgis_object, "propertyDefinitions"):
-                    props_defintions = getattr(qgis_object, "propertyDefinitions")()
-                else:
-                    props_defintions = None
-                if not props_defintions:
-                    continue
-                self._get_properties(qgis_subobjects, props_defintions)
+
+                for child in children:
+                    if hasattr(child, "dataDefinedProperties"):
+                        self._collect_from(child, prop_defs)
+                    self._walk(child)
+
             except (NameError, ValueError, AttributeError, TypeError):
                 continue
 
-    def _get_properties(self, qgis_subobjects, props_defintions):
-        """Get data defined property properties from qgis object"""
-        for qgis_subobject in qgis_subobjects:
-            if hasattr(qgis_subobject, "dataDefinedProperties"):
-                self._get_propertys_from_subobjects(qgis_subobject, props_defintions)
-            self._fetch_ddp(qgis_subobject)
+    def _resolve_prop_definitions(self, child, parent):
+        if hasattr(child, "propertyDefinitions"):
+            return child.propertyDefinitions()
+        if hasattr(parent, "propertyDefinitions"):
+            return parent.propertyDefinitions()
+        return None
 
-    def _get_propertys_from_subobjects(self, qgis_subobject, props_defintions):
-        """Get data defined properties from` subobjects of qgis object"""
-        props_collection = qgis_subobject.dataDefinedProperties()
-        for key in props_collection.propertyKeys():
-            prop = props_collection.property(key)
+    def _collect_from(self, obj, prop_defs):
+        """Extract active DDP entries from obj and append to results."""
+        props = obj.dataDefinedProperties()
+        for key in props.propertyKeys():
+            prop = props.property(key)
             if not prop or not prop.isActive():
                 continue
-            prop_type = prop.propertyType()
-            if prop_type not in [2, 3]:
+
+            property_kind = prop.propertyType()
+            if property_kind not in (2, 3):
                 continue
-            prop_def = props_defintions.get(key)
-            prop_type = prop_def.dataType() if props_defintions else None
-            field_type = self.TYPES_MAP.get(prop_type)
+
+            prop_def = prop_defs.get(key)
+            data_type = prop_def.dataType() if prop_defs else None
+            field_type = self._DATA_TYPE_MAP.get(data_type)
             field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
 
-            if prop_type == 2:
-                exp_prop = QgsProperty()
-                exp_prop.setExpressionString(prop.asExpression())
-                expression = exp_prop.expressionString()
-                exp_prop.setExpressionString(f'"{field_name}"')
-                props_collection.setProperty(key, exp_prop)
-                prop = props_collection.property(key)
+            if data_type == QgsPropertyDefinition.DataTypeBoolean:
+                expression = self._process_boolean_prop(prop, props, key, field_name)
             else:
-                expression = prop.expressionString().replace("@map_scale", self.min_scale)
-                ddp_expression = f'"{field_name}"'
-                if "color" in prop_def.name().lower() and field_type == 10:
-                    # Convert color to hex string in order to be used in MapLibre style
-                    expression = f"'#' || with_variable('hex', array_cat(generate_series(0,9),array('A','B','C','D','E','F')), array_to_string (array_foreach (array ('red','green','blue', 'alpha'),with_variable('colo',color_part ({expression}, @element),@hex[floor(@colo/16)] || @hex[@colo%16] )),''))"  # pylint: disable=C0301
-                qexpression = QgsExpression(expression)
-                evaluation = qexpression.evaluate()
-                if evaluation is not None and not qexpression.needsGeometry():
-                    prop.setExpressionString(str(evaluation))
+                expression = self._process_expression_prop(
+                    prop, props, key, prop_def, field_type, field_name
+                )
+                if expression is None:
                     continue
-                if "color" in prop_def.name().lower() and field_type == 10:
-                    ddp_expression = f"""with_variable('color',  "{field_name}", '#' || substr(@color,8,2) || substr(@color,2,6))"""
-                if "array" in expression:
-                    expression = f"try(array_to_string({expression}), {expression})"
-                prop.setExpressionString(ddp_expression)
 
-            field_map = [field_type, expression, field_name]
+            self._results.append([field_type, expression, field_name])
 
-            self.dd_properties.append(field_map)
+    def _process_boolean_prop(self, prop, props_collection, key: int, field_name: str) -> str:
+        """Replace boolean property with a field reference; return original expression."""
+        exp_prop = QgsProperty()
+        exp_prop.setExpressionString(prop.asExpression())
+        expression = exp_prop.expressionString()
+        exp_prop.setExpressionString(f'"{field_name}"')
+        props_collection.setProperty(key, exp_prop)
+        return expression
+
+    def _process_expression_prop(
+        self, prop, props_collection, key, prop_def, field_type, field_name
+    ):
+        """
+        Build the calculated-field expression for string/numeric DDPs.
+        Returns None if the expression evaluates to a static value (no field needed).
+        """
+        raw = prop.expressionString().replace("@map_scale", self._min_scale)
+        is_color = prop_def and "color" in prop_def.name().lower() and field_type == 10
+
+        expression = _to_color_hex_expr(raw) if is_color else raw
+
+        qexpr = QgsExpression(expression)
+        static_value = qexpr.evaluate()
+        if static_value is not None and not qexpr.needsGeometry():
+            prop.setExpressionString(str(static_value))
+            return None
+
+        field_ref = f'"{field_name}"'
+        if is_color:
+            field_ref = (
+                f"with_variable('color', \"{field_name}\", "
+                f"'#' || substr(@color,8,2) || substr(@color,2,6))"
+            )
+        if "array" in expression:
+            expression = f"try(array_to_string({expression}), {expression})"
+
+        prop.setExpressionString(field_ref)
+        return expression
