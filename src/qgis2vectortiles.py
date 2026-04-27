@@ -200,22 +200,19 @@ class QGIS2VectorTiles:
         center = self._get_center_wgs84()
         python_exe = self._get_python_exe()
         self._configure_server_placeholders(
-            output_folder, utils_dir, activator, wrapper, center, python_exe
+            output_folder, utils_dir, activator.replace(".txt",""), wrapper.replace(".txt",""), center, python_exe
         )
-        self._launch_server(output_folder, activator, wrapper)
+        self._launch_server(output_folder, activator.replace(".txt",""), wrapper.replace(".txt",""))
 
     def _copy_server_files(
         self, output_folder: str, utils_dir: str, activator: str, wrapper: Optional[str]
     ):
         """Copy the server, viewer, and launcher files to the output directory."""
         if wrapper:
-            dest_activator = join(utils_dir, basename(activator).replace("_win.txt", ".bat"))
-            copy2(activator, dest_activator)
-            dest_wrapper = join(utils_dir, basename(wrapper).replace("_wrap.txt", ".vbs"))
-            copy2(wrapper, dest_wrapper)
+            copy2(activator, join(utils_dir, basename(activator).replace(".txt","")))
+            copy2(wrapper, join(output_folder, basename(wrapper).replace(".txt","")))
         else:
-            dest_wrapper = join(output_folder, basename(activator).replace("_lin.txt", ".sh"))
-            copy2(activator, output_folder)
+            copy2(activator, join(output_folder, basename(activator).replace(".txt","")))
         copy2(_SERVER, utils_dir)
         copy2(_VIEWER, utils_dir)
         copy2(f"{_MAPLIBRE}.js", utils_dir)
