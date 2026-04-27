@@ -210,16 +210,27 @@ class RulesFlattener:
         rule_type: int,
         rule_level: int,
         rule_idx: int,
+        inherited_parent=None,
     ):
         """Recursively flatten the rule hierarchy with property inheritance."""
+        # Children of an unprocessed node (the root) inherit from the node itself;
+        # children of a processed node inherit from its accumulated (flattened) state.
+        parent_for_children = rule
         if rule.parent():
-            self._process_rule(layer, layer_idx, rule, rule_type, rule_level, rule_idx)
+            inheritance_source = self._process_rule(
+                layer, layer_idx, rule, rule_type, rule_level, rule_idx, inherited_parent
+            )
+            if inheritance_source is not None:
+                parent_for_children = inheritance_source
         for child_idx, child in enumerate(rule.children()):
             if not child.active():
                 continue
             if child.filterExpression() == "ELSE":
                 self._convert_else_filter(child, rule)
-            self._flatten_rule(layer, layer_idx, child, rule_type, rule_level + 1, child_idx)
+            self._flatten_rule(
+                layer, layer_idx, child, rule_type, rule_level + 1, child_idx,
+                parent_for_children,
+            )
 
     def _process_rule(
         self,
@@ -229,26 +240,48 @@ class RulesFlattener:
         rule_type: int,
         rule_level: int,
         rule_idx: int,
+        inherited_parent,
     ):
-        """Inherit properties, validate zoom range, split, and register the rule."""
+        """Inherit properties, validate zoom, split, register; return the inheritance source for descendants."""
         if rule_type == 1:
             self._sync_labeling_scale_range(rule)
 
-        inherited_rule = self._inherit_rule_properties(rule, rule_type)
+        inherited_rule = self._inherit_rule_properties(rule, rule_type, inherited_parent)
         if not inherited_rule:
-            return
+            return None
+
+        # Snapshot cumulative state (AND-chain filter, intersected scales, stacked symbols)
+        # BEFORE applying NOT-children — descendants must not see the output-only exclusion.
+        inheritance_source = inherited_rule.clone()
+        self._exclude_children_from_filter(inherited_rule, rule)
 
         flat_rule = FlattenedRule(inherited_rule, layer)
         flat_rule.rule.setDescription("")
         self._set_rule_attributes(flat_rule, layer_idx, rule_type, rule_level, rule_idx)
 
         if not self._is_within_zoom_range(flat_rule):
-            return
+            return inheritance_source
 
         split_rules = self._split_rule(flat_rule, rule_type)
         self._clip_rules_to_zoom_range(split_rules)
         for split_rule in split_rules:
             self.flattened_rules.extend(self._split_by_scale_expressions(split_rule))
+        return inheritance_source
+
+    def _exclude_children_from_filter(self, clone, rule):
+        """Exclude this rule's children's filter conditions (output-only; parent represents leftover coverage)."""
+        child_filters = [
+            f"({child.filterExpression()})"
+            for child in rule.children()
+            if child.filterExpression() and child.filterExpression() != "ELSE"
+        ]
+        if not child_filters:
+            return
+        children_expr = " OR ".join(child_filters)
+        combined = clone.filterExpression()
+        final = f"({combined}) AND NOT ({children_expr})" if combined else f"NOT ({children_expr})"
+        clone.setFilterExpression(final)    
+
 
     def _sync_labeling_scale_range(self, rule):
         """Copy label settings scale visibility to the rule if the rule has no range set."""
@@ -260,29 +293,34 @@ class RulesFlattener:
             rule.setMaximumScale(settings.maximumScale())
             settings.scaleVisibility = False
 
-    def _inherit_rule_properties(self, rule, rule_type: int):
-        """Clone and inherit scale range, filter expression, and symbol layers from parents."""
+    def _inherit_rule_properties(self, rule, rule_type: int, inherited_parent):
+        """Clone and inherit scale range, filter expression, and symbol layers from the cumulative parent."""
         clone = rule.clone()
-        self._inherit_min_scale(clone, rule)
-        self._inherit_max_scale(clone, rule)
-        self._inherit_filter_expression(clone, rule)
+        self._inherit_min_scale(clone, rule, inherited_parent)
+        self._inherit_max_scale(clone, rule, inherited_parent)
+        self._inherit_filter_expression(clone, rule, inherited_parent)
         if rule_type == 0:
-            self._inherit_symbol_layers(clone, rule)
+            self._inherit_symbol_layers(clone, rule, inherited_parent)
         return clone
+    
 
-    def _inherit_min_scale(self, clone, rule):
+    def _inherit_min_scale(self, clone, rule, inherited_parent):
         """Inherit minimum scale; 0 means no restriction → use the largest available scale."""
         rule_scale = rule.minimumScale() if rule.minimumScale() != 0 else max(ZoomLevels.SCALES)
-        clone.setMinimumScale(min(rule_scale, rule.parent().minimumScale()))
+        parent_min = inherited_parent.minimumScale()
+        parent_scale = parent_min if parent_min != 0 else max(ZoomLevels.SCALES)
+        clone.setMinimumScale(min(rule_scale, parent_scale))
 
-    def _inherit_max_scale(self, clone, rule):
+    def _inherit_max_scale(self, clone, rule, inherited_parent):
         """Inherit maximum scale; 0 means no restriction → use the smallest available scale."""
         rule_scale = rule.maximumScale() if rule.maximumScale() != 0 else min(ZoomLevels.SCALES)
-        clone.setMaximumScale(max(rule_scale, rule.parent().maximumScale()))
+        parent_max = inherited_parent.maximumScale()
+        parent_scale = parent_max if parent_max != 0 else min(ZoomLevels.SCALES)
+        clone.setMaximumScale(max(rule_scale, parent_scale))
 
-    def _inherit_filter_expression(self, clone, rule):
-        """Combine parent and child filter expressions, excluding children's conditions."""
-        parent_filter = rule.parent().filterExpression()
+    def _inherit_filter_expression(self, clone, rule, inherited_parent):
+        """Combine cumulative ancestor filter with this rule's filter (AND-chain only)."""
+        parent_filter = inherited_parent.filterExpression() if inherited_parent is not None else ""
         rule_filter = rule.filterExpression()
 
         if parent_filter and rule_filter:
@@ -290,24 +328,12 @@ class RulesFlattener:
         else:
             combined = parent_filter or rule_filter or ""
 
-        child_filters = [
-            f"({child.filterExpression()})"
-            for child in rule.children()
-            if child.filterExpression() and child.filterExpression() != "ELSE"
-        ]
-
-        if child_filters:
-            children_expr = " OR ".join(child_filters)
-            final = f"({combined}) AND NOT ({children_expr})" if combined else f"NOT ({children_expr})"
-        else:
-            final = combined
-
-        clone.setFilterExpression(final)
-
-    def _inherit_symbol_layers(self, clone, rule):
-        """Append parent symbol layers to the cloned rule's symbol."""
+        clone.setFilterExpression(combined)
+ 
+    def _inherit_symbol_layers(self, clone, rule, inherited_parent):
+        """Append the cumulative parent's symbol layers to the cloned rule's symbol."""
         clone_symbol = clone.symbol()
-        parent_symbol = rule.parent().symbol()
+        parent_symbol = inherited_parent.symbol() if inherited_parent is not None else None
         if parent_symbol and clone_symbol:
             for i in range(parent_symbol.symbolLayerCount()):
                 clone_symbol.appendSymbolLayer(parent_symbol.symbolLayer(i).clone())
