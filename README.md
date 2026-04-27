@@ -6,14 +6,11 @@
 🚀 Contributions welcome! Open an Issue or submit a PR.  
 👉 For more details, visit the plugin’s **[homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**
 
-## Demos
+## Demo
 
 ![QGIS2VectorTiles Demo](https://github.com/user-attachments/assets/165294be-42fa-4b1c-99d5-b484b002a339)
 
 ![q2vt_v2_3 (online-video-cutter com)](https://github.com/user-attachments/assets/91be21ba-2eab-4ebe-8bf2-e584aab589ec)
-
-
-<img width="846" height="480" alt="QGIS2VectorTiles_24" src="https://github.com/user-attachments/assets/cdcdd3cf-88ed-4976-b54c-71d5f7e0b5e1" />
 
 
 ## Output Package
