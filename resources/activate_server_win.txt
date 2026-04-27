@@ -11,7 +11,7 @@ cd /d %~dp0
 echo Starting MBTiles server...
 
 REM Launch the server in a NEW window (non-blocking)
-start "MBTiles Server" _Q2VT_PYTHON _Q2VT_UTILS --port 18111991
+start "MBTiles Server" "_Q2VT_PYTHON" "_Q2VT_UTILS" --port 18111991
 
 REM Give the server a moment to start before opening the browser
 timeout /t 2 /nobreak > nul

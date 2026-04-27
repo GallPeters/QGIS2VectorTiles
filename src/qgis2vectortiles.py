@@ -209,9 +209,12 @@ class QGIS2VectorTiles:
     ):
         """Copy the server, viewer, and launcher files to the output directory."""
         if wrapper:
-            copy2(activator, utils_dir)
-            copy2(wrapper, output_folder)
+            dest_activator = join(utils_dir, basename(activator).replace("_win.txt", ".bat"))
+            copy2(activator, dest_activator)
+            dest_wrapper = join(utils_dir, basename(wrapper).replace("_wrap.txt", ".vbs"))
+            copy2(wrapper, dest_wrapper)
         else:
+            dest_wrapper = join(output_folder, basename(activator).replace("_lin.txt", ".sh"))
             copy2(activator, output_folder)
         copy2(_SERVER, utils_dir)
         copy2(_VIEWER, utils_dir)
@@ -232,7 +235,7 @@ class QGIS2VectorTiles:
         """Return the Python executable path for the current platform."""
         system = platform.system()
         if system == "Windows":
-            return join(prefix, "pythonw.exe")
+            return join(prefix, "pythonw3.exe")
         if system == "Linux":
             return join(prefix, "bin", "python3")
         return join(prefix, "python3")
