@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
-description=Pack a QGIS project into a styled vector tile package including a client-side stylesheet, sprites, and a ready-to-use MapLibre viewer.
-about=Pack QGIS project's visible vector layers into a single vector tiles source (XYZ directory), a single vector tiles layer (.qlr), a client-side compatible style sheet (.json), sprites (.png & .json) and a ready-to-use MapLibre viewer (.html).
+description=Pack a QGIS project into a single source (MBTiles), one layer (QLR), matching web style (JSON), and ready-to-use web viewer (HTML).
+about=Pack QGIS project's visible vector layers into a single vector tiles file (MBTiles), a single vector tiles layer (QLR), a client-side compatible style sheet (JSON) and a ready-to-use viewer (HTML).
 version=2.5
 author=Jossef Kanter
 email=jossefkan@gmail.com
@@ -17,7 +17,9 @@ icon=icon.png
 hasProcessingProvider=yes
 changelog=
 	** v2.5 (27.04.26):
+		- Add support in parllel labels placement in the MapLibre viewer. 
 		- Fix bugs ensuring correct export process when using nested renderer/labelings rules.
+		- Refactor codebase to improve maintainability and readability.
 	** v2.4 (19.04.26):
 		- Export data to a single MBTiles file instead of XYZ directories.
 		- Add option to use NASA's Blue Marble as a background layer in the MapLibre viewer.
