@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
-description=Pack a QGIS project into a single source (MBTiles), one layer (QLR), matching web style (JSON), and ready-to-use web viewer (HTML).
-about=Pack QGIS project's visible vector layers into a single vector tiles file (MBTiles), a single vector tiles layer (QLR), a client-side compatible style sheet (JSON) and a ready-to-use viewer (HTML).
+description=Turn a QGIS project into a ready-to-use web map: single source, one layer, matching web style and a web viewer.
+about=Turn your QGIS project into a portable web map package: a single lightweight MBTiles source, a ready-to-use QLR layer, a fully compatible client-side JSON style, and an instant HTML viewer — from desktop to web in one step.
 version=2.5
 author=Jossef Kanter
 email=jossefkan@gmail.com
@@ -16,8 +16,8 @@ tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, 
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
-	** v2.5 (27.04.26):
-		- Add support in parllel labels placement in the MapLibre viewer. 
+	** v2.5 (28.04.26):
+		- Add support in dozen of properties (line label placement, icon-rotation and more) when converting QGIS to MapLibre style. 
 		- Fix bugs ensuring correct export process when using nested renderer/labelings rules.
 		- Refactor codebase to improve maintainability and readability.
 	** v2.4 (19.04.26):

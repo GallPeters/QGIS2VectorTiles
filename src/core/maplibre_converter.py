@@ -1407,9 +1407,13 @@ class QgisMapLibreStyleExporter:
                 "fill-translate": FillPropertyExtractor.get_fill_translate(),
                 "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
             })
-            outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
-            if outline_color:
-                layer_def["paint"]["fill-outline-color"] = outline_color
+
+            # MapLibre does not support separate fill outline properties
+            # so this is currently ignored. The user will need to create
+            # a line symbol layer inside the polygon.
+            # outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
+            # if outline_color:
+            #     layer_def["paint"]["fill-outline-color"] = outline_color
 
             layer_def["layout"].update({
                 "fill-sort-key": FillPropertyExtractor.get_fill_sort_key(symbol_layer),
