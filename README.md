@@ -8,10 +8,7 @@
 
 ## Demo
 
-![QGIS2VectorTiles Demo](https://github.com/user-attachments/assets/165294be-42fa-4b1c-99d5-b484b002a339)
-
-![q2vt_v2_3 (online-video-cutter com)](https://github.com/user-attachments/assets/91be21ba-2eab-4ebe-8bf2-e584aab589ec)
-
+![QGIS2VectorTiles](docs/demos/demo_complex.mp4)
 
 ## Output Package
 
