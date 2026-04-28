@@ -17,7 +17,7 @@ icon=icon.png
 hasProcessingProvider=yes
 changelog=
 	** v2.5 (28.04.26):
-		- Add support in dozen of properties (line label placement, icon-rotation and more) when converting QGIS to MapLibre style. 
+		- Add support in dozen of properties (symbol-placementt, text-variable-anchor and more) when converting QGIS to MapLibre style. 
 		- Fix bugs ensuring correct export process when using nested renderer/labelings rules.
 		- Refactor codebase to improve maintainability and readability.
 	** v2.4 (19.04.26):
