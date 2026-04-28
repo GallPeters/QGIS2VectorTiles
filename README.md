@@ -7,9 +7,10 @@
 👉 For more details, visit the plugin’s **[homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**
 
 ## Demo
-<video controls width="800">
-  <source src="docs/demos/demo_complex.mp4" type="video/mp4">
-</video>
+
+![QGIS2VectorTiles_basic_demo](https://github.com/user-attachments/assets/165294be-42fa-4b1c-99d5-b484b002a339)
+
+![QGIS2VectorTiles_complex_demo)](https://github.com/user-attachments/assets/91be21ba-2eab-4ebe-8bf2-e584aab589ec)
 
 
 ## Output Package
