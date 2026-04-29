@@ -88,8 +88,8 @@ class GDALTilesGenerator:
             "-dsco", f"MINZOOM={min_zoom}",
             "-dsco", f"MAXZOOM={max_zoom}",
             "-t_srs", f"EPSG:{_EPSG_CRS}",
-            "-dsco", "MAX_SIZE=1000000",
-            "-dsco", "MAX_FEATURES=400000",
+            "-dsco", "MAX_SIZE=5000000",
+            "-dsco", "MAX_FEATURES=2000000",
         ]
 
         startupinfo = None
