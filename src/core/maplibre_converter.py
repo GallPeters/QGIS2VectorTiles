@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, List, Optional, Union
 
 from qgis.PyQt.QtGui import QColor
-from ..utils.config import BrushStyle, PenStyle
+from ..utils.config import Qt
 from qgis.core import (
     QgsVectorTileLayer,
     QgsVectorTileBasicRenderer,
@@ -1401,7 +1401,7 @@ class QgisMapLibreStyleExporter:
         )
 
         if isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
-            if symbol_layer.brushStyle() != BrushStyle.NoBrush:
+            if symbol_layer.brushStyle() != Qt.BrushStyle.NoBrush:
                 layer_def["paint"].update({
                     "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
                     "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer),
@@ -1411,7 +1411,7 @@ class QgisMapLibreStyleExporter:
                 })
 
 
-            if symbol_layer.strokeStyle() != PenStyle.NoPen:
+            if symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
                 outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
                 if outline_color:
                     layer_def["paint"]["fill-outline-color"] = outline_color

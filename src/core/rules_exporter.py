@@ -91,6 +91,7 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsFeatureRequest,
     QgsRectangle,
+    QgsCoordinateTransform,
     QgsVectorLayer,
     QgsProject,
 )
@@ -228,31 +229,25 @@ class RulesExporter:
             # Phase 0 — caller-thread snapshot.
             if self._is_cancelled():
                 return [], []
-            self.feedback.pushInfo("Snapshotting rule and source metadata...")
             sources, rule_groups = self._snapshot_caller_thread()
 
             # Phase 1 — serial source materialisation (caller thread).
             if self._is_cancelled():
                 return [], []
-            self.feedback.pushInfo(
-                f"Materialising {len(sources)} source layer(s) (serial)..."
-            )
+
             materialized = self._materialize_sources_serial(sources)
 
             # Phase 2 — parallel base-layer pipeline (file → file).
             if self._is_cancelled():
                 return [], []
-            self.feedback.pushInfo("Building base layers in parallel...")
+
             base_layers = self._build_base_layers_parallel(materialized)
 
             # Phase 3 — parallel rule export (file → file).
             if self._is_cancelled():
                 return [], []
-            self.feedback.pushInfo(
-                f"Exporting {len(rule_groups)} rule group(s) in parallel..."
-            )
+            
             rule_outputs = self._export_rules_parallel(rule_groups, base_layers)
-
             # Phase 4 — collect results on caller thread.
             return self._collect_results(rule_groups, rule_outputs)
         finally:
@@ -394,7 +389,7 @@ class RulesExporter:
                 raise
             except Exception:  # noqa: BLE001  (we want to swallow per-source)
                 self.feedback.reportError(
-                    f"Failed to materialise source '{src.name}':\n"
+                    f"Failed to export source '{src.name}':\n"
                     f"{traceback.format_exc()}"
                 )
         return materialized
@@ -444,12 +439,30 @@ class RulesExporter:
                     )
         return target_paths
 
+    def transform_extent(self, src_path):
+        """Transforms a QgsRectangle from a source CRS to a destination CRS."""
+        source_crs = QgsCoordinateReferenceSystem(_EPSG_CRS)
+        dest_crs = QgsVectorLayer(src_path).crs()
+        if source_crs == dest_crs:
+            return self.extent
+        
+        context = QgsProject.instance().transformContext()
+        transformer = QgsCoordinateTransform(source_crs, dest_crs, context)
+        transformed_extent = transformer.transformBoundingBox(self.extent)
+        return transformed_extent
+    
     def _build_one_base_layer(self, src_path: str, dst_path: str) -> None:
         """Worker: run the cleanup chain on a local Parquet file."""
         self._check_cancel()
+        transform_extent = self.transform_extent(src_path)
+        clipped = self._run_alg_safe(
+            "extractbyextent", "native",
+            INPUT=src_path, EXTENT=transform_extent, CLIP=False,
+        )
+        self._check_cancel()
         # METHOD=1 (structure) — finishes the geometry fix started in Phase 1.
         fixed_struct = self._run_alg_safe(
-            "fixgeometries", "native", INPUT=src_path, METHOD=1
+            "fixgeometries", "native", INPUT=clipped, METHOD=1
         )
         self._check_cancel()
         reprojected = self._run_alg_safe(
@@ -458,13 +471,8 @@ class RulesExporter:
             TARGET_CRS=QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
         )
         self._check_cancel()
-        clipped = self._run_alg_safe(
-            "extractbyextent", "native",
-            INPUT=reprojected, EXTENT=self.extent, CLIP=False,
-        )
-        self._check_cancel()
         singleparted = self._run_alg_safe(
-            "multiparttosingleparts", "native", INPUT=clipped
+            "multiparttosingleparts", "native", INPUT=reprojected
         )
         self._check_cancel()
         self._run_alg_safe(

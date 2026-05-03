@@ -240,7 +240,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
             # Run the generation process
             tiles_generator.convert_project_to_vector_tiles()
-            feedback.pushInfo("Vector tiles package generation completed successfully")
+            feedback.pushInfo(". Vector tiles package generation completed successfully")
 
         except (NameError, ValueError, AttributeError, TypeError) as e:
             feedback.reportError(f"Error during Vector tiles package generation: {str(e)}")
