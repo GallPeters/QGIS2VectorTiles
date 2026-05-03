@@ -154,7 +154,7 @@ class DataDefinedPropertiesFetcher:
         qexpr = QgsExpression(expression)
         static_value = qexpr.evaluate()
         if static_value is not None and not qexpr.needsGeometry():
-            prop.setExpressionString(str(static_value))
+            prop.setExpressionString(f"'{str(static_value)}'")
             return None
 
         field_ref = f'"{field_name}"'

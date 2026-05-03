@@ -152,8 +152,9 @@ class TilesStyler:
         target_props = target_obj.dataDefinedProperties()
         for prop_key in source_obj.propertyDefinitions():
             prop = source_props.property(prop_key)
-            target_props.setProperty(prop_key, prop)
-            target_props.property(prop_key).setActive(True)
+            if prop.isActive():
+                target_props.setProperty(prop_key, prop)
+                target_props.property(prop_key).setActive(True)
 
     def _apply_styles_to_layer(self):
         """Assign collected renderer and labeling styles to the tiles layer."""
