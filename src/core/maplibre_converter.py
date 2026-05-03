@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, List, Optional, Union
 
 from qgis.PyQt.QtGui import QColor
+from ..utils.config import BrushStyle, PenStyle
 from qgis.core import (
     QgsVectorTileLayer,
     QgsVectorTileBasicRenderer,
@@ -1400,25 +1401,25 @@ class QgisMapLibreStyleExporter:
         )
 
         if isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
-            layer_def["paint"].update({
-                "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
-                "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer),
-                "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
-                "fill-translate": FillPropertyExtractor.get_fill_translate(),
-                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
-            })
+            if symbol_layer.brushStyle() != BrushStyle.NoBrush:
+                layer_def["paint"].update({
+                    "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
+                    "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer),
+                    "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
+                    "fill-translate": FillPropertyExtractor.get_fill_translate(),
+                    "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+                })
 
-            # MapLibre does not support separate fill outline properties
-            # so this is currently ignored. The user will need to create
-            # a line symbol layer inside the polygon.
-            # outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
-            # if outline_color:
-            #     layer_def["paint"]["fill-outline-color"] = outline_color
 
-            layer_def["layout"].update({
-                "fill-sort-key": FillPropertyExtractor.get_fill_sort_key(symbol_layer),
-                "visibility": "visible",
-            })
+            if symbol_layer.strokeStyle() != PenStyle.NoPen:
+                outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
+                if outline_color:
+                    layer_def["paint"]["fill-outline-color"] = outline_color
+
+                layer_def["layout"].update({
+                    "fill-sort-key": FillPropertyExtractor.get_fill_sort_key(symbol_layer),
+                    "visibility": "visible",
+                })
         elif FillPropertyExtractor.is_pattern_fill(symbol_layer):
             # Pattern-based fill: emit fill-pattern; fill-color is ignored by MapLibre.
             pattern_name = self._register_pattern(symbol_layer)
