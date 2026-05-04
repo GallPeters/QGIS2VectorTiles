@@ -3,217 +3,287 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
+<link rel="shortcut icon" href="docs/icons/qgis2vectortiles.ico">
 <title>QGIS2VectorTiles — Demos</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* ════════════════════════════════════════
+   DESIGN TOKENS  (identical to index.html)
+════════════════════════════════════════ */
 :root {
-  --bg:        #080c06;
-  --surface:   #0f140d;
-  --sur2:      #161d13;
-  --sur3:      #1e2819;
-  --border:    #263020;
-  --border2:   #354228;
-  --g1:        #4a8228;
-  --g2:        #5c9e32;
-  --g3:        #7ec44a;
-  --g4:        #a8d96e;
-  --g5:        #c8eaa0;
-  --gdark:     #243c12;
-  --gvdark:    #111f08;
-  --text:      #e8edd8;
-  --muted:     #b6b9b3;
-  --dim:       #56664a;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --transition: 0.2s ease;
-  --glow: 0 0 30px rgba(126,196,74,0.12);
-  --glow-hover: 0 0 40px rgba(126,196,74,0.22);
+  --bg:            #0a0b0a;
+  --surface:       #131413;
+  --surface-2:     #181a18;
+  --surface-3:     #1d1f1d;
+
+  --border:        rgba(255, 255, 255, 0.06);
+  --border-2:      rgba(255, 255, 255, 0.10);
+  --border-3:      rgba(255, 255, 255, 0.16);
+
+  --accent:        #7ec44a;
+  --accent-soft:   rgba(126, 196, 74, 0.10);
+  --accent-line:   rgba(126, 196, 74, 0.25);
+  --accent-hover:  #7ec44a;
+
+  --text:          #e8eae3;
+  --text-muted:    #989b91;
+  --text-dim:      #5a5d54;
+  --text-faint:    #3a3d36;
+
+  --header-h:      56px;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  --t:      0.18s ease;
+  --t-slow: 0.3s ease;
+
+  --max-w: 1180px;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: var(--header-h);
+  background: var(--bg);
+}
 
 body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
-  background-image:
-    radial-gradient(ellipse 800px 400px at 50% 0%, rgba(74,130,40,0.06) 0%, transparent 70%),
-    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(38,48,32,0.25) 40px),
-    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(38,48,32,0.15) 40px);
-  font-family: 'DM Sans', sans-serif;
   color: var(--text);
-  padding: 16px 28px 28px;
-  width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-  min-height: 100vh;
+  line-height: 1.5;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 a { color: inherit; text-decoration: none; }
+img, video, svg { display: block; max-width: 100%; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+::selection { background: var(--accent); color: var(--bg); }
 
-/* ── TITLE ── */
-.title-wrap {
-  text-align: center;
-  margin-bottom: 18px;
-  padding-top: 4px;
-}
-.title-h1-row {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-.title-icon { flex-shrink: 0; width: 35px; height: 35px; }
-.title-icon svg { width: 100%; height: 100%; display: block; }
-.title-wrap h1 {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 44px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  color: var(--g3);
-  line-height: 1;
-  text-shadow: 0 0 60px rgba(126,196,74,0.3), 0 0 120px rgba(126,196,74,0.1);
-}
-.tagline {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10.5px;
-  color: var(--muted);
-  letter-spacing: 2.5px;
-  margin-top: 6px;
-  text-transform: uppercase;
-}
-.title-rule {
-  margin: 10px auto 0;
-  width: 320px;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--g1), var(--g3), var(--g1), transparent);
-  opacity: 0.7;
+/* ════════════════════════════════════════
+   FIXED HEADER  (identical to index.html)
+════════════════════════════════════════ */
+.header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  height: var(--header-h);
+  background: rgba(10, 11, 10, 0.72);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-bottom: 1px solid var(--border);
 }
 
-/* ── SECTION HEADING ── */
-.sec-head {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: var(--dim);
-  margin-bottom: 18px;
+.header-inner {
+  height: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 20px;
 }
-.sec-head::before, .sec-head::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-.sec-head.bright { color: var(--g2); }
 
-/* ── BACK BUTTON ── */
-.back-btn {
+.nav-left, .nav-right {
+  display: flex;
+  align-items: center;
+}
+.nav-left  { gap: 4px; }
+.nav-right { gap: 14px; }
+
+.nav-btn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--dim);
-  letter-spacing: 1px;
-  margin-bottom: 20px;
-  padding: 6px 12px 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  transition: color var(--transition), border-color var(--transition), box-shadow var(--transition);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  transition: color var(--t), background var(--t), border-color var(--t);
+  letter-spacing: -0.005em;
+  border: 1px solid transparent;
 }
-.back-btn:hover {
-  color: var(--g3);
-  border-color: var(--g1);
-  box-shadow: var(--glow);
+.nav-btn svg { opacity: 0.85; flex-shrink: 0; }
+.nav-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+
+.nav-btn.cta {
+  color: var(--text);
+  background: rgba(126, 196, 74, 0.08);
+  border-color: rgba(126, 196, 74, 0.20);
+}
+.nav-btn.cta:hover {
+  background: rgba(126, 196, 74, 0.14);
+  border-color: rgba(126, 196, 74, 0.32);
+}
+.nav-btn.cta svg { opacity: 1; color: var(--accent); }
+
+.nav-btn.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-2);
+}
+.nav-btn.active svg { opacity: 1; color: var(--accent); }
+
+.rate-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.rate-text strong { color: var(--text-muted); font-weight: 500; }
+
+.header-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-/* ── DEMOS GRID ── */
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+  border-radius: var(--r-sm);
+  transition: color var(--t), background var(--t);
+}
+.icon-link:hover { color: var(--accent); background: rgba(255, 255, 255, 0.04); }
+.icon-link svg { width: 15px; height: 15px; }
+
+.divider-v {
+  width: 1px;
+  height: 18px;
+  background: var(--border-2);
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════
+   PAGE HEADER
+════════════════════════════════════════ */
+.page-head {
+  position: relative;
+  text-align: center;
+  padding: calc(var(--header-h) + 64px) 28px 56px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.page-head-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(700px 320px at 50% 30%, rgba(126, 196, 74, 0.04), transparent 70%);
+}
+
+.page-head-content {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.page-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 22px;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  background: #000;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 36px -12px rgba(0, 0, 0, 0.55);
+}
+.page-icon svg { width: 100%; height: 100%; display: block; }
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 18px;
+}
+.eyebrow::before {
+  content: '';
+  width: 14px;
+  height: 1px;
+  background: var(--accent);
+  display: inline-block;
+}
+
+.page-head h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.06;
+  color: var(--text);
+}
+.page-head h1 .accent { color: var(--accent); }
+
+.page-tagline {
+  margin-top: 16px;
+  font-size: clamp(15px, 1.2vw, 17px);
+  color: var(--text-muted);
+  line-height: 1.55;
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ════════════════════════════════════════
+   PAGE CONTENT WRAPPER
+════════════════════════════════════════ */
+.page-content {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 28px 96px;
+}
+
+/* ════════════════════════════════════════
+   DEMOS GRID
+════════════════════════════════════════ */
 .demos-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 22px;
 }
 
 .demo-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  position: relative;
   display: flex;
   flex-direction: column;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  transition: border-color var(--t), background var(--t), transform var(--t);
 }
 .demo-card:hover {
-  border-color: var(--border2);
-  box-shadow: var(--glow-hover);
-}
-.demo-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(to right, var(--g1), var(--g3));
-  z-index: 1;
+  border-color: var(--border-3);
+  background: var(--surface-2);
+  transform: translateY(-2px);
 }
 
-/* Top bar */
-.demo-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px 7px;
-  border-bottom: 1px solid var(--border);
-  background: var(--sur2);
-  flex-shrink: 0;
-}
-.demo-num {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--g1);
-  letter-spacing: 1px;
-}
-.demo-label {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--g3);
-  letter-spacing: 1.5px;
-  flex: 1;
-}
-.demo-watch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: var(--dim);
-  padding: 4px 9px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--surface);
-  transition: color var(--transition), border-color var(--transition), background var(--transition);
-}
-.demo-watch-btn:hover {
-  color: var(--g3);
-  border-color: var(--g2);
-  background: var(--gdark);
-}
-
-/* Video area */
 .demo-video-wrap {
   position: relative;
-  background: #000;
-  flex-shrink: 0;
   aspect-ratio: 16 / 9;
+  background: #000;
+  border-bottom: 1px solid var(--border);
   overflow: hidden;
 }
 .demo-video-wrap video {
@@ -224,261 +294,315 @@ a { color: inherit; text-decoration: none; }
   background: #000;
 }
 
-/* Placeholder when no video src */
-.demo-placeholder {
-  position: absolute;
-  inset: 0;
+.demo-info {
+  padding: 18px 22px 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: var(--gvdark);
+  gap: 6px;
 }
-.demo-placeholder-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--gdark);
-  border: 1px solid var(--g1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.7;
-}
-.demo-placeholder-text {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  color: var(--dim);
-  letter-spacing: 1.5px;
+
+.demo-num {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Description */
-.demo-desc-wrap {
-  padding: 11px 14px 13px;
-  flex: 1;
+.demo-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  line-height: 1.25;
 }
-.demo-desc-title {
-  font-family: 'Rajdhani', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--g4);
-  letter-spacing: 0.3px;
-  margin-bottom: 5px;
-  line-height: 1.2;
-}
-.demo-desc {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-.demo-desc strong { color: var(--g4); font-weight: 600; }
 
-/* Tags */
-.demo-tags {
+.demo-sub {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+/* ════════════════════════════════════════
+   PAGE FOOTER
+════════════════════════════════════════ */
+.page-foot {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 0 14px 12px;
 }
-.demo-tag {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.8px;
-  color: var(--g2);
-  background: var(--gdark);
-  border: 1px solid var(--g1);
-  border-radius: 20px;
-  padding: 2px 8px;
-}
+.page-foot a { color: var(--text-muted); transition: color var(--t); }
+.page-foot a:hover { color: var(--accent); }
 
-/* ── FOOTER ── */
-.footer {
+/* ════════════════════════════════════════
+   BACK TO TOP
+════════════════════════════════════════ */
+.back-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(24, 26, 24, 0.85);
+  border: 1px solid var(--border-2);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  margin-top: 28px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity var(--t-slow), transform var(--t-slow), background var(--t), border-color var(--t), color var(--t);
+  z-index: 90;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
-.footer-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--dim);
-  letter-spacing: 0.8px;
-  transition: color var(--transition);
+.back-top.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
-.footer-item:hover { color: var(--muted); }
-.footer-item a { color: var(--g2); transition: color var(--transition); }
-.footer-item a:hover { color: var(--g3); }
-.footer-divider { width: 1px; height: 14px; background: var(--border); }
+.back-top:hover {
+  background: var(--surface-3);
+  border-color: var(--border-3);
+  color: var(--text);
+}
+.back-top svg { width: 14px; height: 14px; }
 
-/* ── RESPONSIVE ── */
-@media (max-width: 768px) {
-  body { padding: 12px 14px 24px; }
-  .title-wrap h1 { font-size: 28px; letter-spacing: 4px; }
-  .tagline { font-size: 9px; letter-spacing: 1.5px; }
-  .title-rule { width: 200px; }
-  .demos-grid { grid-template-columns: 1fr; }
-  .footer { flex-direction: column; gap: 10px; text-align: center; }
-  .footer-divider { width: 60px; height: 1px; }
+/* ════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .demos-grid { grid-template-columns: 1fr; gap: 18px; }
 }
-@media (max-width: 480px) {
-  body { padding: 10px 10px 20px; }
-  .title-wrap h1 { font-size: 22px; letter-spacing: 2px; }
+
+@media (max-width: 768px) {
+  :root { --header-h: 52px; }
+
+  .header-inner { padding: 0 14px; gap: 8px; }
+  .nav-btn { padding: 7px 10px; font-size: 12.5px; }
+  .nav-btn .label { display: none; }
+  .nav-btn.cta .label { display: inline; }
+  .rate-text { display: none; }
+  .divider-v { display: none; }
+  .nav-right { gap: 4px; }
+
+  .page-head { padding: calc(var(--header-h) + 44px) 18px 40px; }
+  .page-icon { width: 48px; height: 48px; margin-bottom: 18px; border-radius: 12px; }
+
+  .page-content { padding: 40px 18px 72px; }
+
+  .demo-info { padding: 16px 18px 18px; }
+  .demo-title { font-size: 16px; }
+  .demo-sub { font-size: 13px; }
+
+  .page-foot { font-size: 11.5px; gap: 10px; flex-direction: column; text-align: center; }
+
+  .back-top { bottom: 16px; right: 16px; width: 36px; height: 36px; }
+}
+
+@media (max-width: 420px) {
+  .nav-btn { padding: 6px 8px; gap: 0; }
+  .header-inner { gap: 4px; }
 }
 </style>
 </head>
 <body>
 
-<!-- ══════ TITLE ══════ -->
-<div class="title-wrap">
-  <div class="title-h1-row">
-    <div class="title-icon">
-      <svg height="484.99997pt" viewBox="0 0 484.99997 484.99997" width="484.99997pt" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg">
-        <g id="g15" transform="matrix(0.99969759,0,0,1.0000108,-1297.1076,1629.7675)" style="display:inline">
-          <rect style="display:inline;opacity:1;fill:#000000;fill-opacity:1;stroke:none;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
-          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1328.1789,-1387.2526 h 423.7888"/>
-          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1540.0733,-1599.147 v 423.7888"/>
-          <path style="color:#000000;display:inline;fill:#7ec44a;paint-order:stroke markers fill" d="M 242.5,89 C 158.25744,89 89,158.25744 89,242.5 88.999992,326.74256 158.25744,396 242.5,396 326.74257,396.00001 396.00001,326.74257 396,242.5 396,158.25744 326.74256,88.999992 242.5,89 Z m 0,90 c 35.603,0 63.5,27.897 63.5,63.5 0,35.603 -27.897,63.5 -63.5,63.5 -35.603,0 -63.5,-27.897 -63.5,-63.5 0,-35.60299 27.89701,-63.5 63.5,-63.5 z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
-          <path style="color:#000000;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-linecap:square;stroke-miterlimit:8.9;stroke-opacity:1;" d="M 350.99988,242.49998 A 108.49989,108.49989 0 0 1 242.49998,350.99988 108.49989,108.49989 0 0 1 134.00009,242.49998 108.49989,108.49989 0 0 1 242.49998,134.00009 108.49989,108.49989 0 0 1 350.99988,242.49998 Z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
-          <rect style="display:inline;fill:none;stroke:#7ec44a;stroke-width:43.643;stroke-linecap:square;stroke-miterlimit:4.8;" width="441.5036" height="441.35175" x="1319.3215" y="-1607.9285"/>
-          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:23.1323;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1648.4412,-1388.337 v 200.5128"/>
-          <path style="display:inline;opacity:1;fill:#7ec44a;fill-opacity:1;" d="m 1521.5734,-1405.7574 4.595,34.1156 29.5312,-29.522 z m 4.5961,34.1168 96.5917,96.5614 29.5312,-29.522 -96.5917,-96.5614 z"/>
-          <path style="display:inline;fill:#7ec44a;fill-opacity:1;stroke:#7ec44a;stroke-width:22.552;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 1748.1254,-1278.5638 H 1557.8826"/>
+<!-- ═══════════════════════════════════════
+     FIXED HEADER  (identical to index.html)
+═══════════════════════════════════════ -->
+<header class="header">
+  <div class="header-inner">
+
+    <nav class="nav-left">
+      <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="label">Download</span>
+      </a>
+      <a href="demos.html" class="nav-btn active" aria-current="page">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span class="label">Demos</span>
+      </a>
+      <a href="changelog.html" class="nav-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="label">Changelog</span>
+      </a>
+    </nav>
+
+    <div class="nav-right">
+      <span class="rate-text">Enjoying the plugin? <strong>Rate it</strong></span>
+      <span class="divider-v"></span>
+      <div class="header-links">
+        <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="QGIS Plugin Repository" title="QGIS Plugin Repository">
+          <svg viewBox="0 0 32 32" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></svg>
+        </a>
+        <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="GitHub" title="GitHub">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+        <a href="https://mastodon.social/@JossefKanter" target="_blank" rel="me" class="icon-link" aria-label="Mastodon" title="Mastodon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></svg>
+        </a>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+
+<!-- ═══════════════════════════════════════
+     PAGE HEADER
+═══════════════════════════════════════ -->
+<section class="page-head" id="top">
+  <div class="page-head-bg"></div>
+  <div class="page-head-content">
+
+    <div class="page-icon">
+      <svg viewBox="0 0 484.99997 484.99997" version="1.1" xmlns="http://www.w3.org/2000/svg">
+        <g transform="matrix(0.99969759,0,0,1.0000108,-1297.1076,1629.7675)">
+          <rect style="fill:#000000;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1328.1789,-1387.2526 h 423.7888"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1540.0733,-1599.147 v 423.7888"/>
+          <path style="fill:#7ec44a;" d="M 242.5,89 C 158.25744,89 89,158.25744 89,242.5 88.999992,326.74256 158.25744,396 242.5,396 326.74257,396.00001 396.00001,326.74257 396,242.5 396,158.25744 326.74256,88.999992 242.5,89 Z m 0,90 c 35.603,0 63.5,27.897 63.5,63.5 0,35.603 -27.897,63.5 -63.5,63.5 -35.603,0 -63.5,-27.897 -63.5,-63.5 0,-35.60299 27.89701,-63.5 63.5,-63.5 z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <path style="fill:#000000;stroke:#000000;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 350.99988,242.49998 A 108.49989,108.49989 0 0 1 242.49998,350.99988 108.49989,108.49989 0 0 1 134.00009,242.49998 108.49989,108.49989 0 0 1 242.49998,134.00009 108.49989,108.49989 0 0 1 350.99988,242.49998 Z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <rect style="fill:none;stroke:#7ec44a;stroke-width:43.643;stroke-linecap:square;stroke-miterlimit:4.8;" width="441.5036" height="441.35175" x="1319.3215" y="-1607.9285"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:23.1323;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1648.4412,-1388.337 v 200.5128"/>
+          <path style="fill:#7ec44a;" d="m 1521.5734,-1405.7574 4.595,34.1156 29.5312,-29.522 z m 4.5961,34.1168 96.5917,96.5614 29.5312,-29.522 -96.5917,-96.5614 z"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:22.552;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 1748.1254,-1278.5638 H 1557.8826"/>
         </g>
       </svg>
     </div>
-    <h1>QGIS2VECTORTILES</h1>
+
+    <h1><span class="accent">Live</span>Demos</h1>
+    <p class="page-tagline">
+      From a QGIS project to a styled, deployable vector tile package.
+    </p>
+
   </div>
-  <div class="tagline">Live Examples &amp; Feature Previews</div>
-  <div class="title-rule"></div>
+</section>
+
+
+<!-- ═══════════════════════════════════════
+     DEMOS GRID
+═══════════════════════════════════════ -->
+<div class="page-content">
+  <div class="demos-grid">
+
+    <!-- Demo 1 -->
+    <div class="demo-card">
+      <div class="demo-video-wrap">
+        <video controls preload="metadata" playsinline>
+          <source src="demos/demo_basic.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <div class="demo-info">
+        <div class="demo-num">01</div>
+        <div class="demo-title">Basic Workflow</div>
+        <div class="demo-sub">End-to-end export from a QGIS project to a styled vector tile package.</div>
+      </div>
+    </div>
+
+    <!-- Demo 2 -->
+    <div class="demo-card">
+      <div class="demo-video-wrap">
+        <video controls preload="metadata" playsinline>
+          <source src="demos/demo_offline.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <div class="demo-info">
+        <div class="demo-num">02</div>
+        <div class="demo-title">Offline Use</div>
+        <div class="demo-sub">Fully offline deployment using locally bundled maplibre-gl.js.</div>
+      </div>
+    </div>
+
+    <!-- Demo 3 -->
+    <div class="demo-card">
+      <div class="demo-video-wrap">
+        <video controls preload="metadata" playsinline>
+          <source src="demos/demo_data_driven.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <div class="demo-info">
+        <div class="demo-num">03</div>
+        <div class="demo-title">Data-Defined Properties</div>
+        <div class="demo-sub">Dynamic, data-driven symbology faithfully mirrored from QGIS.</div>
+      </div>
+    </div>
+
+    <!-- Demo 4 -->
+    <div class="demo-card">
+      <div class="demo-video-wrap">
+        <video controls preload="metadata" playsinline>
+          <source src="demos/demo_complex.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <div class="demo-info">
+        <div class="demo-num">04</div>
+        <div class="demo-title">MapLibre Style &amp; Sprites</div>
+        <div class="demo-sub">Client-side style.json with sprites, ready for web map clients.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Page footer -->
+  <div class="page-foot">
+    <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
+    <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+  </div>
 </div>
 
-<!-- ── BACK BUTTON ── -->
-<a href="index.html" class="back-btn">
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-  Back to Main Page
-</a>
 
-<!-- ── SECTION HEADING ── -->
-<div class="sec-head bright">Demos</div>
+<!-- ═══════════════════════════════════════
+     BACK TO TOP
+═══════════════════════════════════════ -->
+<button class="back-top" id="backTop" aria-label="Back to top" title="Back to top">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+</button>
 
-<!-- ══════ DEMOS GRID ══════ -->
-<div class="demos-grid">
 
-  <!-- Demo 1 -->
-  <div class="demo-card">
-    <div class="demo-bar">
-      <span class="demo-num">01</span>
-      <span class="demo-label">BASIC WORKFLOW</span>
-    </div>
-    <div class="demo-video-wrap">
-      <video controls preload="metadata">
-        <source src="demos/demo_basic.mp4" type="video/mp4">
-      </video>
+<script>
+(function () {
+  var btn = document.getElementById('backTop');
+  if (!btn) return;
 
-    </div>
-    <div class="demo-desc-wrap">
-      <div class="demo-desc-title">End-to-End Basic Export</div>
-      <div class="demo-desc">A walkthrough of the complete plugin workflow from start to finish — loading a QGIS project, running the processing algorithm, and previewing the resulting <strong>styled vector tile package</strong> in the built-in HTML viewer.</div>
-    </div>
-    <div class="demo-tags">
-      <span class="demo-tag">Vector Tiles</span>
-      <span class="demo-tag">MapLibre Style</span>
-      <span class="demo-tag">HTML Viewer</span>
-    </div>
-  </div>
+  var threshold = 480;
+  var ticking = false;
 
-  <!-- Demo 2 -->
-  <div class="demo-card">
-    <div class="demo-bar">
-      <span class="demo-num">02</span>
-      <span class="demo-label">OFFLINE USE</span>
-    </div>
-    <div class="demo-video-wrap">
-      <video controls preload="metadata">
-        <source src="demos/demo_offline.mp4" type="video/mp4">
-      </video>
+  function update() {
+    if (window.scrollY > threshold) btn.classList.add('visible');
+    else btn.classList.remove('visible');
+    ticking = false;
+  }
 
-    </div>
-    <div class="demo-desc-wrap">
-      <div class="demo-desc-title">Fully Offline Deployment</div>
-      <div class="demo-desc">Demonstrates how the output package works with <strong>no internet connection</strong> — using the locally bundled maplibre-gl.js. Ideal for field use, air-gapped environments, or distributing self-contained map packages.</div>
-    </div>
-    <div class="demo-tags">
-      <span class="demo-tag">Offline</span>
-      <span class="demo-tag">Local Hosting</span>
-      <span class="demo-tag">maplibre-gl.js</span>
-    </div>
-  </div>
+  window.addEventListener('scroll', function () {
+    if (!ticking) {
+      window.requestAnimationFrame(update);
+      ticking = true;
+    }
+  }, { passive: true });
 
-  <!-- Demo 3 -->
-  <div class="demo-card">
-    <div class="demo-bar">
-      <span class="demo-num">03</span>
-      <span class="demo-label">DATA DEFINED PROPERTIES</span>
-    </div>
-    <div class="demo-video-wrap">
-      <video controls preload="metadata">
-        <source src="demos/demo_data_driven.mp4" type="video/mp4">
-      </video>
-
-    </div>
-    <div class="demo-desc-wrap">
-      <div class="demo-desc-title">Data Defined Properties in Action</div>
-      <div class="demo-desc">Shows how <strong>Data Defined Properties (DDP)</strong> are exported as calculated fields and embedded into the MapLibre style.json — enabling dynamic, data-driven symbology that faithfully mirrors the original QGIS styling.</div>
-    </div>
-    <div class="demo-tags">
-      <span class="demo-tag">DDP</span>
-      <span class="demo-tag">Expressions</span>
-      <span class="demo-tag">style.json</span>
-    </div>
-  </div>
-
-  <!-- Demo 4 -->
-  <div class="demo-card">
-    <div class="demo-bar">
-      <span class="demo-num">04</span>
-      <span class="demo-label">COMPLEX PROJECT</span>
-
-    </div>
-    <div class="demo-video-wrap">
-      <video controls preload="metadata">
-        <source src="demos/demo_complex.mp4" type="video/mp4">
-      </video>
-
-    </div>
-    <div class="demo-desc-wrap">
-      <div class="demo-desc-title">MapLibre Style &amp; Sprites Export</div>
-      <div class="demo-desc">Covers the <strong>client-side style generation</strong> feature — exporting a ready-to-use MapLibre/Mapbox style.json alongside sprite sheets. Demonstrates how the output integrates directly with web mapping platforms like MapLibre, Mapbox, and MapTiler.</div>
-    </div>
-    <div class="demo-tags">
-      <span class="demo-tag">MapLibre</span>
-      <span class="demo-tag">Sprites</span>
-      <span class="demo-tag">Web Maps</span>
-    </div>
-  </div>
-
-</div>
-
-<!-- ══════ FOOTER ══════ -->
-<div class="footer">
-  <div class="footer-item">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    <span>Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
-  </div>
-  <div class="footer-divider"></div>
-  <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="footer-item">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
-    <span>GitHub Repository</span>
-  </a>
-</div>
+  btn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
 
 </body>
 </html>

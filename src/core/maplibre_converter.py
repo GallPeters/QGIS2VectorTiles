@@ -493,7 +493,7 @@ class IconPropertyExtractor:
     @staticmethod
     def get_icon_padding() -> float:
         """Return ``icon-padding`` in pixels (MapLibre default: 2)."""
-        return 2.0
+        return 1
 
     @staticmethod
     def get_icon_rotation_alignment() -> str:
@@ -898,13 +898,14 @@ class TextPropertyExtractor:
         radially around an anchor point.
         """
         try:
-            distance = label_settings.dist
+            label_settings.dist
         except AttributeError:
             return 0
-        if not distance:
-            return 0
-        unit = PropertyExtractor.get_attribute(label_settings, "distUnits", "distUnit")
-        return PropertyExtractor.convert_length_to_pixels(distance, unit)
+        return 0.7
+        # if not distance:
+        #     return 0
+        # unit = PropertyExtractor.get_attribute(label_settings, "distUnits", "distUnit")
+        # return PropertyExtractor.convert_length_to_pixels(distance, unit)
 
     @staticmethod
     def get_text_variable_anchor(
@@ -921,9 +922,8 @@ class TextPropertyExtractor:
             placement = label_settings.placement
         except AttributeError:
             return None
-        if placement in (0, 6):
-            return ["top", "bottom", "left", "right",
-                    "top-left", "top-right", "bottom-left", "bottom-right"]
+        if placement:
+            return ["bottom",  "bottom-left", "bottom-right", "left", "right", "top", "top-left", "top-right"]
         return None
 
     @staticmethod
@@ -965,7 +965,7 @@ class TextPropertyExtractor:
     @staticmethod
     def get_text_padding() -> float:
         """Return ``text-padding`` in pixels (MapLibre default: 2)."""
-        return 2
+        return 1
 
     @staticmethod
     def get_text_line_height() -> float:
@@ -1197,9 +1197,7 @@ class QgisMapLibreStyleExporter:
         if not style.isEnabled() or not style.labelSettings():
             return
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel()
-        if min_zoom == max_zoom:
-            max_zoom += 1
+        max_zoom = style.maxZoomLevel() + 1
         self._convert_label(
             style.labelSettings(), style.styleName(), style.layerName(),
             self.source_name, min_zoom, max_zoom,
