@@ -1410,7 +1410,9 @@ class QgisMapLibreStyleExporter:
                     "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
                 })
 
-
+            else:
+                layer_def["paint"].update({
+                    "fill-color": "rgba(0, 0, 0, 0.0)"})
             if symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
                 outline_color = FillPropertyExtractor.get_fill_outline_color(symbol_layer)
                 if outline_color:
