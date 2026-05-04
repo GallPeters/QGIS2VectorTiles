@@ -41,11 +41,7 @@ from .core.rules_flattener import RulesFlattener
 from .core.rules_exporter import RulesExporter
 from .core.tiles_generator import GDALTilesGenerator
 from .core.tiles_styler import TilesStyler
-
-try:
-    from .core.maplibre_converter import QgisMapLibreStyleExporter
-except ImportError:
-    pass
+from .core.maplibre_converter import QgisMapLibreStyleExporter
 
 
 class QGIS2VectorTiles:

@@ -28,7 +28,7 @@ _TOP_SCALE = 419311712
 
 if int(qVersion()[0]) == 5:
     from PyQt5.QtXml import QDomDocument
-    from PyQt5.QtCore import QVariant
+    from PyQt5.QtCore import QVariant, Qt
     from PyQt5 import sip
 else:
     from PyQt6.QtXml import QDomDocument
