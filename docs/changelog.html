@@ -317,62 +317,92 @@ a { color: inherit; text-decoration: none; }
 <!-- ══════ CHANGELOG ENTRIES ══════ -->
 <div class="changelog-wrap">
 
-  <!-- v2.5 -->
+  <!-- v2.6 -->
   <div class="cl-entry latest">
     <div class="cl-header">
-      <div class="cl-version">v2.5</div>
-      <div class="cl-date">27 Apr 2026</div>
+      <div class="cl-version">v2.6</div>
+      <div class="cl-date">04 May 2026</div>
       <div class="cl-badge">Latest</div>
     </div>
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Fix bugs ensuring correct export process when using <strong>nested renderer/labelings rules</strong>.</span>
+        <span>Redesigned the rules export pipeline using <strong>multithreading</strong> (replacing QGIS tasks) for greater performance and stability.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added support for <strong>polygon outlines</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Skip styles with <strong>No Brush</strong>, <strong>No Line Fill</strong>, or <strong>No Stroke</strong>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.5 -->
+  <div class="cl-entry latest">
+    <div class="cl-header">
+      <div class="cl-version">v2.5</div>
+      <div class="cl-date">28 Apr 2026</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Extended QGIS-to-MapLibre conversion with additional properties (<strong>symbol-placement</strong>, <strong>text-variable-anchor</strong>, and more).</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed export issues involving <strong>nested renderer and labeling rules</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Refactored codebase for improved maintainability and readability.</span>
       </div>
     </div>
   </div>
 
 
-       <!-- v2.4 -->
+  <!-- v2.4 -->
   <div class="cl-entry latest">
     <div class="cl-header">
       <div class="cl-version">v2.4</div>
       <div class="cl-date">19 Apr 2026</div>
     </div>
     <div class="cl-body">
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Export data to a <strong>single MBTiles file</strong> instead of XYZ directories.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Add option to use <strong>NASA's Blue Marble Imagery</strong> as a background layer in the MapLibre viewer.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span> Support <strong>Alpha channel</strong> in MapLibre style color properties including data-defined properties.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Improve performance by switching tile generation from GDAL Python bindings to <strong>GDAL CLI</strong>.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Fix <strong>GeoPackage</strong> locking when exporting multiple layers from the same source.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Fix issue where layers from <strong>PostgreSQL</strong> connections are ignored.</span>
-		</div>    
-    <div class="cl-item">
-    <div class="cl-item-dot"></div>
-    <span>Fix <strong>data-defined colors</strong> conversion to Maplibre specification.</span>
-    </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Export tiles into a <strong>single MBTiles file</strong> instead of XYZ directories.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added optional <strong>NASA Blue Marble</strong> background layer in the MapLibre viewer.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Added <strong>alpha channel</strong> support in MapLibre style color properties, including data-defined properties.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Improved tile generation performance by switching from GDAL Python bindings to the <strong>GDAL CLI</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed <strong>GeoPackage</strong> locking when exporting multiple layers from the same source.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed issue causing layers from <strong>PostgreSQL</strong> connections to be skipped.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed color conversion for <strong>data-defined properties</strong>.</span>
+      </div>
     </div>
   </div>
 
 
-     <!-- v2.3 -->
+  <!-- v2.3 -->
   <div class="cl-entry latest">
     <div class="cl-header">
       <div class="cl-version">v2.3</div>
@@ -381,7 +411,7 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Bug fixes ensuring a parallel and <strong>stable</strong> rules export process using qgis task manager.</span>
+        <span>Stability fixes for <strong>parallel rule export</strong> via the QGIS task manager.</span>
       </div>
     </div>
   </div>
@@ -395,7 +425,7 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Export rules in <strong>parallel</strong> to speed up processings tools runtime.</span>
+        <span>Parallelized rule export to <strong>accelerate processing runtime</strong>.</span>
       </div>
     </div>
   </div>
@@ -409,7 +439,7 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Bug fixes ensuring proper sprite generation in <strong>QT6</strong>.</span>
+        <span>Fixed <strong>sprite generation</strong> on Qt6.</span>
       </div>
     </div>
   </div>
@@ -423,11 +453,11 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Add <strong>Background Type</strong> parameter.</span>
+        <span>Added <strong>Background Type</strong> parameter.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Bug fixes.</span>
+        <span>General bug fixes.</span>
       </div>
     </div>
   </div>
@@ -441,11 +471,11 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Serve <strong>maplibre-gl.js</strong> locally for full offline use.</span>
+        <span>Bundled <strong>maplibre-gl.js</strong> locally for offline use.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Bug fixes ensuring smooth conversion of layers containing <strong>empty renderers / labelings</strong>.</span>
+        <span>Fixed conversion of layers containing <strong>empty renderers or labelings</strong>.</span>
       </div>
     </div>
   </div>
@@ -459,7 +489,7 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Activate <strong>HTTP server silently</strong> when running on Windows.</span>
+        <span>Silent <strong>HTTP server</strong> activation on Windows.</span>
       </div>
     </div>
   </div>
@@ -473,15 +503,15 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Implemented <strong>Data Defined Properties (DDP)</strong> as fields in MapLibre style.json.</span>
+        <span>Implemented <strong>data-defined properties</strong> as fields inside the MapLibre style.json.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Removed <strong>MBTiles output</strong> (not supported by native MapLibre).</span>
+        <span>Removed <strong>MBTiles output</strong> option (not natively supported by MapLibre at the time).</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Improved documentation, added more demos and limitations guidance.</span>
+        <span>Expanded documentation with a <strong>considerations section</strong> and additional demos.</span>
       </div>
     </div>
   </div>
@@ -495,11 +525,11 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Experimental <strong>client-side style generation</strong>: outputs MapLibre/Mapbox style.json + sprites.</span>
+        <span>Added experimental <strong>client-side MapLibre style</strong> package generation.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Bug fixes for smoother style conversion, especially with <strong>geometry generators</strong> and <strong>centroid fill symbol layers</strong>.</span>
+        <span>Fixed style conversion involving <strong>geometric transformations</strong>.</span>
       </div>
     </div>
   </div>
@@ -513,11 +543,11 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Added support for <strong>fields-based properties</strong> alongside expression-based ones.</span>
+        <span>Added support for <strong>field-based properties</strong>.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Processing <strong>performance improvements</strong>.</span>
+        <span>Improved <strong>processing performance</strong>.</span>
       </div>
     </div>
   </div>
@@ -535,7 +565,7 @@ a { color: inherit; text-decoration: none; }
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Stabilized <strong>DDP support</strong> on QGIS LTR (3.40.x).</span>
+        <span>Stabilized <strong>data-defined properties</strong> support on QGIS LTR (3.40.x).</span>
       </div>
     </div>
   </div>
@@ -549,19 +579,15 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Added <strong>QT6 support</strong>.</span>
+        <span>Added <strong>Qt6</strong> support.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Improved output rendering by matching calculated field types of <strong>DDP to property types</strong>.</span>
+        <span>Improved <strong>output rendering and processing performance</strong>.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Performance improvements: skipped unnecessary <strong>rule splitting / exporting</strong> steps.</span>
-      </div>
-      <div class="cl-item">
-        <div class="cl-item-dot"></div>
-        <span>Bug fixes preventing crashes when retrieving specific <strong>DDP on QGIS LTR</strong>.</span>
+        <span>Fixed issues on <strong>QGIS LTR (3.40.x)</strong>.</span>
       </div>
     </div>
   </div>
@@ -575,7 +601,7 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Added <strong>"Polygons Labels Base"</strong> parameter to processing.</span>
+        <span>Added <strong>Polygon Labels Base</strong> parameter.</span>
       </div>
     </div>
   </div>
@@ -589,11 +615,11 @@ a { color: inherit; text-decoration: none; }
     <div class="cl-body">
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Supported <strong>DDP as calculated fields</strong> for better rendering performance.</span>
+        <span>Added support for <strong>data-defined properties (DDP)</strong>.</span>
       </div>
       <div class="cl-item">
         <div class="cl-item-dot"></div>
-        <span>Minor bug fixes.</span>
+        <span>General bug fixes.</span>
       </div>
     </div>
   </div>
