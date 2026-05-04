@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
-description=Turn a QGIS project into a ready-to-use web map: single source, one layer, matching web style and a web viewer.
-about=Turn your QGIS project into a portable web map package: a single lightweight MBTiles source, a ready-to-use QLR layer, a fully compatible client-side JSON style, and an instant HTML viewer — from desktop to web in one step.
+description=Convert a QGIS project into a styled, lightweight, portable vector tiles package with MBTiles, QLR, MapLibre style, and HTML viewer.
+about=QGIS2VectorTiles turns your QGIS project into a self-contained, ready-to-share web map package in a single step. It exports a lightweight MBTiles vector tile source, a client-side MapLibre JSON style faithfully derived from your QGIS symbology (including data-defined properties), a QLR layer for seamless reuse inside QGIS, and an offline-friendly HTML viewer for instant preview and sharing. Built for cartographers and GIS professionals who need a streamlined desktop-to-web workflow without sacrificing styling fidelity.
 version=2.6
 author=Jossef Kanter
 email=jossefkan@gmail.com
@@ -12,62 +12,61 @@ deprecated=False
 homepage=https://gallpeters.github.io/QGIS2VectorTiles
 repository=https://github.com/GallPeters/QGIS2VectorTiles
 tracker=https://github.com/GallPeters/QGIS2VectorTiles
-tags=cartography, style, styles, tiles, mapbox, maptiler, openlayers, maplibre, web, webmappings, wms, wmts, vector tiles, sharing , services, service, server
+tags=cartography, vector tiles, mbtiles, maplibre, mapbox, tiles, styles, web map, web mapping, sharing, offline, html viewer, qlr, export, maptiler
 icon=icon.png
 hasProcessingProvider=yes
 changelog=
 	** v2.6 (04.05.26):
-		- Redesign the rules export process using multi threading (instead of multi qgis tasks)  to be more powerfull and stable.
-		- Add support in polygons outlines.
-		- Skip No Brush/Line Fill/Stroke styles.
+		- Redesigned the rules export pipeline using multithreading (replacing QGIS tasks) for greater performance and stability.
+		- Added support for polygon outlines.
+		- Skip styles with No Brush, No Line Fill, or No Stroke.
 	** v2.5 (28.04.26):
-		- Add support in more properties (symbol-placementt, text-variable-anchor and more) when converting QGIS to MapLibre style. 
-		- Fix bugs ensuring correct export process when using nested renderer/labelings rules.
-		- Refactor codebase to improve maintainability and readability.
+		- Extended QGIS-to-MapLibre conversion with additional properties (symbol-placement, text-variable-anchor, and more).
+		- Fixed export issues involving nested renderer and labeling rules.
+		- Refactored codebase for improved maintainability and readability.
 	** v2.4 (19.04.26):
-		- Export data to a single MBTiles file instead of XYZ directories.
-		- Add option to use NASA's Blue Marble as a background layer in the MapLibre viewer.
-		- Support alpha channel in MapLibre style color properties including data-defined properties.
-		- Improve performance by switching tile generation from GDAL Python bindings to GDAL CLI.
-		- Fix GeoPackage locking when exporting multiple layers from the same source.
-		- Fix issue where layers from PostgreSQL connections are ignored.
-		- Fix color conversion for data-defined properties.
-	** v2.3 (17.03.26):	
-		- Bug fixes ensuring a parallel and stable rules export process using qgis task manager.
+		- Export tiles into a single MBTiles file instead of XYZ directories.
+		- Added optional NASA Blue Marble background layer in the MapLibre viewer.
+		- Added alpha channel support in MapLibre style color properties, including data-defined properties.
+		- Improved tile generation performance by switching from GDAL Python bindings to the GDAL CLI.
+		- Fixed GeoPackage locking when exporting multiple layers from the same source.
+		- Fixed issue causing layers from PostgreSQL connections to be skipped.
+		- Fixed color conversion for data-defined properties.
+	** v2.3 (17.03.26):
+		- Stability fixes for parallel rule export via the QGIS task manager.
 	** v2.2 (11.03.26):
-		- Export rules in parallel to speed up processings tools runtime.
+		- Parallelized rule export to accelerate processing runtime.
 	** v2.1 (26.02.26):
-		- Bug fixes ensuring proper sprite generation in QT6.
+		- Fixed sprite generation on Qt6.
 	** v2.0 (24.02.26):
-		- Add Background Type parameter.
-		- Bug fixes.
+		- Added Background Type parameter.
+		- General bug fixes.
 	** v1.9 (22.02.26):
-		- Serve maplibre-gl.js locally for an offline use.
-		- Bug fixes ensuring smooth convertion of layers contains empty renderers/labelings.
+		- Bundled maplibre-gl.js locally for offline use.
+		- Fixed conversion of layers containing empty renderers or labelings.
 	** v1.8 (19.02.26):
-		- Activate http server silently when running on windows.
+		- Silent HTTP server activation on Windows.
 	** v1.7 (16.02.26):
-		- Implement DDP as fields inside Maplibre style.json.
-		- Remove mbtiles output option (not supported by native Maplibre).
-		- Improve documentation (add considerations paragrpah and more demos).
+		- Implemented data-defined properties as fields inside the MapLibre style.json.
+		- Removed MBTiles output option (not natively supported by MapLibre at the time).
+		- Expanded documentation with a considerations section and additional demos.
 	** v1.6 (14.02.26):
-		- Support a MapLibre client-side style package generation (experimental).
-		- Bug fixes ensuring proper style conversion process involving geometric transformations.
+		- Added experimental client-side MapLibre style package generation.
+		- Fixed style conversion involving geometric transformations.
 	** v1.5 (08.02.26):
-		- Support fields based properties.
-		- Improved processing performence.
+		- Added support for field-based properties.
+		- Improved processing performance.
 	** v1.4 (08.02.26):
-		- Improved renderering of Centroid Fill symbol layers.
-		- Stabilizing DDP support when running on QGIS LTR (3.40.x).
+		- Improved rendering of Centroid Fill symbol layers.
+		- Stabilized data-defined properties support on QGIS LTR (3.40.x).
 	** v1.3 (05.02.26):
-		- Added QT6 support
-		- Improved output rendering performance.
-		- Improved processing performence.
-		- Bug fixes when running on QGIS LTR (3.40.x)
+		- Added Qt6 support.
+		- Improved output rendering and processing performance.
+		- Fixed issues on QGIS LTR (3.40.x).
 	** v1.2 (30.12.25):
-		- Added Polygons Labels Base parameter.
+		- Added Polygon Labels Base parameter.
 	** v1.1 (16.12.25):
-		- Support DDP (data defined properties).
-		- Bug fixes.
+		- Added support for data-defined properties (DDP).
+		- General bug fixes.
 	** v1.0 (10.12.25):
 		- Initial release.
