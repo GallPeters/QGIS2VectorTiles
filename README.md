@@ -1,36 +1,16 @@
+<div align="left">
 
-# <img align="center" width="45" height="45" alt="QGIS2VectorTiles Icon" src="https://github.com/user-attachments/assets/0080b326-2fa3-4c42-b096-a946cf77a69c" /> QGIS2VectorTiles
+  <img width="28%" alt="QGIS2VectorTiles logo"
+       src="https://github.com/user-attachments/assets/0e8980de-a007-46a9-9f24-17e9a8ef3e3e" />
 
-**QGIS2VectorTiles** is a QGIS plugin which packs the current project into a fully styled vector tile package ready for MapLibre. It allows users to design maps in the familiar and flexible QGIS Desktop and export stunning MapLibre client-side web maps using GDAL’s powerful MVT driver.
+</div>
 
-🚀 Contributions welcome! Open an Issue or submit a PR.  
-👉 For more details, visit the plugin’s **[homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**
+**QGIS2VectorTiles** is a QGIS plugin that packages QGIS projects into styled, lightweight, portable vector tile packages.
 
-## Demo
+**Output package includes:**
+- **Vector tiles** - single-file `.mbtiles`
+- **QGIS layer** - styled layer definition `.qlr`
+- **Web style** - MapLibre style `.json`
+- **Web viewer** - ready-to-use `.html`
 
-https://github.com/user-attachments/assets/cecf9bdd-87bd-409d-82c4-5a4923a82df8
-
-
-https://github.com/user-attachments/assets/d05c8922-099c-4534-8bf4-d79907b33dba
-
-
-
-
-## Output Package
-
-- Vector tiles (`.mbtiles`)
-- Styled QGIS layer file (`.qlr`)
-- MapLibre style (`.json`)
-- MapLibre sprites *(optional)* (`.png` + `.json`)
-- A ready-to-use MapLibre viewer (`.html`)
-
-## Use Cases
-
-- **Client-side web map rendering** — MapLibre, OpenLayers, and Leaflet
-- **Lightweight WMS/WMTS vector tile serving** — GeoServer and QGIS Server
-- **Sharing complex, multi-source styled QGIS projects** — packaged as a single data source and layer file
-
-## License
-
-
-Licensed under [GNU GPL v2.0](https://www.gnu.org/licenses/gpl-2.0-standalone.html).
+👉 For demos, documentation, and changelogs visit the plugin’s **[homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**

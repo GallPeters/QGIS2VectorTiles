@@ -11,35 +11,41 @@
 
 /* ════════════════════════════════════════
    DESIGN TOKENS  (identical to index.html)
+   Flat dark UI — QGIS brand palette.
 ════════════════════════════════════════ */
 :root {
-  --bg:            #0a0b0a;
-  --surface:       #131413;
-  --surface-2:     #181a18;
-  --surface-3:     #1d1f1d;
+  /* Surfaces (opaque) */
+  --bg:            #0d0d0d;
+  --surface:       #161616;
+  --surface-2:     #1c1c1c;
+  --surface-3:     #222222;
 
-  --border:        rgba(255, 255, 255, 0.06);
-  --border-2:      rgba(255, 255, 255, 0.10);
-  --border-3:      rgba(255, 255, 255, 0.16);
+  /* Borders (solid) */
+  --border:        #262626;
+  --border-2:      #333333;
+  --border-3:      #404040;
 
+  /* Brand accents — QGIS */
   --accent:        #7ec44a;
-  --accent-soft:   rgba(126, 196, 74, 0.10);
-  --accent-line:   rgba(126, 196, 74, 0.25);
-  --accent-hover:  #7ec44a;
+  --accent-hover:  #8ed35a;
+  --accent-deep:   #2f4a1d;
+  --accent-2:      #7ec44a;
 
-  --text:          #e8eae3;
-  --text-muted:    #989b91;
-  --text-dim:      #5a5d54;
-  --text-faint:    #3a3d36;
+  /* Typography */
+  --text:          #ececec;
+  --text-muted:    #a0a0a0;
+  --text-dim:      #6f6f6f;
+  --text-faint:    #4a4a4a;
 
   --header-h:      56px;
 
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  /* Border radii — small, flat */
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
 
-  --t:      0.18s ease;
-  --t-slow: 0.3s ease;
+  --t:      0.15s ease;
+  --t-slow: 0.25s ease;
 
   --max-w: 1180px;
 }
@@ -56,7 +62,7 @@ body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.55;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -69,16 +75,14 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 ::selection { background: var(--accent); color: var(--bg); }
 
 /* ════════════════════════════════════════
-   FIXED HEADER  (identical to index.html)
+   FIXED HEADER — solid, opaque, flat
 ════════════════════════════════════════ */
 .header {
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 100;
   height: var(--header-h);
-  background: rgba(10, 11, 10, 0.72);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
 
@@ -113,26 +117,33 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   letter-spacing: -0.005em;
   border: 1px solid transparent;
 }
-.nav-btn svg { opacity: 0.85; flex-shrink: 0; }
-.nav-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.nav-btn svg { opacity: 0.9; flex-shrink: 0; }
+.nav-btn:hover { color: var(--text); background: var(--surface-2); }
 
 .nav-btn.cta {
-  color: var(--text);
-  background: rgba(126, 196, 74, 0.08);
-  border-color: rgba(126, 196, 74, 0.20);
+  color: #0d0d0d;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
 }
 .nav-btn.cta:hover {
-  background: rgba(126, 196, 74, 0.14);
-  border-color: rgba(126, 196, 74, 0.32);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #0d0d0d;
 }
-.nav-btn.cta svg { opacity: 1; color: var(--accent); }
+.nav-btn.cta svg { opacity: 1; color: #0d0d0d; }
 
 .nav-btn.active {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-2);
   border-color: var(--border-2);
 }
 .nav-btn.active svg { opacity: 1; color: var(--accent); }
+
+/* Home button — subtle visual cue that this is a "back" link */
+.nav-btn.home { color: var(--text-muted); }
+.nav-btn.home:hover { color: var(--accent); border-color: var(--border-2); background: var(--surface-2); }
+.nav-btn.home:hover svg { color: var(--accent); }
 
 .rate-text {
   display: flex;
@@ -143,7 +154,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   font-weight: 400;
   white-space: nowrap;
 }
-.rate-text strong { color: var(--text-muted); font-weight: 500; }
+.rate-text strong { color: var(--accent-2); font-weight: 600; }
 
 .header-links {
   display: flex;
@@ -161,7 +172,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   border-radius: var(--r-sm);
   transition: color var(--t), background var(--t);
 }
-.icon-link:hover { color: var(--accent); background: rgba(255, 255, 255, 0.04); }
+.icon-link:hover { color: var(--accent); background: var(--surface-2); }
 .icon-link svg { width: 15px; height: 15px; }
 
 .divider-v {
@@ -172,21 +183,20 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   PAGE HEADER
+   PAGE HEADER — flat, no gradients
 ════════════════════════════════════════ */
 .page-head {
   position: relative;
   text-align: center;
   padding: calc(var(--header-h) + 64px) 28px 56px;
   border-bottom: 1px solid var(--border);
+  background: var(--bg);
   overflow: hidden;
 }
 
+/* Kept for HTML compatibility — no decorative styling */
 .page-head-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(700px 320px at 50% 30%, rgba(126, 196, 74, 0.04), transparent 70%);
+  display: none;
 }
 
 .page-head-content {
@@ -202,9 +212,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   overflow: hidden;
   border: 1px solid var(--border-2);
   background: #000;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 18px 36px -12px rgba(0, 0, 0, 0.55);
 }
 .page-icon svg { width: 100%; height: 100%; display: block; }
 
@@ -213,8 +220,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   align-items: center;
   gap: 10px;
   font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 18px;
@@ -222,25 +229,25 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .eyebrow::before {
   content: '';
   width: 14px;
-  height: 1px;
+  height: 2px;
   background: var(--accent);
   display: inline-block;
 }
 
 .page-head h1 {
-  font-size: clamp(34px, 5vw, 52px);
+  font-size: clamp(34px, 5vw, 50px);
   font-weight: 600;
   letter-spacing: -0.028em;
-  line-height: 1.06;
+  line-height: 1.08;
   color: var(--text);
 }
 .page-head h1 .accent { color: var(--accent); }
 
 .page-tagline {
   margin-top: 16px;
-  font-size: clamp(15px, 1.2vw, 17px);
+  font-size: clamp(15px, 1.2vw, 16.5px);
   color: var(--text-muted);
-  line-height: 1.55;
+  line-height: 1.6;
   max-width: 540px;
   margin-left: auto;
   margin-right: auto;
@@ -256,27 +263,26 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   DEMOS GRID
+   DEMOS GRID — flat framed cards
 ════════════════════════════════════════ */
 .demos-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 22px;
+  gap: 20px;
 }
 
 .demo-card {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
   overflow: hidden;
-  transition: border-color var(--t), background var(--t), transform var(--t);
+  transition: border-color var(--t), background var(--t);
 }
 .demo-card:hover {
-  border-color: var(--border-3);
+  border-color: var(--accent);
   background: var(--surface-2);
-  transform: translateY(-2px);
 }
 
 .demo-video-wrap {
@@ -303,9 +309,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 .demo-num {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--accent);
-  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: var(--accent-2);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   margin-bottom: 4px;
   font-variant-numeric: tabular-nums;
@@ -344,7 +350,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .page-foot a:hover { color: var(--accent); }
 
 /* ════════════════════════════════════════
-   BACK TO TOP
+   BACK TO TOP — flat, opaque
 ════════════════════════════════════════ */
 .back-top {
   position: fixed;
@@ -352,8 +358,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   right: 24px;
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  background: rgba(24, 26, 24, 0.85);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   color: var(--text-muted);
   display: flex;
@@ -365,8 +371,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   transform: translateY(8px);
   transition: opacity var(--t-slow), transform var(--t-slow), background var(--t), border-color var(--t), color var(--t);
   z-index: 90;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 .back-top.visible {
   opacity: 1;
@@ -375,8 +379,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .back-top:hover {
   background: var(--surface-3);
-  border-color: var(--border-3);
-  color: var(--text);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .back-top svg { width: 14px; height: 14px; }
 
@@ -399,7 +403,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   .nav-right { gap: 4px; }
 
   .page-head { padding: calc(var(--header-h) + 44px) 18px 40px; }
-  .page-icon { width: 48px; height: 48px; margin-bottom: 18px; border-radius: 12px; }
+  .page-icon { width: 48px; height: 48px; margin-bottom: 18px; }
 
   .page-content { padding: 40px 18px 72px; }
 
@@ -421,12 +425,16 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 <body>
 
 <!-- ═══════════════════════════════════════
-     FIXED HEADER  (identical to index.html)
+     FIXED HEADER  (with Home button to return to index.html)
 ═══════════════════════════════════════ -->
 <header class="header">
   <div class="header-inner">
 
     <nav class="nav-left">
+      <a href="index.html" class="nav-btn home" aria-label="Back to home">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span class="label">Home</span>
+      </a>
       <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span class="label">Download</span>
