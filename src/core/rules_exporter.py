@@ -322,7 +322,7 @@ class RulesExporter:
             geom_target, geom_expr = transformation
 
             rule_groups.append(_RuleGroupSnapshot(
-                output_dataset=output_dataset,
+                output_dataset=primary.output_dataset,
                 layer_id=primary.layer.id(),
                 rule_type=primary.get_attr("t"),
                 filter_expression=primary.rule.filterExpression() or None,
