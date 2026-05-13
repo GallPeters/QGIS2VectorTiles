@@ -1608,12 +1608,36 @@ class QgisMapLibreStyleExporter:
             ).generate()
         else:
             del self.style["sprite"]
-
+        rounded_style = self.round_numeric_values(self.style)
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
-            json.dump(self.style, f, indent=indent)
+            json.dump(rounded_style, f, indent=indent)
 
         return filepath
+    
+    def round_numeric_values(self, obj):
+        """
+        Recursively walk through dict/list values.
+        Convert anything numeric-like to float and round to 2 decimals.
+        """
+        if isinstance(obj, dict):
+            return {k: self.round_numeric_values(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self.round_numeric_values(item) for item in obj]
+        if isinstance(obj, bool):
+            return obj
+        try:
+            # Try converting strings, ints, floats, etc.
+            num = float(obj)
+
+            # Keep integers as int if possible after rounding
+            rounded = round(num, 2)
+            return int(rounded) if rounded.is_integer() else rounded
+
+        except (ValueError, TypeError):
+            # Not numeric → keep original
+            return obj
+
 
 
 if __name__ == "__console__":

@@ -60,6 +60,166 @@ function updateZoomIndicator() {
     document.getElementById('zoom-indicator').textContent = 
         'Zoom: ' + zoom.toFixed(2);
         }
+// Create one reusable popup
+const popup = new maplibregl.Popup({
+    closeButton: false,
+    closeOnClick: false
+});
+
+// Escape HTML safely
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Parse strings like: {a:bbbb, c:dddd, e:ffff}
+function parsePseudoDict(str) {
+    str = str.trim();
+
+    if (!str.startsWith('{') || !str.endsWith('}')) {
+        return null;
+    }
+
+    str = str.slice(1, -1); // remove { }
+
+    const result = {};
+    const pairs = str.split(',');
+
+    for (let pair of pairs) {
+        const parts = pair.split(':');
+
+        if (parts.length < 2) continue;
+
+        const key = parts[0].trim();
+        const value = parts.slice(1).join(':').trim();
+
+        result[key] = value;
+    }
+
+    return result;
+}
+
+// Render object as table
+function renderObject(obj) {
+    let html = `
+        <table style="
+            border-collapse: collapse;
+            font-size: 12px;
+            width: 100%;
+            background: white;
+        ">
+    `;
+
+    for (const [key, value] of Object.entries(obj)) {
+        html += `
+            <tr>
+                <td style="
+                    font-weight: bold;
+                    padding: 4px 8px;
+                    border-bottom: 1px solid #ddd;
+                    color: #333;
+                    white-space: nowrap;
+                ">
+                    ${escapeHtml(key)}
+                </td>
+                <td style="
+                    padding: 4px 8px;
+                    border-bottom: 1px solid #ddd;
+                    color: #555;
+                ">
+                    ${typeof value === 'object'
+                        ? renderObject(value)
+                        : escapeHtml(value)}
+                </td>
+            </tr>
+        `;
+    }
+
+    html += '</table>';
+    return html;
+}
+
+// Format popup values
+function formatValue(value) {
+    if (value === null || value === undefined) {
+        return '<i>null</i>';
+    }
+
+    if (typeof value === 'string') {
+        const parsed = parsePseudoDict(value);
+
+        if (parsed) {
+            return renderObject(parsed);
+        }
+
+        return escapeHtml(value);
+    }
+
+    if (typeof value === 'object') {
+        return renderObject(value);
+    }
+
+    return escapeHtml(value);
+}
+
+// Hover popup
+map.on('mousemove', (e) => {
+    const features = map.queryRenderedFeatures(e.point);
+
+    if (!features.length) {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+        return;
+    }
+
+    map.getCanvas().style.cursor = 'pointer';
+
+    const feature = features[0];
+
+    let html = `
+        <div style="
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            max-width: 350px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 4px;
+        ">
+    `;
+
+    for (const [key, value] of Object.entries(feature.properties)) {
+        html += `
+            <div style="margin-bottom: 8px;">
+                <div style="
+                    font-weight: bold;
+                    color: #2c3e50;
+                    margin-bottom: 3px;
+                ">
+                    ${escapeHtml(key)}
+                </div>
+                <div style="padding-left: 8px;">
+                    ${formatValue(value)}
+                </div>
+            </div>
+        `;
+    }
+
+    html += '</div>';
+
+    popup
+        .setLngLat(e.lngLat)
+        .setHTML(html)
+        .addTo(map);
+});
+
+// Remove popup when leaving map
+map.on('mouseout', () => {
+    popup.remove();
+    map.getCanvas().style.cursor = '';
+});
 </script>
 
 </body>

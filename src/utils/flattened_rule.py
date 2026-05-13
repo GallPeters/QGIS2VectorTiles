@@ -50,8 +50,13 @@ class FlattenedRule:
 
     def get_description(self):
         """Construct rule description for labeling or renderer rule."""
+        geom_desc = {0:'Polygon', 1:'Line', 2:'Point', 3:'Unknown'}
         lyr_name = self.layer.name() or self.layer.id()
         rule_type = "renderer" if self.get_attr("t") == 0 else "labeling"
         rule_num = self.get_attr("r")
-        rule_subnum = self.get_attr("s") if rule_type == "renderer" else self.get_attr("f")
-        return f"{lyr_name} > {rule_num} > {rule_type} > {rule_subnum}"
+        rule_depth = self.get_attr("d")
+        source_geom = geom_desc.get(self.get_attr("g"))
+        target_geom = geom_desc.get(self.get_attr("c"))
+        rule_subnum, subnum_desc = (self.get_attr("s"), 'SymboLayer') if rule_type == "renderer" else (self.get_attr("f"), 'Renderer')
+        return '{' + f"Layer: {lyr_name}, Type: {rule_type}, Depth: {rule_depth}, Number: {rule_num}, SourceGeom: {source_geom}, TargetGeom: {target_geom}, {subnum_desc}: {rule_subnum}" + '}'
+    
