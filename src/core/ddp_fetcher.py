@@ -117,7 +117,8 @@ class DataDefinedPropertiesFetcher:
             prop_def = prop_defs.get(key)
             data_type = prop_def.dataType() if prop_defs else None
             field_type = self._DATA_TYPE_MAP.get(data_type)
-            field_name = f"{self.FIELD_PREFIX}_{uuid4().hex[:8]}"
+            prop_name = '_' + prop_def.description().lower().replace(" ", "_") if prop_def.description() else ''
+            field_name = f"{self.FIELD_PREFIX}{prop_name}"
 
             if data_type == QgsPropertyDefinition.DataTypeBoolean:
                 expression = self._process_boolean_prop(prop, props, key, field_name)

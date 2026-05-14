@@ -70,7 +70,8 @@ class PropertyExtractor:
             field_name = expression.replace('"', "")
             idx = field_name.find("q2vt")
             if field_name and idx != -1:
-                return ["get", field_name[idx: idx + 13]]
+                extracted_name = [part for part in field_name.split(' ') if part.startswith('q2vt')][0]
+                return ["get", extracted_name.replace(',', '')]
         return value
 
     @staticmethod

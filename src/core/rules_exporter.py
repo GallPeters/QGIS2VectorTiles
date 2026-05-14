@@ -598,12 +598,10 @@ class RulesExporter:
     ) -> List[Dict[str, Any]]:
         """Worker: assemble the FIELDS_MAPPING list for refactorfields."""
         mapping: List[Tuple[int, str, str]] = []
-        mapping.append((4, '"fid"', f"{self.FIELD_PREFIX}_fid"))
-        mapping.extend(grp.expression_fields)
         mapping.append(
-            (10, f"'{grp.description}'", f"{self.FIELD_PREFIX}_description")
+            (10, f"concat('{grp.description}', 'fid: '," + "to_string(@id),'}')" ,f"{self.FIELD_PREFIX}_description")
         )
-
+        mapping.extend(grp.expression_fields)
         if grp.include_required_fields_only != 0:
             # Read fields fresh in this worker thread; the QgsVectorLayer is
             # locally constructed and stays local.

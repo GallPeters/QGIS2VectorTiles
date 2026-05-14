@@ -50,13 +50,14 @@ class FlattenedRule:
 
     def get_description(self):
         """Construct rule description for labeling or renderer rule."""
-        geom_desc = {0:'Polygon', 1:'Line', 2:'Point', 3:'Unknown'}
-        lyr_name = self.layer.name() or self.layer.id()
-        rule_type = "renderer" if self.get_attr("t") == 0 else "labeling"
-        rule_num = self.get_attr("r")
-        rule_depth = self.get_attr("d")
+        geom_desc = {0:'point', 1:'line', 2:'polygon', 3:'unknown'}
+        lyr_name = f'layer: {self.layer.name() or self.layer.id()}'
+        rule_type = f'type: {"symbology" if self.get_attr("t") == 0 else "labeling"}'
+        rule_index = f'index: level {self.get_attr("d")} number {self.get_attr("r") + 1}'
         source_geom = geom_desc.get(self.get_attr("g"))
         target_geom = geom_desc.get(self.get_attr("c"))
-        rule_subnum, subnum_desc = (self.get_attr("s"), 'SymboLayer') if rule_type == "renderer" else (self.get_attr("f"), 'Renderer')
-        return '{' + f"Layer: {lyr_name}, Type: {rule_type}, Depth: {rule_depth}, Number: {rule_num}, SourceGeom: {source_geom}, TargetGeom: {target_geom}, {subnum_desc}: {rule_subnum}" + '}'
-    
+        if source_geom == target_geom:
+            geom_desc_str = 'conversion: none'
+        else:
+            geom_desc_str = f'conversion: {source_geom} to {target_geom}'
+        return  '{' + f'{lyr_name},{rule_type},{rule_index},{geom_desc_str}, ' 

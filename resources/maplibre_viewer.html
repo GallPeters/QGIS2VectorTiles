@@ -31,11 +31,32 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             z-index: 1;
         }
+
+        /* ✅ NEW: popup toggle button */
+        #popup-toggle {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            z-index: 2;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
     </style>
 </head>
 <body>
 
 <div id="zoom-indicator">Zoom: 0</div>
+
+<!-- ✅ NEW BUTTON -->
+<button id="popup-toggle">Popups: ON</button>
+
 <div id="map"></div>
 
 <script>
@@ -45,7 +66,6 @@ const map = new maplibregl.Map({
     center: [0, 20],
     zoom: 2
 });
-
 
 map.addControl(new maplibregl.NavigationControl());
 map.setZoom(_Q2VT_MINZOOM);
@@ -60,13 +80,59 @@ function updateZoomIndicator() {
     document.getElementById('zoom-indicator').textContent = 
         'Zoom: ' + zoom.toFixed(2);
         }
-// Create one reusable popup
-const popup = new maplibregl.Popup({
-    closeButton: false,
-    closeOnClick: false
+
+/* ===================================================== */
+/* ✅ NEW: POPUP TOGGLE STATE */
+/* ===================================================== */
+let popupsEnabled = true;
+
+document.getElementById('popup-toggle').addEventListener('click', () => {
+    popupsEnabled = !popupsEnabled;
+
+    const btn = document.getElementById('popup-toggle');
+    btn.textContent = popupsEnabled ? 'Popups: ON' : 'Popups: OFF';
+
+    if (!popupsEnabled) {
+        popup.remove();
+    }
 });
 
-// Escape HTML safely
+let isOverPopup = false;
+let closeTimeout = null;
+
+const popup = new maplibregl.Popup({
+    closeButton: false,
+    closeOnClick: false,
+    closeOnMove: false
+});
+
+// popup hover lock
+popup.on('open', () => {
+    const el = popup.getElement();
+    if (!el) return;
+
+    el.addEventListener('mouseenter', () => {
+        isOverPopup = true;
+        clearTimeout(closeTimeout);
+    });
+
+    el.addEventListener('mouseleave', () => {
+        isOverPopup = false;
+        scheduleClose();
+    });
+});
+
+function scheduleClose() {
+    clearTimeout(closeTimeout);
+
+    closeTimeout = setTimeout(() => {
+        if (!isOverPopup) {
+            popup.remove();
+        }
+    }, 200);
+}
+
+// escape helper
 function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -75,22 +141,16 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-// Parse strings like: {a:bbbb, c:dddd, e:ffff}
+// pseudo dict parser
 function parsePseudoDict(str) {
     str = str.trim();
+    if (!str.startsWith('{') || !str.endsWith('}')) return null;
 
-    if (!str.startsWith('{') || !str.endsWith('}')) {
-        return null;
-    }
-
-    str = str.slice(1, -1); // remove { }
-
+    str = str.slice(1, -1);
     const result = {};
-    const pairs = str.split(',');
 
-    for (let pair of pairs) {
+    for (const pair of str.split(',')) {
         const parts = pair.split(':');
-
         if (parts.length < 2) continue;
 
         const key = parts[0].trim();
@@ -102,14 +162,14 @@ function parsePseudoDict(str) {
     return result;
 }
 
-// Render object as table
+// object renderer
 function renderObject(obj) {
     let html = `
         <table style="
             border-collapse: collapse;
-            font-size: 12px;
+            font-size: 11px;
             width: 100%;
-            background: white;
+            background: transparent;
         ">
     `;
 
@@ -117,18 +177,18 @@ function renderObject(obj) {
         html += `
             <tr>
                 <td style="
-                    font-weight: bold;
-                    padding: 4px 8px;
-                    border-bottom: 1px solid #ddd;
-                    color: #333;
+                    font-weight: 700;
+                    padding: 3px 6px;
+                    border-bottom: 1px solid #eeeeee;
+                    color: #111827;
                     white-space: nowrap;
                 ">
                     ${escapeHtml(key)}
                 </td>
                 <td style="
-                    padding: 4px 8px;
-                    border-bottom: 1px solid #ddd;
-                    color: #555;
+                    padding: 3px 6px;
+                    border-bottom: 1px solid #eeeeee;
+                    color: #374151;
                 ">
                     ${typeof value === 'object'
                         ? renderObject(value)
@@ -142,19 +202,14 @@ function renderObject(obj) {
     return html;
 }
 
-// Format popup values
 function formatValue(value) {
     if (value === null || value === undefined) {
-        return '<i>null</i>';
+        return '<i style="color:#9ca3af;">null</i>';
     }
 
     if (typeof value === 'string') {
         const parsed = parsePseudoDict(value);
-
-        if (parsed) {
-            return renderObject(parsed);
-        }
-
+        if (parsed) return renderObject(parsed);
         return escapeHtml(value);
     }
 
@@ -165,49 +220,109 @@ function formatValue(value) {
     return escapeHtml(value);
 }
 
-// Hover popup
+/* ===================================================== */
+/* ✅ UPDATED: HOVER (only change = guard added) */
+/* ===================================================== */
 map.on('mousemove', (e) => {
+
+    // ✅ NEW: disable popups when toggled OFF
+    if (!popupsEnabled) return;
+
+    if (isOverPopup) return;
+
     const features = map.queryRenderedFeatures(e.point);
 
     if (!features.length) {
-        map.getCanvas().style.cursor = '';
-        popup.remove();
+        scheduleClose();
         return;
     }
 
-    map.getCanvas().style.cursor = 'pointer';
-
     const feature = features[0];
+
+    const q2vtFields = [];
+    const normalFields = [];
+
+    for (const [key, value] of Object.entries(feature.properties)) {
+        if (key.startsWith('q2vt_')) {
+            q2vtFields.push([key.replace('q2vt_', ''), value]);
+        } else {
+            normalFields.push([key, value]);
+        }
+    }
 
     let html = `
         <div style="
             font-family: Arial, sans-serif;
             font-size: 12px;
-            max-width: 350px;
+            max-width: 240px;
             max-height: 300px;
             overflow-y: auto;
-            padding: 4px;
+            padding: 6px;
+            line-height: 1.25;
+            background: #ffffff;
+            color: #111827;
         ">
     `;
 
-    for (const [key, value] of Object.entries(feature.properties)) {
+    if (q2vtFields.length > 0) {
         html += `
-            <div style="margin-bottom: 8px;">
+            <div style="
+                margin-bottom: 8px;
+                padding: 6px;
+                background: #f8fafc;
+                border: 1px solid #eeeeee;
+                border-radius: 6px;
+            ">
                 <div style="
-                    font-weight: bold;
-                    color: #2c3e50;
-                    margin-bottom: 3px;
+                    font-weight: 800;
+                    font-size: 11px;
+                    color: #2e7d32;
+                    margin-bottom: 6px;
+                ">
+                    metadata
+                </div>
+        `;
+
+        for (const [key, value] of q2vtFields) {
+            html += `
+                <div style="margin-bottom: 5px;">
+                    <div style="
+                        font-weight: 700;
+                        color: #1e88e5;
+                        font-size: 11px;
+                        margin-bottom: 2px;
+                    ">
+                        ${escapeHtml(key)}
+                    </div>
+                    <div style="color:#374151; font-size:12px;">
+                        ${formatValue(value)}
+                    </div>
+                </div>
+            `;
+        }
+
+        html += `</div>`;
+    }
+
+    for (const [key, value] of normalFields) {
+        html += `
+            <div style="margin-bottom: 6px;">
+                <div style="
+                    font-weight: 800;
+                    color: #111827;
+                    font-size: 11px;
+                    margin-bottom: 2px;
                 ">
                     ${escapeHtml(key)}
                 </div>
-                <div style="padding-left: 8px;">
+                <div style="color:#374151; font-size:12px;">
                     ${formatValue(value)}
                 </div>
             </div>
         `;
     }
 
-    html += '</div>';
+    html += `</div>`;
 
     popup
         .setLngLat(e.lngLat)
@@ -215,10 +330,9 @@ map.on('mousemove', (e) => {
         .addTo(map);
 });
 
-// Remove popup when leaving map
-map.on('mouseout', () => {
-    popup.remove();
-    map.getCanvas().style.cursor = '';
+// safe close
+map.on('mouseleave', () => {
+    scheduleClose();
 });
 </script>
 
