@@ -37,7 +37,7 @@ from .core.rules_exporter import RulesExporter
 from .core.tiles_generator import GDALTilesGenerator
 from .core.tiles_styler import TilesStyler
 from .core.maplibre_converter import QgisMapLibreStyleExporter
-from .core.tile_server import TileServer
+from .core.server_initializer import ServerInitializer
 
 class QGIS2VectorTiles:
     """Orchestrate the conversion from QGIS project styling to vector tiles."""
@@ -180,7 +180,7 @@ class QGIS2VectorTiles:
     
     def serve_tiles(self, temp_dir: str):
         """Serve the generated tiles via a local HTTP server."""
-        TileServer(self.extent, self.min_zoom, self.viewer).serve_tiles(temp_dir)
+        ServerInitializer(self.extent, self.min_zoom, self.viewer).serve_tiles(temp_dir)
 
 if __name__ == "__console__":
     adapter = QGIS2VectorTiles(output_dir=QgsProcessingUtils.tempFolder())

@@ -1110,7 +1110,7 @@ class QgisMapLibreStyleExporter:
             "sources": {
                 self.source_name: {
                     "type": "vector",
-                    "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf"],
+                    "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf?v=10031993"],
                 }
             },
             "glyphs": "local://{fontstack}/{range}.pbf",

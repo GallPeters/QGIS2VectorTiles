@@ -34,7 +34,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
-    VIEWR = "VIEWER"
+    VIEWER = "VIEWER"
     BACKGROUND_TYPE = "BACKGROUND_TYPE"
 
     def __init__(self):
@@ -179,7 +179,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterEnum(
                 self.VIEWER,
                 self.tr("Output Viewer"),
-                options=["MapLibre", "OpenLayers"],
+                options=["MapLibre (recommended)", "OpenLayers"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
             )

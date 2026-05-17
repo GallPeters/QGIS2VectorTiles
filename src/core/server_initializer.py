@@ -4,7 +4,7 @@ import platform
 import subprocess
 from os import makedirs
 from os.path import join, basename, exists
-from shutil import copy2
+from shutil import copy2, copytree
 from sys import prefix
 from typing import Optional
 
@@ -13,15 +13,17 @@ from qgis.core import (
     QgsCoordinateTransform,
     QgsProject,
 )
-from utils.config import _VIEWER, _MAPLIBRE, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
+from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
 
-class TileServer:
+class ServerInitializer:
     """Copy server utilities and launch the local tile server."""
 
     def __init__(self, extent, min_zoom: int, viewer: int):
         self.extent = extent
         self.min_zoom = min_zoom
         self.viewer = viewer
+        self.viewer_dir = join(_RESOURCES, 'ml_viewer' if viewer == 0 else 'ol_viewer')
+        self.port = _PORT  # use different port for each viewer to allow running both simultaneously
 
     def serve_tiles(self, output_folder: str):
         """Copy server utilities and launch the local tile server."""
@@ -53,9 +55,7 @@ class TileServer:
             dest_activator = join(output_folder, basename(activator).replace("_lin.txt", ".sh"))
             copy2(activator, dest_activator)
         copy2(_SERVER, utils_dir)
-        copy2(_VIEWER, utils_dir)
-        copy2(f"{_MAPLIBRE}.js", utils_dir)
-        copy2(f"{_MAPLIBRE}.css", utils_dir)
+        copytree(self.viewer_dir, join(utils_dir, "viewer"), dirs_exist_ok=True)
         return dest_activator, dest_wrapper
 
     def _get_center_wgs84(self) -> str:
@@ -88,27 +88,53 @@ class TileServer:
         python_exe: str,
     ):
         """Replace template placeholders in server, viewer, and launcher files."""
+        viewer = join(utils_dir, "viewer", 'viewer.html')
         self.replace_in_file(
-            join(utils_dir, basename(_VIEWER)),
+            viewer,
             {
                 "_Q2VT_MINZOOM": str(self.min_zoom),
                 "_Q2VT_CENTER": center,
-                "18111991": str(_PORT),
+                "18111991": str(self.port),
+
             },
         )
         self.replace_in_file(
             join(utils_dir, basename(_SERVER)),
-            {"18111991": str(_PORT)},
+            {"18111991": str(self.port)},
         )
         activator_dir = utils_dir if wrapper else output_folder
         self.replace_in_file(
             join(activator_dir, basename(activator)),
             {
-                "18111991": str(_PORT),
+                "18111991": str(self.port),
                 "_Q2VT_PYTHON": python_exe,
-                "_Q2VT_UTILS": join(utils_dir, "mbtiles_server.py"),
+                "_Q2VT_UTILS": join(utils_dir, "tiles_server.py"),
+                "10031993": str(self.viewer + 1),
             },
         )
+        self.replace_in_file(
+            join(output_folder, 'style', 'style.json'),
+            {
+                "10031993": str(self.viewer + 1),
+            },
+        )
+        if self.viewer_dir.endswith("ol_viewer"):
+            self.replace_in_file(
+                join(utils_dir, "viewer", "bundle.js"),
+                {
+                    "18111991": str(self.port),
+                    "_Q2VT_MINZOOM": str(self.min_zoom),
+                    "_Q2VT_CENTER": center,
+                }
+            )
+            self.replace_in_file(
+                join(utils_dir, "viewer", "viewer.js"),
+                {
+                    "18111991": str(self.port),
+                    "_Q2VT_MINZOOM": str(self.min_zoom),
+                    "_Q2VT_CENTER": center,
+                }
+            )
 
     @staticmethod
     def _launch_server(output_folder: str, activator: str, wrapper: Optional[str]):

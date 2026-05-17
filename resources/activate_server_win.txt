@@ -18,6 +18,6 @@ timeout /t 2 /nobreak > nul
 
 REM Open the viewer in the default browser
 REM (empty first string "" is a dummy title so the URL is parsed correctly)
-start "" "http://localhost:18111991/maplibre_viewer.html"
+start "" "http://localhost:18111991/viewer/viewer.html?v=10031993"
 
 pause

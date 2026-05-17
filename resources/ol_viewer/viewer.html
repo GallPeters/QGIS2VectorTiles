@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenLayers Viewer</title>
+    
+    <link rel="stylesheet" href="ol.css">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+            background: #ffffff;
+        }
+        #zoom-indicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        #popup-toggle {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            z-index: 10;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+
+        #popup {
+            position: absolute;
+            background: #ffffff;
+            border-radius: 6px;
+            box-shadow: 0 3px 14px rgba(0,0,0,0.18);
+            pointer-events: auto;
+            min-width: 60px;
+            transform: translate(-50%, -100%);
+            margin-top: -12px;
+            display: none;
+        }
+        #popup.visible { display: block; }
+        #popup::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            margin-left: -8px;
+            width: 0; height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 8px solid #ffffff;
+            filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08));
+        }
+
+        .ol-zoom {
+            top: 0.5em;
+            right: 0.5em;
+            left: auto !important;
+        }
+    </style>
+</head>
+<body>
+
+<div id="zoom-indicator">Zoom: 0</div>
+
+<button id="popup-toggle">Popups: ON</button>
+
+<div id="map"></div>
+
+<div id="popup"><div id="popup-content"></div></div>
+
+<script type="module" src="bundle.js"></script>
+
+</body>
+</html>

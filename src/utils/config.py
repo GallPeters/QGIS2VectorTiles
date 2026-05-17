@@ -12,9 +12,7 @@ from qgis.core import QgsApplication
 
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
 _RESOURCES = join(_PLUGIN_DIR, "resources")
-_VIEWER = join(_RESOURCES, "maplibre_viewer.html")
-_MAPLIBRE = join(_RESOURCES, "maplibre-gl")
-_SERVER = join(_RESOURCES, "mbtiles_server.py")
+_SERVER = join(_RESOURCES, "tiles_server.py")
 _BAT = join(_RESOURCES, "activate_server_win.txt")
 _SH = join(_RESOURCES, "activate_server_lin.txt")
 _VB = join(_RESOURCES, "activate_server_vbs.txt")
@@ -46,8 +44,6 @@ __all__ = [
     "_EPSG_CRS",
     "_DATA_SIMPLIFICATION_TOLERANCE",
     "_REMOVE_DUPLICATES_DISTANCE",
-    "_VIEWER",
-    "_MAPLIBRE",
     "_PORT",
     "_PLUGIN_DIR",
     "QDomDocument",
