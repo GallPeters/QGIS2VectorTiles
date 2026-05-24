@@ -92,7 +92,7 @@ class ServerInitializer:
         self.replace_in_file(
             viewer,
             {
-                "_Q2VT_MINZOOM": str(self.min_zoom),
+                "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
                 "_Q2VT_CENTER": center,
                 "18111991": str(self.port),
 
@@ -123,7 +123,7 @@ class ServerInitializer:
                 join(utils_dir, "viewer", "bundle.js"),
                 {
                     "18111991": str(self.port),
-                    "_Q2VT_MINZOOM": str(self.min_zoom),
+                    "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
                     "_Q2VT_CENTER": center,
                 }
             )
@@ -131,7 +131,7 @@ class ServerInitializer:
                 join(utils_dir, "viewer", "viewer.js"),
                 {
                     "18111991": str(self.port),
-                    "_Q2VT_MINZOOM": str(self.min_zoom),
+                    "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
                     "_Q2VT_CENTER": center,
                 }
             )

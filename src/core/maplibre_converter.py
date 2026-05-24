@@ -1061,6 +1061,10 @@ class QgisMapLibreStyleExporter:
         output_dir: str,
         layer: Optional[QgsVectorTileLayer] = None,
         background_type: int = 0,
+        viewer: int = 0,
+        minzoom: int = 0,
+        maxzoom: int = 14
+
     ):
         """Initialise the exporter.
 
@@ -1077,7 +1081,9 @@ class QgisMapLibreStyleExporter:
         self.output_dir = output_dir
         self.marker_symbols: dict = {}
         self.marker_counter = 0
-
+        self.viewer = viewer
+        self.minzoom = minzoom
+        self.maxzoom = maxzoom
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
@@ -1188,9 +1194,17 @@ class QgisMapLibreStyleExporter:
         """Convert a single ``QgsVectorTileBasicRendererStyle`` into MapLibre layer(s)."""
         if not style.isEnabled() or not style.symbol():
             return
+        min_zoom = style.minZoomLevel()
+        max_zoom = style.maxZoomLevel() + 1 
+        # if self.viewer == 0:
+        #     min_zoom = style.minZoomLevel()
+        #     max_zoom = style.maxZoomLevel() + 1 
+        # else:
+        #     min_zoom = style.minZoomLevel() - 1
+        #     max_zoom = min(style.maxZoomLevel() + 1, self.maxzoom)
         self._convert_symbol(
             style.symbol(), style.styleName(), style.layerName(),
-            self.source_name, style.minZoomLevel(), style.maxZoomLevel() + 1,
+            self.source_name, min_zoom, max_zoom,
         )
 
     def _convert_labeling_style(self, style):
@@ -1198,7 +1212,13 @@ class QgisMapLibreStyleExporter:
         if not style.isEnabled() or not style.labelSettings():
             return
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1
+        max_zoom = style.maxZoomLevel() + 1 
+        # if self.viewer == 0:
+        #     min_zoom = style.minZoomLevel()
+        #     max_zoom = style.maxZoomLevel() + 1 
+        # else:
+        #     min_zoom = style.minZoomLevel() - 1
+        #     max_zoom = min(style.maxZoomLevel() + 1, self.maxzoom)
         self._convert_label(
             style.labelSettings(), style.styleName(), style.layerName(),
             self.source_name, min_zoom, max_zoom,

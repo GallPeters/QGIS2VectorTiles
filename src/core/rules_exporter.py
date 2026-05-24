@@ -76,12 +76,12 @@ QgsTask. This is intentional:
 import os
 import threading
 import traceback
+import platform
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from os.path import exists, join
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
-
 from processing import run as run_processing
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -124,7 +124,9 @@ _SERIAL_READ_PROVIDERS = frozenset(
     {"postgres", "mssql", "oracle", "wfs", "spatialite", "hana", "db2"}
 )
 
-
+# Temp files prefered to be parquet but in linux which not support parquet they are became gpkg.
+_TEMP_LAYER_FORMAT = 'sqlite'
+_TEMP_RULE_FORMAT = 'gpkg'
 # ============================================================================
 # Snapshots — pure-Python data, no QObject references
 # ============================================================================
@@ -350,7 +352,7 @@ class RulesExporter:
         materialized: Dict[str, str] = {}
         for src in sources.values():
             self._check_cancel()
-            out_path = join(self.utils_dir, f"materialized_{src.layer_id}.parquet")
+            out_path = join(self.utils_dir, f"materialized_{src.layer_id}.{_TEMP_LAYER_FORMAT}")
 
             if exists(out_path):
                 # Idempotent restart support.
@@ -402,7 +404,7 @@ class RulesExporter:
     ) -> Dict[str, str]:
         """Run fix-structure → reproject → clip → singleparts → simplify."""
         target_paths: Dict[str, str] = {
-            lid: join(self.utils_dir, f"map_layer_{lid}.parquet")
+            lid: join(self.utils_dir, f"map_layer_{lid}.{_TEMP_LAYER_FORMAT}")
             for lid in materialized
         }
         # Idempotent skip.
@@ -536,7 +538,7 @@ class RulesExporter:
     ) -> Optional[str]:
         """Worker: run the rule-export chain entirely from local files."""
         self._check_cancel()
-        output_path = join(self.utils_dir, f"{grp.output_dataset}.parquet")
+        output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
         if exists(output_path):
             return output_path
 
@@ -626,7 +628,7 @@ class RulesExporter:
         successful_rules: List[FlattenedRule] = []
         for grp in rule_groups:
             out_path = rule_outputs.get(grp.output_dataset)
-            on_disk = join(self.utils_dir, f"{grp.output_dataset}.parquet")
+            on_disk = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
             if not out_path or not exists(on_disk):
                 # Drop these rules from the caller's flat list.
                 for rule in grp.flat_rules:
@@ -872,7 +874,7 @@ class RulesExporter:
 
     def _temp_path(self, prefix: str = "temp") -> str:
         """Allocate a tracked temp path inside utils_dir."""
-        p = join(self.utils_dir, f"{prefix}_{uuid4().hex}.parquet")
+        p = join(self.utils_dir, f"{prefix}_{uuid4().hex}.{_TEMP_RULE_FORMAT}")
         with self._temp_files_lock:
             self._temp_files.add(p)
         return p

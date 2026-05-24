@@ -55,8 +55,8 @@ class QGIS2VectorTiles:
         viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
-        self.min_zoom = min_zoom
-        self.max_zoom = max_zoom
+        self.min_zoom = min_zoom - viewer
+        self.max_zoom = max_zoom - viewer
         self.extent = extent or iface.mapCanvas().extent()
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir
@@ -166,7 +166,7 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir, tiles_uri).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type).export()
+        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
 
     def _log(self, message: str):
         if __name__ != "__console__":
