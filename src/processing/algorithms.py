@@ -117,7 +117,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MAX_ZOOM,
-                self.tr("Maximum Zoom"),
+                self.tr("Maximum Zoom (Inclusive)"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=10,
                 minValue=0,
@@ -179,7 +179,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterEnum(
                 self.VIEWER,
                 self.tr("Output Viewer"),
-                options=["MapLibre (recommended)", "OpenLayers"],
+                options=["MapLibre (Recommended)", "OpenLayers"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
             )
