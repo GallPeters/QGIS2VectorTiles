@@ -2,8 +2,8 @@
 name=QGIS2VectorTiles
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
-description=Turn a QGIS project into a lightweight data source, styled layer, web style, and ready-to-use web viewer.
-about=QGIS2VectorTiles converts QGIS projects into ready-to-share web map packages containing a single lightweight vector tile source (MBTiles), a styled QGIS layer (QLR), a client-side web style (JSON), and a ready-to-use web viewer (HTML). Use cases include client-side rendering with MapLibre, Leaflet, OpenLayers, and more; lightweight and fast server rendering by serving MBTiles through QGIS Server or GeoServer as WMS/WMTS; and easy sharing with a single source and single layer.
+description=Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.
+about=QGIS2VectorTiles converts a QGIS project into a ready-to-share vector tile package, providing MBTiles, a styled QLR, a MapLibre style JSON, and a ready-to-use HTML MapLibre/OpenLayers viewer. It enables fast client-side rendering, lightweight server publishing, and effortless sharing from a single optimized output.
 version=2.8
 author=Jossef Kanter
 email=jossefkan@gmail.com
