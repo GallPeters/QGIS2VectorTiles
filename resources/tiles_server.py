@@ -132,7 +132,7 @@ class StaticCache:
             data  = target.read_bytes()
             mime  = MIME_TYPES.get(target.suffix.lower(),
                                    "application/octet-stream")
-            etag  = '"' + hashlib.md5(data).hexdigest()[:16] + '"'
+            etag  = '"' + hashlib.md5(data, usedforsecurity=False).hexdigest()[:16] + '"'
             entry = (data, mime, etag)
             self._cache[key] = entry
             return entry
