@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
-<title>Property Mapping Matrix — QGIS2VectorTiles</title>
+<link rel="shortcut icon" href="docs/icons/qgis2vectortiles.ico">
+<title>QGIS2VectorTiles — Compatibility Matrix</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
 
@@ -12,56 +13,72 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ════════════════════════════════════════
-   DESIGN TOKENS (Inherited from index.html)
+   DESIGN TOKENS  (Identical to changelog.html)
+   Flat dark UI — QGIS brand palette.
 ════════════════════════════════════════ */
 :root {
+  /* Surfaces (opaque) */
   --bg:            #0d0d0d;
   --surface:       #161616;
   --surface-2:     #1c1c1c;
   --surface-3:     #222222;
+
+  /* Borders (solid) */
   --border:        #262626;
   --border-2:      #333333;
   --border-3:      #404040;
-  --accent:        #7ec44a;        /* QGIS green */
+
+  /* Brand accents — QGIS */
+  --accent:        #7ec44a;
   --accent-hover:  #8ed35a;
   --accent-deep:   #2f4a1d;
   --accent-2:      #7ec44a;
+
+  /* Typography */
   --text:          #ececec;
   --text-muted:    #a0a0a0;
   --text-dim:      #6f6f6f;
   --text-faint:    #4a4a4a;
+
   --header-h:      56px;
-  --r-sm:          3px;
-  --r-md:          4px;
-  --max-w:         1180px;
-  --t:             0.15s ease;
+
+  /* Border radii — small, flat */
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+
+  --t:      0.15s ease;
+  --t-slow: 0.25s ease;
+
+  --max-w: 1180px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Normal native scrolling enabled for data documentation layout */
 html {
-  background: var(--bg);
   scroll-behavior: smooth;
   scroll-padding-top: var(--header-h);
+  background: var(--bg);
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.55;
-  font-size: 14.5px;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
-  padding-top: calc(var(--header-h) + 50px);
-  padding-bottom: 100px;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 a { color: inherit; text-decoration: none; }
+img, video, svg { display: block; max-width: 100%; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
 ::selection { background: var(--accent); color: var(--bg); }
 
 /* ════════════════════════════════════════
-   MATCHING FIXED HEADER (From index.html)
+   FIXED HEADER — solid, opaque, flat
 ════════════════════════════════════════ */
 .header {
   position: fixed;
@@ -71,6 +88,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
+
 .header-inner {
   height: 100%;
   max-width: var(--max-w);
@@ -81,7 +99,14 @@ a { color: inherit; text-decoration: none; }
   justify-content: space-between;
   gap: 20px;
 }
-.nav-left { display: flex; align-items: center; gap: 4px; }
+
+.nav-left, .nav-right {
+  display: flex;
+  align-items: center;
+}
+.nav-left  { gap: 4px; }
+.nav-right { gap: 14px; }
+
 .nav-btn {
   display: inline-flex;
   align-items: center;
@@ -91,59 +116,132 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-muted);
   padding: 7px 12px;
   border-radius: var(--r-sm);
-  transition: all var(--t);
+  transition: color var(--t), background var(--t), border-color var(--t);
+  letter-spacing: -0.005em;
   border: 1px solid transparent;
 }
+.nav-btn svg { opacity: 0.9; flex-shrink: 0; }
 .nav-btn:hover { color: var(--text); background: var(--surface-2); }
-.nav-btn.active { color: var(--accent); border-color: var(--border-2); background: var(--surface); }
 
-/* ════════════════════════════════════════
-   MAIN CONTAINER & CONTENT
-════════════════════════════════════════ */
-.container {
-  width: 100%;
-  max-width: var(--max-w);
-  margin: 0 auto;
-  padding: 0 24px;
+.nav-btn.cta {
+  color: #0d0d0d;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.nav-btn.cta:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #0d0d0d;
+}
+.nav-btn.cta svg { opacity: 1; color: #0d0d0d; }
+
+.nav-btn.active {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+.nav-btn.active svg { opacity: 1; color: var(--accent); }
+
+.nav-btn.home { color: var(--text-muted); }
+.nav-btn.home:hover { color: var(--accent); border-color: var(--border-2); background: var(--surface-2); }
+.nav-btn.home:hover svg { color: var(--accent); }
+
+.rate-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.rate-text strong { color: var(--accent-2); font-weight: 600; }
+
+.header-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-.eyebrow {
+.icon-link {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   color: var(--text-muted);
-  margin-bottom: 14px;
+  border-radius: var(--r-sm);
+  transition: color var(--t), background var(--t);
 }
-.eyebrow::before {
-  content: '';
-  width: 14px;
-  height: 2px;
-  background: var(--accent);
-  display: inline-block;
-}
+.icon-link:hover { color: var(--accent); background: var(--surface-2); }
+.icon-link svg { width: 15px; height: 15px; }
 
-.page-title {
-  font-size: clamp(28px, 4vw, 38px);
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-  color: var(--text);
-  margin-bottom: 12px;
-}
-.page-desc {
-  font-size: 16px;
-  color: var(--text-muted);
-  max-width: 680px;
-  margin-bottom: 36px;
-  line-height: 1.6;
+.divider-v {
+  width: 1px;
+  height: 18px;
+  background: var(--border-2);
+  flex-shrink: 0;
 }
 
 /* ════════════════════════════════════════
-   INTERACTIVE LIVE FILTER BAR
+   PAGE HEADER — flat, no gradients
+════════════════════════════════════════ */
+.page-head {
+  position: relative;
+  text-align: center;
+  padding: calc(var(--header-h) + 64px) 28px 56px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.page-head-content {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.page-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 22px;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  background: #000;
+}
+.page-icon svg { width: 100%; height: 100%; display: block; }
+
+.page-head h1 {
+  font-size: clamp(34px, 5vw, 50px);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.08;
+  color: var(--text);
+}
+.page-head h1 .accent { color: var(--accent); }
+
+.page-tagline {
+  margin-top: 16px;
+  font-size: clamp(15px, 1.2vw, 16.5px);
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-width: 580px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ════════════════════════════════════════
+   PAGE CONTENT WRAPPER (Widescreen Version for Data)
+════════════════════════════════════════ */
+.page-content {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+
+/* ════════════════════════════════════════
+   LIVE MATRIX SEARCH BAR
 ════════════════════════════════════════ */
 .search-container {
   margin-bottom: 40px;
@@ -156,7 +254,7 @@ a { color: inherit; text-decoration: none; }
   color: var(--text);
   padding: 11px 16px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 14.5px;
   border-radius: var(--r-md);
   outline: none;
   transition: border-color var(--t), background var(--t);
@@ -167,7 +265,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ════════════════════════════════════════
-   TABLES STRUCTURE
+   COMPATIBILITY MATRIX TABLES STRUCTURE
 ════════════════════════════════════════ */
 .category-block {
   margin-bottom: 48px;
@@ -207,7 +305,7 @@ table {
 th {
   background: var(--surface-2);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -219,13 +317,14 @@ td {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+  font-size: 14px;
 }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: var(--surface-2); }
 
 .prop-name { font-weight: 500; color: var(--text); }
 .code-inline {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   font-size: 12.5px;
   color: var(--text-muted);
   background: var(--surface-3);
@@ -234,12 +333,12 @@ tr:hover td { background: var(--surface-2); }
   border: 1px solid var(--border);
 }
 
-/* System Action Status Badges */
+/* Action Engine Status Badges */
 .badge {
   display: inline-flex;
   align-items: center;
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 3px 8px;
@@ -283,10 +382,89 @@ tr:hover td { background: var(--surface-2); }
   border-radius: var(--r-md);
 }
 
+/* ════════════════════════════════════════
+   PAGE FOOTER
+════════════════════════════════════════ */
+.page-foot {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.page-foot a { color: var(--text-muted); transition: color var(--t); }
+.page-foot a:hover { color: var(--accent); }
+
+/* ════════════════════════════════════════
+   BACK TO TOP — flat, opaque
+════════════════════════════════════════ */
+.back-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity var(--t-slow), transform var(--t-slow), background var(--t), border-color var(--t), color var(--t);
+  z-index: 90;
+}
+.back-top.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.back-top:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.back-top svg { width: 14px; height: 14px; }
+
+/* ════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════ */
 @media (max-width: 768px) {
-  body { padding-top: calc(var(--header-h) + 24px); }
+  :root { --header-h: 52px; }
+
+  .header-inner { padding: 0 14px; gap: 8px; }
+  .nav-btn { padding: 7px 10px; font-size: 12.5px; }
+  .nav-btn .label { display: none; }
+  .nav-btn.cta .label { display: inline; }
+  .rate-text { display: none; }
+  .divider-v { display: none; }
+  .nav-right { gap: 4px; }
+
+  .page-head { padding: calc(var(--header-h) + 44px) 18px 40px; }
+  .page-icon { width: 48px; height: 48px; margin-bottom: 18px; }
+
+  .page-content { padding: 40px 18px 72px; }
+  
   th, td { padding: 12px 14px; font-size: 13px; }
   .code-inline { font-size: 11.5px; }
+  .category-title { font-size: 16px; }
+
+  .page-foot { font-size: 11.5px; gap: 10px; flex-direction: column; text-align: center; }
+  .back-top { bottom: 16px; right: 16px; width: 36px; height: 36px; }
+}
+
+@media (max-width: 420px) {
+  .nav-btn { padding: 6px 8px; gap: 0; }
+  .header-inner { gap: 4px; }
 }
 </style>
 </head>
@@ -294,141 +472,11 @@ tr:hover td { background: var(--surface-2); }
 
 <header class="header">
   <div class="header-inner">
+
     <nav class="nav-left">
-      <a href="index.html" class="nav-btn">← Home</a>
-      <a href="#" class="nav-btn active">Compatibility Matrix</a>
-    </nav>
-  </div>
-</header>
-
-<main class="container">
-  <div class="eyebrow"><span>Documentation</span></div>
-  <h1 class="page-title">QGIS Property Translation Map</h1>
-  <p class="page-desc">
-    See which symbology parameters map directly into active MapLibre engine layers, 
-    including validation checks for data-defined expressions and overrides.
-  </p>
-
-  <div id="localErrorCheck"></div>
-
-  <div class="search-container">
-    <input type="text" id="matrixSearch" class="search-input" placeholder="Filter parameters (e.g. stroke, font, width)...">
-  </div>
-
-  <div id="matrix-container">
-    <p style="color: var(--text-muted);">Parsing configuration file structure...</p>
-  </div>
-
-  <div id="noResults" class="no-results">
-    No parameters match your search criteria.
-  </div>
-</main>
-
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-  const container = document.getElementById('matrix-container');
-  const searchInput = document.getElementById('matrixSearch');
-  const noResults = document.getElementById('noResults');
-  const errorCheck = document.getElementById('localErrorCheck');
-
-  // Friendly alert checker for local disk testers
-  if (window.location.protocol === 'file:') {
-    errorCheck.innerHTML = `
-      <div class="error-banner">
-        <strong>Local Security Blocked Request:</strong> Your browser blocked loading <code>compatibility.yaml</code> directly from your hard drive due to security rules. 
-        To test this locally, launch a terminal in this directory and type: <code>python -m http.server 8000</code>, then open <code>http://localhost:8000/compatibility.html</code>. 
-        <em>Note: It will work instantly on GitHub Pages without any changes!</em>
-      </div>`;
-  }
-
-  // Fetch target matrix resource
-  fetch('compatibility.yaml')
-    .then(response => {
-      if (!response.ok) throw new Error("Server rejected request or file not located.");
-      return response.text();
-    })
-    .then(yamlText => {
-      const data = jsyaml.load(yamlText);
-      renderMatrix(data.categories);
-    })
-    .catch(error => {
-      container.innerHTML = `<p style="color:#f46363;">Could not render configuration file engine: ${error.message}</p>`;
-    });
-
-  function renderMatrix(categories) {
-    container.innerHTML = '';
-
-    categories.forEach(cat => {
-      const block = document.createElement('div');
-      block.className = 'category-block';
-
-      let tableRows = '';
-      cat.properties.forEach(p => {
-        const supClass = p.supported.toLowerCase() === 'yes' ? 'yes' : (p.supported.toLowerCase() === 'partial' ? 'partial' : 'no');
-        const ddClass = p.data_driven.toLowerCase() === 'yes' ? 'dd-yes' : 'dd-no';
-
-        tableRows += `
-          <tr class="matrix-row">
-            <td class="prop-name">${p.qgis_prop}</td>
-            <td><span class="code-inline">${p.maplibre_prop}</span></td>
-            <td><span class="badge ${supClass}">${p.supported}</span></td>
-            <td><span class="badge ${ddClass}">${p.data_driven}</span></td>
-            <td class="notes-cell">${p.notes || ''}</td>
-          </tr>
-        `;
-      });
-
-      block.innerHTML = `
-        <h2 class="category-title">${cat.name}</h2>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 22%">QGIS Property</th>
-                <th style="width: 22%">MapLibre Property</th>
-                <th style="width: 12%">Supported</th>
-                <th style="width: 14%">Data-Driven</th>
-                <th style="width: 30%">Notes & Constraints</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
-          </table>
-        </div>
-      `;
-      container.appendChild(block);
-    });
-
-    searchInput.addEventListener('input', handleFilter);
-  }
-
-  function handleFilter() {
-    const query = searchInput.value.toLowerCase();
-    const blocks = document.querySelectorAll('.category-block');
-    let totalVisibleRows = 0;
-
-    blocks.forEach(block => {
-      const rows = block.querySelectorAll('.matrix-row');
-      let visibleRowsInBlock = 0;
-
-      rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        if (text.includes(query)) {
-          row.style.display = '';
-          visibleRowsInBlock++;
-          totalVisibleRows++;
-        } else {
-          row.style.display = 'none';
-        }
-      });
-
-      block.style.display = visibleRowsInBlock === 0 ? 'none' : '';
-    });
-
-    noResults.style.display = totalVisibleRows === 0 ? 'block' : 'none';
-  }
-});
-</script>
-</body>
-</html>
+      <a href="index.html" class="nav-btn home" aria-label="Back to home">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span class="label">Home</span>
+      </a>
+      <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="
