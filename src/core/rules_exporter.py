@@ -571,7 +571,16 @@ class RulesExporter:
 
         # Geometry transformation.
         self._check_cancel()
-        geom_target = abs(grp.geometry_target - 2)
+        if grp.rule_type == 1:
+            settings = grp.flat_rules[0].rule.settings()
+            if settings and not settings.labelPerPart:
+                pass
+
+        # layer.geometryType() returns 0 for point and 2 for polygon
+        # but geometrybyexpression processing treats 0 as polygon and 2 as point
+        # so we need to flip these values to get the correct geometry type.
+
+        geom_target = abs(grp.geometry_target - 2) 
         transformed = self._run_alg_safe(
             "geometrybyexpression", "native",
             INPUT=refactored,
