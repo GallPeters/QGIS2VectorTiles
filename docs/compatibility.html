@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
+<title>Property Compatibility Matrix — QGIS2VectorTiles</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ════════════════════════════════════════
+   DESIGN TOKENS (Inherited from index.html)
+   Flat dark UI — QGIS brand palette.
+════════════════════════════════════════ */
+:root {
+  --bg:            #0d0d0d;
+  --surface:       #161616;
+  --surface-2:     #1c1c1c;
+  --surface-3:     #222222;
+  --border:        #262626;
+  --border-2:      #333333;
+  --border-3:      #404040;
+  --accent:        #7ec44a;        /* QGIS green */
+  --accent-hover:  #8ed35a;
+  --accent-deep:   #2f4a1d;        /* Green background */
+  --accent-2:      #7ec44a;
+  --text:          #ececec;
+  --text-muted:    #a0a0a0;
+  --text-dim:      #6f6f6f;
+  --text-faint:    #4a4a4a;
+  --header-h:      56px;
+  --r-sm:          3px;
+  --r-md:          4px;
+  --max-w:         1180px;
+  --t:             0.15s ease;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 14.5px;
+  -webkit-font-smoothing: antialiased;
+  padding-top: calc(var(--header-h) + 40px);
+  padding-bottom: 80px;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ════════════════════════════════════════
+   FIXED HEADER (Identical layout)
+════════════════════════════════════════ */
+.header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  height: var(--header-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  height: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-left { display: flex; align-items: center; gap: 4px; }
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  transition: all var(--t);
+  border: 1px solid transparent;
+}
+.nav-btn:hover { color: var(--text); background: var(--surface-2); }
+.nav-btn.active { color: var(--accent); border-color: var(--border-2); background: var(--surface); }
+
+/* ════════════════════════════════════════
+   LAYOUT CONTAINER
+════════════════════════════════════════ */
+.container {
+  width: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.page-title {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 8px;
+}
+.page-desc {
+  color: var(--text-muted);
+  max-width: 700px;
+  margin-bottom: 32px;
+}
+
+/* ════════════════════════════════════════
+   SEARCH FILTER BAR
+════════════════════════════════════════ */
+.search-container {
+  margin-bottom: 40px;
+  max-width: 400px;
+  position: relative;
+}
+.search-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  border-radius: var(--r-md);
+  outline: none;
+  transition: border-color var(--t);
+}
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+/* ════════════════════════════════════════
+   TABLE STYLING
+════════════════════════════════════════ */
+.category-block {
+  margin-bottom: 48px;
+}
+.category-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.category-title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  display: inline-block;
+}
+
+.table-wrapper {
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-2);
+}
+
+td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface-2); }
+
+.prop-name { font-weight: 500; color: var(--text); }
+.code-inline {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+
+/* Status Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+}
+.badge.yes      { background: var(--accent-deep); color: var(--accent); }
+.badge.partial  { background: #4a3b1d; color: #eec14a; }
+.badge.no       { background: #3d1d1d; color: #f46363; }
+
+.badge.dd-yes   { border: 1px solid var(--border-3); color: var(--text-muted); background: transparent; }
+.badge.dd-no    { color: var(--text-dim); }
+
+.notes-cell {
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.no-results {
+  display: none;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+  border: 1px dashed var(--border-3);
+  border-radius: var(--r-md);
+}
+
+@media (max-width: 768px) {
+  body { padding-top: calc(var(--header-h) + 20px); }
+  th, td { padding: 10px 12px; font-size: 13px; }
+  .code-inline { font-size: 11.5px; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <nav class="nav-left">
+      <a href="index.html" class="nav-btn">← Home</a>
+      <a href="#" class="nav-btn active">Compatibility Matrix</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <h1 class="page-title">Property Mapping Matrix</h1>
+  <p class="page-desc">
+    Review which native QGIS symbology adjustments translate effectively into client-side 
+    MapLibre JSON configurations and check data-defined override functionality.
+  </p>
+
+  <div class="search-container">
+    <input type="text" id="matrixSearch" class="search-input" placeholder="Filter parameters (e.g. stroke, color)...">
+  </div>
+
+  <div id="matrix-container">
+    <p style="color: var(--text-muted);">Loading system matrix definitions...</p>
+  </div>
+
+  <div id="noResults" class="no-results">
+    No matching parameters found.
+  </div>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const container = document.getElementById('matrix-container');
+  const searchInput = document.getElementById('matrixSearch');
+  const noResults = document.getElementById('noResults');
+
+  // Fetch and parse YAML asynchronously
+  fetch('compatibility.yaml')
+    .then(response => {
+      if (!response.ok) throw new Error("Unable to locate matrix data file asset.");
+      return response.text();
+    })
+    .then(yamlText => {
+      const data = jsyaml.load(yamlText);
+      renderMatrix(data.categories);
+    })
+    .catch(error => {
+      container.innerHTML = `<p style="color:#f46363;">Error fetching compatibility tracking file: ${error.message}</p>`;
+    });
+
+  function renderMatrix(categories) {
+    container.innerHTML = ''; // Clean initial states
+
+    categories.forEach(cat => {
+      const block = document.createElement('div');
+      block.className = 'category-block';
+
+      let tableRows = '';
+      cat.properties.forEach(p => {
+        // Compute structural CSS indicators based on variables
+        const supClass = p.supported.toLowerCase() === 'yes' ? 'yes' : (p.supported.toLowerCase() === 'partial' ? 'partial' : 'no');
+        const ddClass = p.data_driven.toLowerCase() === 'yes' ? 'dd-yes' : 'dd-no';
+
+        tableRows += `
+          <tr class="matrix-row">
+            <td class="prop-name">${p.qgis_prop}</td>
+            <td><span class="code-inline">${p.maplibre_prop}</span></td>
+            <td><span class="badge ${supClass}">${p.supported}</span></td>
+            <td><span class="badge ${ddClass}">${p.data_driven}</span></td>
+            <td class="notes-cell">${p.notes || ''}</td>
+          </tr>
+        `;
+      });
+
+      block.innerHTML = `
+        <h2 class="category-title">${cat.name}</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 22%">QGIS Property</th>
+                <th style="width: 22%">MapLibre Property</th>
+                <th style="width: 12%">Supported</th>
+                <th style="width: 14%">Data-Driven</th>
+                <th style="width: 30%">Notes / Limitations</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+      container.appendChild(block);
+    });
+
+    // Set up interactive filter handling
+    searchInput.addEventListener('input', handleFilter);
+  }
+
+  function handleFilter() {
+    const query = searchInput.value.toLowerCase();
+    const blocks = document.querySelectorAll('.category-block');
+    let totalVisibleRows = 0;
+
+    blocks.forEach(block => {
+      const rows = block.querySelectorAll('.matrix-row');
+      let visibleRowsInBlock = 0;
+
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        if (text.includes(query)) {
+          row.style.display = '';
+          visibleRowsInBlock++;
+          totalVisibleRows++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      // Completely hide category groups if they don't contain matching values
+      if (visibleRowsInBlock === 0) {
+        block.style.display = 'none';
+      } else {
+        block.style.display = '';
+      }
+    });
+
+    noResults.style.display = totalVisibleRows === 0 ? 'block' : 'none';
+  }
+});
+</script>
+</body>
+</html>
