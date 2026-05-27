@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
 <link rel="shortcut icon" href="docs/icons/qgis2vectortiles.ico">
-<title>QGIS2VectorTiles — Compatibility Matrix</title>
+<title>QGIS2VectorTiles — Styling Guide</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
 
@@ -13,7 +13,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ════════════════════════════════════════
-   DESIGN TOKENS  (Identical to changelog.html)
+   DESIGN TOKENS  (identical to changelog.html)
    Flat dark UI — QGIS brand palette.
 ════════════════════════════════════════ */
 :root {
@@ -185,7 +185,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   PAGE HEADER — flat, no gradients
+   PAGE HEADER — flat, no gradients (Identical to changelog)
 ════════════════════════════════════════ */
 .page-head {
   position: relative;
@@ -194,6 +194,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   overflow: hidden;
+}
+
+.page-head-bg {
+  display: none;
 }
 
 .page-head-content {
@@ -232,7 +236,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   PAGE CONTENT WRAPPER (Widescreen Version for Data)
+   PAGE CONTENT WRAPPER (Widescreen layout for tables)
 ════════════════════════════════════════ */
 .page-content {
   max-width: var(--max-w);
@@ -240,9 +244,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   padding: 56px 24px 96px;
 }
 
-/* ════════════════════════════════════════
-   LIVE MATRIX SEARCH BAR
-════════════════════════════════════════ */
+/* Live Interactive Search Input Filter */
 .search-container {
   margin-bottom: 40px;
   max-width: 420px;
@@ -333,7 +335,7 @@ tr:hover td { background: var(--surface-2); }
   border: 1px solid var(--border);
 }
 
-/* Action Engine Status Badges */
+/* Action Status Indicators */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -479,4 +481,227 @@ tr:hover td { background: var(--surface-2); }
         <span class="label">Home</span>
       </a>
       <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="label">Download</span>
+      </a>
+      <a href="demos.html" class="nav-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span class="label">Demos</span>
+      </a>
+      <a href="changelog.html" class="nav-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="label">Changelog</span>
+      </a>
+      <a href="compatibility.html" class="nav-btn active" aria-current="page">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        <span class="label">Styling Guide</span>
+      </a>
+    </nav>
+
+    <div class="nav-right">
+      <span class="rate-text">Enjoying the plugin? <strong>Rate it</strong></span>
+      <span class="divider-v"></span>
+      <div class="header-links">
+        <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="QGIS Plugin Repository" title="QGIS Plugin Repository">
+          <svg viewBox="0 0 32 32" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></svg>
+        </a>
+        <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="GitHub" title="GitHub">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+        <a href="https://mastodon.social/@JossefKanter" target="_blank" rel="me" class="icon-link" aria-label="Mastodon" title="Mastodon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></svg>
+        </a>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+<section class="page-head" id="top">
+  <div class="page-head-bg"></div>
+  <div class="page-head-content">
+
+    <div class="page-icon">
+      <svg viewBox="0 0 484.99997 484.99997" version="1.1" xmlns="http://www.w3.org/2000/svg">
+        <g transform="matrix(0.99969759,0,0,1.0000108,-1297.1076,1629.7675)">
+          <rect style="fill:#000000;" width="485.14658" height="484.99472" x="1297.5" y="-1629.75"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1328.1789,-1387.2526 h 423.7888"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:37;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1540.0733,-1599.147 v 423.7888"/>
+          <path style="fill:#7ec44a;" d="M 242.5,89 C 158.25744,89 89,158.25744 89,242.5 88.999992,326.74256 158.25744,396 242.5,396 326.74257,396.00001 396.00001,326.74257 396,242.5 396,158.25744 326.74256,88.999992 242.5,89 Z m 0,90 c 35.603,0 63.5,27.897 63.5,63.5 0,35.603 -27.897,63.5 -63.5,63.5 -35.603,0 -63.5,-27.897 -63.5,-63.5 0,-35.60299 27.89701,-63.5 63.5,-63.5 z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <path style="fill:#000000;stroke:#000000;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 350.99988,242.49998 A 108.49989,108.49989 0 0 1 242.49998,350.99988 108.49989,108.49989 0 0 1 134.00009,242.49998 108.49989,108.49989 0 0 1 242.49998,134.00009 108.49989,108.49989 0 0 1 350.99988,242.49998 Z" transform="matrix(0.78785618,0,0,0.78785618,1349.0182,-1578.3077)"/>
+          <rect style="fill:none;stroke:#7ec44a;stroke-width:43.643;stroke-linecap:square;stroke-miterlimit:4.8;" width="441.5036" height="441.35175" x="1319.3215" y="-1607.9285"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:23.1323;stroke-linecap:square;stroke-miterlimit:8.9;" d="m 1648.4412,-1388.337 v 200.5128"/>
+          <path style="fill:#7ec44a;" d="m 1521.5734,-1405.7574 4.595,34.1156 29.5312,-29.522 z m 4.5961,34.1168 96.5917,96.5614 29.5312,-29.522 -96.5917,-96.5614 z"/>
+          <path style="fill:#7ec44a;stroke:#7ec44a;stroke-width:22.552;stroke-linecap:square;stroke-miterlimit:8.9;" d="M 1748.1254,-1278.5638 H 1557.8826"/>
+        </g>
+      </svg>
+    </div>
+
+    <h1><span class="accent">Styling</span>Guide</h1>
+    <p class="page-tagline">
+      Translation map detailing how vector symbology parameters evaluate and compile directly into MapLibre runtime target layers.
+    </p>
+
+  </div>
+</section>
+
+<div class="page-content">
+
+  <div id="localErrorCheck"></div>
+
+  <div class="search-container">
+    <input type="text" id="matrixSearch" class="search-input" placeholder="Filter parameters (e.g. stroke, font, fill)...">
+  </div>
+
+  <div id="matrix-container">
+    <p style="color: var(--text-muted); font-size: 14px;">Parsing translation matrix mapping configuration...</p>
+  </div>
+
+  <div id="noResults" class="no-results">
+    No translation parameters match your active search terms.
+  </div>
+
+  <div class="page-foot">
+    <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
+    <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+  </div>
+</div>
+
+<button class="back-top" id="backTop" aria-label="Back to top" title="Back to top">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+</button>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const container = document.getElementById('matrix-container');
+  const searchInput = document.getElementById('matrixSearch');
+  const noResults = document.getElementById('noResults');
+  const errorCheck = document.getElementById('localErrorCheck');
+
+  // Local file scheme protocol exception alert handler
+  if (window.location.protocol === 'file:') {
+    errorCheck.innerHTML = `
+      <div class="error-banner">
+        <strong>Local Security Blocked Request:</strong> Your browser blocked loading <code>compatibility.yaml</code> directly from your hard drive due to security rules. 
+        To test this locally, launch a terminal in this directory and type: <code>python -m http.server 8000</code>, then open <code>http://localhost:8000/compatibility.html</code>. 
+        <em>Note: It will work instantly on GitHub Pages without any changes!</em>
+      </div>`;
+  }
+
+  // Request translation scheme data package asset
+  fetch('compatibility.yaml')
+    .then(response => {
+      if (!response.ok) throw new Error("Server rejected asset delivery parameters or asset missing.");
+      return response.text();
+    })
+    .then(yamlText => {
+      const data = jsyaml.load(yamlText);
+      renderMatrix(data.categories);
+    })
+    .catch(error => {
+      container.innerHTML = `<p style="color:#f46363; font-size:14px;">Could not render configuration file engine: ${error.message}</p>`;
+    });
+
+  function renderMatrix(categories) {
+    container.innerHTML = '';
+
+    categories.forEach(cat => {
+      const block = document.createElement('div');
+      block.className = 'category-block';
+
+      let tableRows = '';
+      cat.properties.forEach(p => {
+        const supClass = p.supported.toLowerCase() === 'yes' ? 'yes' : (p.supported.toLowerCase() === 'partial' ? 'partial' : 'no');
+        const ddClass = p.data_driven.toLowerCase() === 'yes' ? 'dd-yes' : 'dd-no';
+
+        tableRows += `
+          <tr class="matrix-row">
+            <td class="prop-name">${p.qgis_prop}</td>
+            <td><span class="code-inline">${p.maplibre_prop}</span></td>
+            <td><span class="badge ${supClass}">${p.supported}</span></td>
+            <td><span class="badge ${ddClass}">${p.data_driven}</span></td>
+            <td class="notes-cell">${p.notes || ''}</td>
+          </tr>
+        `;
+      });
+
+      block.innerHTML = `
+        <h2 class="category-title">${cat.name}</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 22%">QGIS Property</th>
+                <th style="width: 22%">MapLibre Property</th>
+                <th style="width: 12%">Supported</th>
+                <th style="width: 14%">Data-Driven</th>
+                <th style="width: 30%">Notes & Constraints</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+      container.appendChild(block);
+    });
+
+    searchInput.addEventListener('input', handleFilter);
+  }
+
+  function handleFilter() {
+    const query = searchInput.value.toLowerCase();
+    const blocks = document.querySelectorAll('.category-block');
+    let totalVisibleRows = 0;
+
+    blocks.forEach(block => {
+      const rows = block.querySelectorAll('.matrix-row');
+      let visibleRowsInBlock = 0;
+
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        if (text.includes(query)) {
+          row.style.display = '';
+          visibleRowsInBlock++;
+          totalVisibleRows++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      block.style.display = visibleRowsInBlock === 0 ? 'none' : '';
+    });
+
+    noResults.style.display = totalVisibleRows === 0 ? 'block' : 'none';
+  }
+});
+
+// Back To Top behavioral pipeline tracking
+(function () {
+  var btn = document.getElementById('backTop');
+  if (!btn) return;
+
+  var threshold = 480;
+  var ticking = false;
+
+  function update() {
+    if (window.scrollY > threshold) btn.classList.add('visible');
+    else btn.classList.remove('visible');
+    ticking = false;
+  }
+
+  window.addEventListener('scroll', function () {
+    if (!ticking) {
+      window.requestAnimationFrame(update);
+      ticking = true;
+    }
+  }, { passive: true });
+
+  btn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>
