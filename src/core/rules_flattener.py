@@ -287,8 +287,8 @@ class RulesFlattener:
             return
         settings = rule.settings()
         if settings and settings.scaleVisibility:
-            rule.setMinimumScale(settings.minimumScale())
-            rule.setMaximumScale(settings.maximumScale())
+            rule.setMinimumScale(settings.minimumScale)
+            rule.setMaximumScale(settings.maximumScale)
             settings.scaleVisibility = False
 
     def _inherit_rule_properties(self, rule, rule_type: int, inherited_parent):
