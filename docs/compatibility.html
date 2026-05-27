@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
-<title>Property Compatibility Matrix — QGIS2VectorTiles</title>
+<title>Property Mapping Matrix — QGIS2VectorTiles</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
 
@@ -13,7 +13,6 @@
 
 /* ════════════════════════════════════════
    DESIGN TOKENS (Inherited from index.html)
-   Flat dark UI — QGIS brand palette.
 ════════════════════════════════════════ */
 :root {
   --bg:            #0d0d0d;
@@ -25,7 +24,7 @@
   --border-3:      #404040;
   --accent:        #7ec44a;        /* QGIS green */
   --accent-hover:  #8ed35a;
-  --accent-deep:   #2f4a1d;        /* Green background */
+  --accent-deep:   #2f4a1d;
   --accent-2:      #7ec44a;
   --text:          #ececec;
   --text-muted:    #a0a0a0;
@@ -39,6 +38,14 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Normal native scrolling enabled for data documentation layout */
+html {
+  background: var(--bg);
+  scroll-behavior: smooth;
+  scroll-padding-top: var(--header-h);
+}
+
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background: var(--bg);
@@ -46,14 +53,15 @@ body {
   line-height: 1.55;
   font-size: 14.5px;
   -webkit-font-smoothing: antialiased;
-  padding-top: calc(var(--header-h) + 40px);
-  padding-bottom: 80px;
+  padding-top: calc(var(--header-h) + 50px);
+  padding-bottom: 100px;
 }
 
 a { color: inherit; text-decoration: none; }
+::selection { background: var(--accent); color: var(--bg); }
 
 /* ════════════════════════════════════════
-   FIXED HEADER (Identical layout)
+   MATCHING FIXED HEADER (From index.html)
 ════════════════════════════════════════ */
 .header {
   position: fixed;
@@ -71,6 +79,7 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
 }
 .nav-left { display: flex; align-items: center; gap: 4px; }
 .nav-btn {
@@ -89,7 +98,7 @@ a { color: inherit; text-decoration: none; }
 .nav-btn.active { color: var(--accent); border-color: var(--border-2); background: var(--surface); }
 
 /* ════════════════════════════════════════
-   LAYOUT CONTAINER
+   MAIN CONTAINER & CONTENT
 ════════════════════════════════════════ */
 .container {
   width: 100%;
@@ -98,44 +107,67 @@ a { color: inherit; text-decoration: none; }
   padding: 0 24px;
 }
 
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+.eyebrow::before {
+  content: '';
+  width: 14px;
+  height: 2px;
+  background: var(--accent);
+  display: inline-block;
+}
+
 .page-title {
-  font-size: 32px;
+  font-size: clamp(28px, 4vw, 38px);
   font-weight: 600;
   letter-spacing: -0.025em;
-  margin-bottom: 8px;
+  line-height: 1.1;
+  color: var(--text);
+  margin-bottom: 12px;
 }
 .page-desc {
+  font-size: 16px;
   color: var(--text-muted);
-  max-width: 700px;
-  margin-bottom: 32px;
+  max-width: 680px;
+  margin-bottom: 36px;
+  line-height: 1.6;
 }
 
 /* ════════════════════════════════════════
-   SEARCH FILTER BAR
+   INTERACTIVE LIVE FILTER BAR
 ════════════════════════════════════════ */
 .search-container {
   margin-bottom: 40px;
-  max-width: 400px;
-  position: relative;
+  max-width: 420px;
 }
 .search-input {
   width: 100%;
   background: var(--surface);
-  border: 1px solid var(--border-2);
+  border: 1px solid var(--border-3);
   color: var(--text);
-  padding: 10px 14px;
+  padding: 11px 16px;
   font-family: inherit;
   font-size: 14px;
   border-radius: var(--r-md);
   outline: none;
-  transition: border-color var(--t);
+  transition: border-color var(--t), background var(--t);
 }
 .search-input:focus {
   border-color: var(--accent);
+  background: var(--surface-2);
 }
 
 /* ════════════════════════════════════════
-   TABLE STYLING
+   TABLES STRUCTURE
 ════════════════════════════════════════ */
 .category-block {
   margin-bottom: 48px;
@@ -148,14 +180,15 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: -0.01em;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .category-title::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   background: var(--accent);
   display: inline-block;
+  border-radius: 50%;
 }
 
 .table-wrapper {
@@ -196,15 +229,16 @@ tr:hover td { background: var(--surface-2); }
   font-size: 12.5px;
   color: var(--text-muted);
   background: var(--surface-3);
-  padding: 2px 6px;
+  padding: 3px 6px;
   border-radius: var(--r-sm);
+  border: 1px solid var(--border);
 }
 
-/* Status Badges */
+/* System Action Status Badges */
 .badge {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -212,8 +246,8 @@ tr:hover td { background: var(--surface-2); }
   border-radius: var(--r-sm);
 }
 .badge.yes      { background: var(--accent-deep); color: var(--accent); }
-.badge.partial  { background: #4a3b1d; color: #eec14a; }
-.badge.no       { background: #3d1d1d; color: #f46363; }
+.badge.partial  { background: #3a2f1d; color: #eec14a; }
+.badge.no       { background: #3a1d1d; color: #f46363; }
 
 .badge.dd-yes   { border: 1px solid var(--border-3); color: var(--text-muted); background: transparent; }
 .badge.dd-no    { color: var(--text-dim); }
@@ -221,6 +255,23 @@ tr:hover td { background: var(--surface-2); }
 .notes-cell {
   color: var(--text-muted);
   font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.error-banner {
+  background: #3a1d1d;
+  border: 1px solid #f46363;
+  color: #f46363;
+  padding: 16px;
+  border-radius: var(--r-md);
+  margin-bottom: 30px;
+  font-size: 14px;
+}
+.error-banner code {
+  background: #221111;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #ff8888;
 }
 
 .no-results {
@@ -233,8 +284,8 @@ tr:hover td { background: var(--surface-2); }
 }
 
 @media (max-width: 768px) {
-  body { padding-top: calc(var(--header-h) + 20px); }
-  th, td { padding: 10px 12px; font-size: 13px; }
+  body { padding-top: calc(var(--header-h) + 24px); }
+  th, td { padding: 12px 14px; font-size: 13px; }
   .code-inline { font-size: 11.5px; }
 }
 </style>
@@ -251,22 +302,25 @@ tr:hover td { background: var(--surface-2); }
 </header>
 
 <main class="container">
-  <h1 class="page-title">Property Mapping Matrix</h1>
+  <div class="eyebrow"><span>Documentation</span></div>
+  <h1 class="page-title">QGIS Property Translation Map</h1>
   <p class="page-desc">
-    Review which native QGIS symbology adjustments translate effectively into client-side 
-    MapLibre JSON configurations and check data-defined override functionality.
+    See which symbology parameters map directly into active MapLibre engine layers, 
+    including validation checks for data-defined expressions and overrides.
   </p>
 
+  <div id="localErrorCheck"></div>
+
   <div class="search-container">
-    <input type="text" id="matrixSearch" class="search-input" placeholder="Filter parameters (e.g. stroke, color)...">
+    <input type="text" id="matrixSearch" class="search-input" placeholder="Filter parameters (e.g. stroke, font, width)...">
   </div>
 
   <div id="matrix-container">
-    <p style="color: var(--text-muted);">Loading system matrix definitions...</p>
+    <p style="color: var(--text-muted);">Parsing configuration file structure...</p>
   </div>
 
   <div id="noResults" class="no-results">
-    No matching parameters found.
+    No parameters match your search criteria.
   </div>
 </main>
 
@@ -275,11 +329,22 @@ document.addEventListener("DOMContentLoaded", function() {
   const container = document.getElementById('matrix-container');
   const searchInput = document.getElementById('matrixSearch');
   const noResults = document.getElementById('noResults');
+  const errorCheck = document.getElementById('localErrorCheck');
 
-  // Fetch and parse YAML asynchronously
+  // Friendly alert checker for local disk testers
+  if (window.location.protocol === 'file:') {
+    errorCheck.innerHTML = `
+      <div class="error-banner">
+        <strong>Local Security Blocked Request:</strong> Your browser blocked loading <code>compatibility.yaml</code> directly from your hard drive due to security rules. 
+        To test this locally, launch a terminal in this directory and type: <code>python -m http.server 8000</code>, then open <code>http://localhost:8000/compatibility.html</code>. 
+        <em>Note: It will work instantly on GitHub Pages without any changes!</em>
+      </div>`;
+  }
+
+  // Fetch target matrix resource
   fetch('compatibility.yaml')
     .then(response => {
-      if (!response.ok) throw new Error("Unable to locate matrix data file asset.");
+      if (!response.ok) throw new Error("Server rejected request or file not located.");
       return response.text();
     })
     .then(yamlText => {
@@ -287,11 +352,11 @@ document.addEventListener("DOMContentLoaded", function() {
       renderMatrix(data.categories);
     })
     .catch(error => {
-      container.innerHTML = `<p style="color:#f46363;">Error fetching compatibility tracking file: ${error.message}</p>`;
+      container.innerHTML = `<p style="color:#f46363;">Could not render configuration file engine: ${error.message}</p>`;
     });
 
   function renderMatrix(categories) {
-    container.innerHTML = ''; // Clean initial states
+    container.innerHTML = '';
 
     categories.forEach(cat => {
       const block = document.createElement('div');
@@ -299,7 +364,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
       let tableRows = '';
       cat.properties.forEach(p => {
-        // Compute structural CSS indicators based on variables
         const supClass = p.supported.toLowerCase() === 'yes' ? 'yes' : (p.supported.toLowerCase() === 'partial' ? 'partial' : 'no');
         const ddClass = p.data_driven.toLowerCase() === 'yes' ? 'dd-yes' : 'dd-no';
 
@@ -324,7 +388,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 <th style="width: 22%">MapLibre Property</th>
                 <th style="width: 12%">Supported</th>
                 <th style="width: 14%">Data-Driven</th>
-                <th style="width: 30%">Notes / Limitations</th>
+                <th style="width: 30%">Notes & Constraints</th>
               </tr>
             </thead>
             <tbody>
@@ -336,7 +400,6 @@ document.addEventListener("DOMContentLoaded", function() {
       container.appendChild(block);
     });
 
-    // Set up interactive filter handling
     searchInput.addEventListener('input', handleFilter);
   }
 
@@ -360,12 +423,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
       });
 
-      // Completely hide category groups if they don't contain matching values
-      if (visibleRowsInBlock === 0) {
-        block.style.display = 'none';
-      } else {
-        block.style.display = '';
-      }
+      block.style.display = visibleRowsInBlock === 0 ? 'none' : '';
     });
 
     noResults.style.display = totalVisibleRows === 0 ? 'block' : 'none';
