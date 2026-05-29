@@ -579,7 +579,6 @@ class RulesExporter:
         # layer.geometryType() returns 0 for point and 2 for polygon
         # but geometrybyexpression processing treats 0 as polygon and 2 as point
         # so we need to flip these values to get the correct geometry type.
-
         geom_target = abs(grp.geometry_target - 2) 
         transformed = self._run_alg_safe(
             "geometrybyexpression", "native",
