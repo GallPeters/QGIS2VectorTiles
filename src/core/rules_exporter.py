@@ -638,7 +638,8 @@ class RulesExporter:
             tmp = QgsVectorLayer(current_input, "tmp", "ogr")
             if tmp.isValid():
                 for f in tmp.fields():
-                    mapping.append((f.type(), f'"{f.name()}"', f.name()))
+                    if 'ogc_fid' not in f.name().lower():
+                        mapping.append((f.type(), f'"{f.name()}"', f.name()))
 
         if grp.rule_type == 1:
             mapping.append(
