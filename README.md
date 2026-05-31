@@ -7,8 +7,8 @@
   **One-click export of styled QGIS projects into production-ready vector tile packages.**
 
 [![Issues](https://img.shields.io/badge/Issues-🛠️-black?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
-  [![Homepage](https://img.shields.io/badge/Homepage-🚀-green?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
-  [![License](https://img.shields.io/badge/License-🪪-white?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
+[![Homepage](https://img.shields.io/badge/Homepage-🚀-7ec44a?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
+[![License](https://img.shields.io/badge/License-🪪-F0F0F0?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
   
 </div>
 
