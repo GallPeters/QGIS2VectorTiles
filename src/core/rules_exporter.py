@@ -82,6 +82,7 @@ from dataclasses import dataclass
 from os.path import exists, join
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
+from qgis.PyQt.QtCore import QVariant
 from processing import run as run_processing
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -472,9 +473,16 @@ class RulesExporter:
             INPUT=fixed_struct,
             TARGET_CRS=QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
         )
+        orig_id = self._run_alg_safe(
+            "fieldcalculator", "native",
+            INPUT=reprojected,
+            FIELD_NAME=f'{self.FIELD_PREFIX}_orig_id',
+            FIELD_TYPE=0,
+            FORMULA='to_int(@id)'
+            )
         self._check_cancel()
         singleparted = self._run_alg_safe(
-            "multiparttosingleparts", "native", INPUT=reprojected
+            "multiparttosingleparts", "native", INPUT=orig_id
         )
         self._check_cancel()
         self._run_alg_safe(
@@ -571,18 +579,30 @@ class RulesExporter:
 
         # Geometry transformation.
         self._check_cancel()
+        transbase = refactored
         if grp.rule_type == 1:
             settings = grp.flat_rules[0].rule.settings()
             if settings and not settings.labelPerPart:
-                pass
+                dissolved = self._run_alg_safe(
+                    "dissolve", "native",
+                    INPUT=refactored,
+                    FIELD=[f'{self.FIELD_PREFIX}_orig_id'],
+                    SEPARATE_DISJOINT=False
+                )
+                singlepart = self._run_alg_safe(
+                    "keepnbiggestparts", "native",
+                    POLYGONS=dissolved,
+                    PARTS=1
+                )
+                transbase = singlepart
 
         # layer.geometryType() returns 0 for point and 2 for polygon
         # but geometrybyexpression processing treats 0 as polygon and 2 as point
         # so we need to flip these values to get the correct geometry type.
-        geom_target = abs(grp.geometry_target - 2) 
+        geom_target = abs(grp.geometry_target - 2)
         transformed = self._run_alg_safe(
             "geometrybyexpression", "native",
-            INPUT=refactored,
+            INPUT=transbase,
             OUTPUT_GEOMETRY=geom_target,
             EXPRESSION=grp.geometry_expression,
         )
@@ -609,7 +629,7 @@ class RulesExporter:
         """Worker: assemble the FIELDS_MAPPING list for refactorfields."""
         mapping: List[Tuple[int, str, str]] = []
         mapping.append(
-            (10, f"concat('{grp.description}', 'fid: '," + "to_string(@id),'}')" ,f"{self.FIELD_PREFIX}_description")
+            (10, grp.description, f"{self.FIELD_PREFIX}_description")
         )
         mapping.extend(grp.expression_fields)
         if grp.include_required_fields_only != 0:
@@ -620,6 +640,10 @@ class RulesExporter:
                 for f in tmp.fields():
                     mapping.append((f.type(), f'"{f.name()}"', f.name()))
 
+        if grp.rule_type == 1:
+            mapping.append(
+                (6, f'"{self.FIELD_PREFIX}_orig_id"', f"{self.FIELD_PREFIX}_orig_id")
+            )
         return [
             {"type": m[0], "expression": m[1], "name": m[2]} for m in mapping
         ]
