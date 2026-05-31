@@ -12,13 +12,13 @@
   
 </div>
 
-### 📦 The Package Contains
+### 📦 Output Package
 * **Vector Tiles:** A single, optimized `.mbtiles` dataset.
 * **QGIS Layer:** A styled vector tile `.qlr` layer file. 
 * **Web Style:** MapLibre-compatible `.json` styling with sprites as needed.
 * **Web Viewer:** A plug-and-play `.html` page to preview maps instantly.
 
-### 🚀 Key Use Cases
+### 🚀 Use Cases
 * **Web Apps:** Sharp, client-side rendering via MapLibre, OpenLayers, Mapbox and more.
 * **Map Servers:** Efficient WMS/WMTS serving via QGIS Server or GeoServer.
 * **Fast Sharing:** Distribute complex cartography using just a single source and a single layer.
