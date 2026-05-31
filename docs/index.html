@@ -64,7 +64,10 @@
   --t:      0.15s ease;
   --t-slow: 0.25s ease;
 
-  --max-w: 1180px;
+  /* Fluid max-width: fills wide screens, caps at 4K-friendly size */
+  --max-w: min(1180px, 90vw);
+  /* Large-screen max: allows content to breathe on 1440p+ without going edge-to-edge */
+  --max-w-xl: min(1440px, 92vw);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -106,9 +109,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 .header-inner {
   height: 100%;
-  max-width: var(--max-w);
+  max-width: var(--max-w-xl);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 clamp(16px, 3vw, 48px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -127,7 +130,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: clamp(12px, 0.85vw, 14px);
   font-weight: 500;
   color: var(--text-muted);
   padding: 7px 12px;
@@ -135,10 +138,15 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   transition: color var(--t), background var(--t), border-color var(--t);
   letter-spacing: -0.005em;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .nav-btn svg { opacity: 0.9; flex-shrink: 0; }
 .nav-btn:hover { color: var(--text); background: var(--surface-2); }
+.nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .nav-btn.cta {
   color: #0d0d0d;
@@ -182,6 +190,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .icon-link:hover { color: var(--accent); background: var(--surface-2); }
 .icon-link svg { width: 15px; height: 15px; }
+.icon-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .divider-v {
   width: 1px;
@@ -201,7 +213,7 @@ section {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: calc(var(--header-h) + 28px) 28px 64px;
+  padding: calc(var(--header-h) + clamp(28px, 4vh, 60px)) clamp(18px, 4vw, 56px) clamp(48px, 6vh, 80px);
   position: relative;
   background: var(--bg);
 }
@@ -210,7 +222,7 @@ section + section { border-top: 1px solid var(--border); }
 
 .container {
   width: 100%;
-  max-width: var(--max-w);
+  max-width: var(--max-w-xl);
   margin: 0 auto;
 }
 
@@ -260,7 +272,7 @@ section + section { border-top: 1px solid var(--border); }
   font-size: clamp(15px, 1.2vw, 16.5px);
   color: var(--text-muted);
   line-height: 1.65;
-  max-width: 620px;
+  max-width: 680px;
   margin-top: 18px;
 }
 
@@ -276,7 +288,7 @@ section + section { border-top: 1px solid var(--border); }
 
 .hero-content {
   position: relative;
-  max-width: 760px;
+  max-width: min(760px, 90vw);
   margin: 0 auto;
 }
 
@@ -367,7 +379,7 @@ section + section { border-top: 1px solid var(--border); }
 .demo-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
-  gap: 56px;
+  gap: clamp(32px, 4.5vw, 72px);
   align-items: stretch;
 }
 
@@ -383,7 +395,7 @@ section + section { border-top: 1px solid var(--border); }
   overflow: hidden;
   background: #000;
   position: relative;
-  max-height: 365px;
+  max-height: clamp(280px, 35vh, 480px);
 }
 .demo-video-wrap video {
   width: 100%;
@@ -484,7 +496,7 @@ section + section { border-top: 1px solid var(--border); }
 ════════════════════════════════════════ */
 .usecase {
   text-align: center;
-  max-width: 920px;
+  max-width: min(1020px, 100%);
   margin: 0 auto;
 }
 .usecase .lead {
@@ -495,9 +507,9 @@ section + section { border-top: 1px solid var(--border); }
 .platform-row {
   display: flex;
   justify-content: center;
-  gap: 14px;
+  gap: clamp(10px, 1.5vw, 20px);
   flex-wrap: wrap;
-  margin-top: 56px;
+  margin-top: clamp(36px, 5vh, 64px);
 }
 
 .platform-card {
@@ -505,16 +517,30 @@ section + section { border-top: 1px solid var(--border); }
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 22px 22px 18px;
+  padding: clamp(16px, 2vw, 28px) clamp(18px, 2vw, 28px) clamp(14px, 1.8vw, 22px);
   border: 1px solid var(--border-2);
   border-radius: var(--r-md);
   background: var(--surface);
-  min-width: 140px;
-  transition: border-color var(--t), background var(--t);
+  min-width: clamp(120px, 12vw, 160px);
+  cursor: pointer;
+  transition: border-color var(--t), background var(--t), transform var(--t-slow);
 }
 .platform-card:hover {
   border-color: var(--accent);
   background: var(--surface-2);
+  transform: translateY(-2px);
+}
+
+/* Keyboard / focus ring for linked platform cards */
+a.platform-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Ensure anchor-based cards look identical to div-based ones */
+a.platform-card {
+  text-decoration: none;
+  color: inherit;
 }
 
 .platform-logo {
@@ -607,6 +633,55 @@ section + section { border-top: 1px solid var(--border); }
 .back-top svg { width: 14px; height: 14px; }
 
 /* ════════════════════════════════════════
+   SECTION 2 — MOBILE / DESKTOP SPLIT
+   Desktop: single section with side-by-side grid.
+            The mobile-only section is hidden.
+   Mobile:  demo-side shows alone in section 2a.
+            outputs-side-desktop is hidden.
+            section-outputs-mobile becomes a full snap section.
+════════════════════════════════════════ */
+
+/* Desktop default: hide the mobile-only section entirely */
+.section-outputs-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* Hide the outputs column inside section 2a on mobile */
+  .outputs-side-desktop {
+    display: none;
+  }
+
+  /* Show the dedicated mobile outputs section as a real snap page */
+  .section-outputs-mobile {
+    display: flex;
+  }
+}
+
+/* ════════════════════════════════════════
+   RESPONSIVE — LARGE SCREENS (1440p +)
+════════════════════════════════════════ */
+@media (min-width: 1440px) {
+  :root { --header-h: 62px; }
+
+  .header-inner { padding: 0 clamp(40px, 4vw, 80px); }
+
+  .demo-grid { grid-template-columns: 1.5fr 1fr; }
+
+  .output-row { padding: 16px 22px; }
+  .output-name { font-size: 15px; }
+  .output-ext  { font-size: 12.5px; }
+
+  .section-foot { font-size: 13px; margin-top: 88px; }
+}
+
+@media (min-width: 1920px) {
+  :root { --header-h: 66px; }
+  body { font-size: 16px; }
+  .platform-card { min-width: 170px; }
+}
+
+/* ════════════════════════════════════════
    RESPONSIVE — TABLET
 ════════════════════════════════════════ */
 @media (max-width: 980px) {
@@ -636,31 +711,63 @@ section + section { border-top: 1px solid var(--border); }
   .nav-right { gap: 4px; }
 
   section {
-    padding: calc(var(--header-h) + 36px) 18px 48px;
+    padding: calc(var(--header-h) + 24px) 18px 32px;
+    justify-content: center;
   }
 
-  .hero-icon { width: 80px; height: 80px; margin-bottom: 28px; }
-  .hero h1 { font-size: 38px; }
-  .hero-tagline { font-size: 15.5px; }
+  .hero-icon { width: 72px; height: 72px; margin-bottom: 24px; }
+  .hero h1 { font-size: clamp(32px, 9vw, 48px); }
+  .hero-tagline { font-size: 15px; }
   .hero-meta { font-size: 12px; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .scroll-cue { display: none; }
 
   .demo-grid { gap: 28px; }
 
+  /* Output rows: tighter on mobile */
+  .output-row { padding: 12px 14px; gap: 10px; }
+  .output-name { font-size: 13px; }
+
   .platform-row { gap: 10px; margin-top: 36px; }
-  .platform-card { min-width: 108px; padding: 16px 14px 14px; }
-  .platform-logo { width: 40px; height: 40px; }
-  .platform-name { font-size: 12.5px; }
-  .platform-sub { font-size: 10.5px; }
+  .platform-card {
+    min-width: clamp(90px, 26vw, 130px);
+    padding: 14px 12px 12px;
+    gap: 10px;
+  }
+  .platform-logo { width: 38px; height: 38px; }
+  .platform-name { font-size: 11.5px; }
+  .platform-sub { font-size: 10px; }
 
   .section-foot { font-size: 11.5px; gap: 10px; flex-direction: column; text-align: center; }
 
   .back-top { bottom: 16px; right: 16px; width: 36px; height: 36px; }
 }
 
+/* Extra-small phones */
 @media (max-width: 420px) {
   .nav-btn { padding: 6px 8px; gap: 0; }
   .header-inner { gap: 4px; }
+
+  .hero h1 { font-size: clamp(28px, 10vw, 40px); }
+  .hero-meta { gap: 8px; }
+
+  .platform-card { min-width: clamp(80px, 28vw, 110px); padding: 12px 10px 10px; }
+  .platform-logo { width: 34px; height: 34px; }
+  .platform-name { font-size: 10.5px; }
+
+  /* Prevent cards from going single-column if there are only 2 */
+  .platform-row { justify-content: center; }
+}
+
+/* Landscape phones — give sections more breathing room */
+@media (max-height: 500px) and (orientation: landscape) {
+  :root { --header-h: 46px; }
+  section {
+    min-height: auto;
+    padding-top: calc(var(--header-h) + 16px);
+    padding-bottom: 32px;
+  }
+  .scroll-cue { display: none; }
+  html { scroll-snap-type: none; }
 }
 </style>
 </head>
@@ -759,13 +866,15 @@ section + section { border-top: 1px solid var(--border); }
 
 
 <!-- ═══════════════════════════════════════
-     SECTION 2 — DEMO + OUTPUT PACKAGE
+     SECTION 2a — DEMO (always) + OUTPUT PACKAGE (desktop only, side-by-side)
+     On mobile this section shows ONLY the demo video.
+     The output list appears in section 2b below (mobile only).
 ═══════════════════════════════════════ -->
-<section>
+<section class="section-demo-outputs">
   <div class="container">
     <div class="demo-grid">
 
-      <!-- LEFT: single demo video -->
+      <!-- LEFT: demo video -->
       <div class="demo-side">
         <div class="eyebrow"><span>Demo</span></div>
         <h2 class="h2-sm" style="margin-bottom: 14px;">See it in action</h2>
@@ -782,8 +891,9 @@ section + section { border-top: 1px solid var(--border); }
 
       </div>
     </div>
-      <!-- RIGHT: output package -->
-      <div class="outputs-side">
+
+      <!-- RIGHT: output package — hidden on mobile (lives in section-outputs-mobile instead) -->
+      <div class="outputs-side outputs-side-desktop">
         <div class="eyebrow"><span>Output Package</span></div>
         <h2 class="h2-sm" style="margin-bottom: 14px;">Everything in one bundle</h2>
         <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6;">
@@ -856,6 +966,83 @@ section + section { border-top: 1px solid var(--border); }
 
 
 <!-- ═══════════════════════════════════════
+     SECTION 2b — OUTPUT PACKAGE (mobile only)
+     Hidden on desktop (display:none via CSS).
+     On mobile this is a dedicated full-screen snap section.
+═══════════════════════════════════════ -->
+<section class="section-outputs-mobile" aria-label="Output Package">
+  <div class="container">
+    <div class="outputs-side">
+      <div class="eyebrow"><span>Output Package</span></div>
+      <h2 class="h2-sm" style="margin-bottom: 14px;">Everything in one bundle</h2>
+      <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6;">
+        A self-contained set of artifacts ready to deploy.
+      </p>
+
+      <div class="outputs-list">
+
+        <div class="output-row">
+          <span class="output-num">01</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </div>
+          <div class="output-info">
+            <div class="output-name">Vector Tiles</div>
+            <div class="output-ext">.mbtiles</div>
+          </div>
+        </div>
+
+        <div class="output-row">
+          <span class="output-num">02</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+          </div>
+          <div class="output-info">
+            <div class="output-name">Styled QGIS Layer</div>
+            <div class="output-ext">.qlr</div>
+          </div>
+        </div>
+
+        <div class="output-row">
+          <span class="output-num">03</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".7" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".7" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".7" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".7" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+          </div>
+          <div class="output-info">
+            <div class="output-name">MapLibre Style Sheet</div>
+            <div class="output-ext">.json</div>
+          </div>
+        </div>
+
+        <div class="output-row">
+          <span class="output-num">04</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <div class="output-info">
+            <div class="output-name">Sprites</div>
+            <div class="output-ext">.png &amp; .json</div>
+          </div>
+        </div>
+
+        <div class="output-row">
+          <span class="output-num">05</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <div class="output-info">
+            <div class="output-name">Standalone Viewer</div>
+            <div class="output-ext">.html &amp; launcher (.bat / .sh)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════
      SECTION 3 — USE CASE 01
 ═══════════════════════════════════════ -->
 <section>
@@ -876,26 +1063,26 @@ section + section { border-top: 1px solid var(--border); }
       </p>
 
       <div class="platform-row">
-        <div class="platform-card">
+        <a class="platform-card" href="https://maplibre.org/" target="_blank" rel="noopener noreferrer" aria-label="MapLibre — official website" title="MapLibre">
           <div class="platform-logo"><img src="icons/maplibre.png" alt="MapLibre"></div>
           <div class="platform-name">MapLibre</div>
-        </div>
-        <div class="platform-card">
+        </a>
+        <a class="platform-card" href="https://openlayers.org/" target="_blank" rel="noopener noreferrer" aria-label="OpenLayers — official website" title="OpenLayers">
           <div class="platform-logo"><img src="icons/openlayers.png" alt="OpenLayers"></div>
           <div class="platform-name">OpenLayers</div>
-        </div>
-        <div class="platform-card">
+        </a>
+        <a class="platform-card" href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer" aria-label="Leaflet — official website" title="Leaflet">
           <div class="platform-logo"><img src="icons/leaflet.png" alt="Leaflet"></div>
           <div class="platform-name">Leaflet</div>
-        </div>
-        <div class="platform-card">
+        </a>
+        <a class="platform-card" href="https://www.maptiler.com/" target="_blank" rel="noopener noreferrer" aria-label="MapTiler — official website" title="MapTiler">
           <div class="platform-logo"><img src="icons/maptiler.avif" alt="MapTiler"></div>
           <div class="platform-name">MapTiler</div>
-        </div>
-        <div class="platform-card">
+        </a>
+        <a class="platform-card" href="https://www.mapbox.com/" target="_blank" rel="noopener noreferrer" aria-label="Mapbox — official website" title="Mapbox">
           <div class="platform-logo"><img src="icons/mapbox.png" alt="Mapbox"></div>
           <div class="platform-name">Mapbox</div>
-        </div>
+        </a>
       </div>
 
     </div>
@@ -924,14 +1111,14 @@ section + section { border-top: 1px solid var(--border); }
       </p>
 
       <div class="platform-row">
-        <div class="platform-card">
-          <div class="platform-logo"><img src="icons/geoserver.png" alt="GeoServer" ></div>
+        <a class="platform-card" href="https://geoserver.org/" target="_blank" rel="noopener noreferrer" aria-label="GeoServer — official website" title="GeoServer">
+          <div class="platform-logo"><img src="icons/geoserver.png" alt="GeoServer"></div>
           <div class="platform-name">GeoServer</div>
-        </div>
-        <div class="platform-card">
+        </a>
+        <a class="platform-card" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank" rel="noopener noreferrer" aria-label="QGIS Server — official website" title="QGIS Server">
           <div class="platform-logo"><img src="icons/qgis.png" alt="QGIS Server"></div>
           <div class="platform-name">QGIS Server</div>
-        </div>
+        </a>
       </div>
 
     </div>
@@ -960,18 +1147,19 @@ section + section { border-top: 1px solid var(--border); }
       </p>
 
       <div class="platform-row">
-        <div class="platform-card">
+        <!-- PLACEHOLDER_LINK: "1× Source / project bundle" is a generic concept card with no official URL. Replace '#PLACEHOLDER_LINK' with a relevant URL if desired. -->
+        <div class="platform-card" tabindex="0" role="img" aria-label="Single source project bundle">
           <div class="platform-logo dark">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           </div>
           <div class="platform-name">1× Source</div>
           <div class="platform-sub">project bundle</div>
         </div>
-        <div class="platform-card">
+        <a class="platform-card" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank" rel="noopener noreferrer" aria-label="QGIS Layer Definition File (.qlr) — QGIS documentation" title="QGIS Layer Definition File (.qlr)">
           <div class="platform-logo"><img src="icons/qlr.png" alt="QGIS Layer File"></div>
           <div class="platform-name">1× Layer</div>
           <div class="platform-sub">.qlr</div>
-        </div>
+        </a>
       </div>
 
       <div class="section-foot">
@@ -1025,11 +1213,24 @@ section + section { border-top: 1px solid var(--border); }
   });
 })();
 
-const sections = [...document.querySelectorAll("section")];
+// Query only sections that are actually visible (not display:none)
+function getVisibleSections() {
+  return [...document.querySelectorAll("section")].filter(s => {
+    return getComputedStyle(s).display !== "none";
+  });
+}
+
+let sections = getVisibleSections();
 
 let current = 0;
 let locked = false;
 let touchStartY = 0;
+
+// Re-sync section list and clamp current index on resize
+window.addEventListener("resize", () => {
+  sections = getVisibleSections();
+  if (current >= sections.length) current = sections.length - 1;
+}, { passive: true });
 
 function goToSection(index) {
   if (locked) return;

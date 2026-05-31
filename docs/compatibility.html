@@ -1,4 +1,4 @@
-git <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -248,16 +248,27 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .search-container {
   margin-bottom: 40px;
   max-width: 420px;
+  position: relative;
+}
+.search-container::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  pointer-events: none;
 }
 .search-input {
   width: 100%;
   background: var(--surface);
   border: 1px solid var(--border-3);
+  border-left: none;
   color: var(--text);
-  padding: 11px 16px;
+  padding: 11px 16px 11px 18px;
   font-family: inherit;
   font-size: 14.5px;
-  border-radius: var(--r-md);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
   outline: none;
   transition: border-color var(--t), background var(--t);
 }
@@ -315,6 +326,11 @@ th {
   border-bottom: 1px solid var(--border-2);
 }
 
+/* Accent bar on the left edge of the header row */
+th:first-child {
+  border-left: 3px solid var(--accent);
+}
+
 td {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
@@ -322,17 +338,20 @@ td {
   font-size: 14px;
 }
 tr:last-child td { border-bottom: none; }
-tr:hover td { background: var(--surface-2); }
 
-.prop-name { font-weight: 500; color: var(--text); }
+/* Row hover: subtle surface shift + left accent bar on first cell */
+tr:hover td { background: var(--surface-2); }
+tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: 15px; }
+
+.prop-name { font-weight: 500; color: var(--accent); }
 .code-inline {
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   font-size: 12.5px;
-  color: var(--text-muted);
-  background: var(--surface-3);
+  color: var(--accent);
+  background: var(--accent-deep);
   padding: 3px 6px;
   border-radius: var(--r-sm);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 /* Action Status Indicators */
@@ -611,14 +630,12 @@ document.addEventListener("DOMContentLoaded", function() {
 
       let tableRows = '';
       cat.properties.forEach(p => {
-        const supClass = p.supported.toLowerCase() === 'yes' ? 'yes' : (p.supported.toLowerCase() === 'partial' ? 'partial' : 'no');
         const ddClass = p.data_driven.toLowerCase() === 'yes' ? 'dd-yes' : 'dd-no';
 
         tableRows += `
           <tr class="matrix-row">
             <td class="prop-name">${p.qgis_prop}</td>
             <td><span class="code-inline">${p.maplibre_prop}</span></td>
-            <td><span class="badge ${supClass}">${p.supported}</span></td>
             <td><span class="badge ${ddClass}">${p.data_driven}</span></td>
             <td class="notes-cell">${p.notes || ''}</td>
           </tr>
@@ -631,11 +648,10 @@ document.addEventListener("DOMContentLoaded", function() {
           <table>
             <thead>
               <tr>
-                <th style="width: 22%">QGIS Property</th>
-                <th style="width: 22%">MapLibre Property</th>
-                <th style="width: 12%">Supported</th>
+                <th style="width: 26%">QGIS Property</th>
+                <th style="width: 26%">MapLibre Property</th>
                 <th style="width: 14%">Data-Driven</th>
-                <th style="width: 30%">Notes & Constraints</th>
+                <th style="width: 34%">Notes & Constraints</th>
               </tr>
             </thead>
             <tbody>
@@ -660,8 +676,10 @@ document.addEventListener("DOMContentLoaded", function() {
       let visibleRowsInBlock = 0;
 
       rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        if (text.includes(query)) {
+        // Search only the first two cells: QGIS Property and MapLibre Property
+        const cells = row.querySelectorAll('td');
+        const searchText = (cells[0].textContent + ' ' + cells[1].textContent).toLowerCase();
+        if (searchText.includes(query)) {
           row.style.display = '';
           visibleRowsInBlock++;
           totalVisibleRows++;
