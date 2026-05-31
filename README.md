@@ -4,11 +4,11 @@
 
   # QGIS2VectorTiles
 
-  **From styled QGIS projects to client-side web maps in just one click.**
+ ### From styled QGIS projects to client-side web maps in just one click.
 
-[![Issues](https://img.shields.io/badge/Issues-🛠️-black?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
+[![Issues](https://img.shields.io/badge/Issues-🛠️-f59e0b?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
 [![Homepage](https://img.shields.io/badge/Homepage-🚀-7ec44a?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
-[![License](https://img.shields.io/badge/License-🪪-F0F0F0?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
+[![License](https://img.shields.io/badge/License-📜-3b82f6?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
   
 </div>
 
@@ -19,9 +19,9 @@
 * **Web Viewer:** plug-and-play `.html` page to preview maps instantly.
 
 ### 🚀 Use Cases
-* **Web Apps:** sharp, client-side rendering via MapLibre, OpenLayers, Mapbox and more.
-* **Map Servers:** efficient WMS/WMTS serving via QGIS Server or GeoServer.
-* **Fast Sharing:** distribute complex cartography using just a single source and a single layer.
+* **Web Apps:** client-side rendering with MapLibre, OpenLayers, Mapbox, and more.
+* **Map Servers:** efficient WMS/WMTS delivery via QGIS Server or GeoServer.
+* **Fast Sharing:** distribute complex cartography from a single source and layer.
 
 ### 🎬 Demo
 
