@@ -1,20 +1,28 @@
-<div align="left">
+<div align="center">
+<img width="100" alt="icon" src="https://github.com/user-attachments/assets/8d4e4288-c561-4fa2-b3c0-229474064b93" />
 
-  <img width="40%" alt="QGIS2VectorTiles logo"
-       src="https://github.com/user-attachments/assets/0e8980de-a007-46a9-9f24-17e9a8ef3e3e" />
+
+  # QGIS2VectorTiles
+
+  **One-click export of styled QGIS projects into production-ready vector tile packages.**
+
+  [![Homepage](https://img.shields.io/badge/Homepage-🚀-green?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
+  [![Issues](https://img.shields.io/badge/Issues-🛠️-orange?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
+  [![License](https://img.shields.io/badge/License-🪪-blue?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
 
 </div>
 
-**Pack a QGIS project into a styled vector tile package including:**
-- **Vector tiles** - single-file `.mbtiles`
-- **QGIS layer** - styled layer definition `.qlr`
-- **Web style** - MapLibre style `.json`
-- **Web viewer** - ready-to-use `.html`
+### 📦 The Package Contains
+* **Vector Tiles:** A single, optimized `.mbtiles` dataset.
+* **QGIS Layer:** A pre-configured `.qlr` file for ![Uploading icon.png…]()
+instant desktop loading.
+* **Web Style:** MapLibre-compatible `.json` styling.
+* **Web Viewer:** A plug-and-play `.html` page to preview maps instantly.
 
-👉 For demos, documentation and changelogs, visit the plugin’s **[Homepage](https://gallpeters.github.io/QGIS2VectorTiles/)**
+### 🚀 Key Use Cases
+* **Web Apps:** Sharp, client-side rendering via MapLibre, OpenLayers, or Mapbox.
+* **Map Servers:** Efficient WMS/WMTS serving via QGIS Server or GeoServer.
+* **Fast Sharing:** Distribute complex cartography as just two clean files.
 
-😊 Found a QGIS ↔ MapLibre mismatch? Open an **[Issue](https://github.com/GallPeters/QGIS2VectorTiles/issues)** and I’ll do my best to help.
 
-📄 License - **[GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)**
-
-https://github.com/user-attachments/assets/494b22e6-3a3f-4eb3-8a81-11fde60842fa
+https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
