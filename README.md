@@ -24,5 +24,5 @@ instant desktop loading.
 * **Map Servers:** Efficient WMS/WMTS serving via QGIS Server or GeoServer.
 * **Fast Sharing:** Distribute complex cartography as just two clean files.
 
-
+### 🎬 Demo
 https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
