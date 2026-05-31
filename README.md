@@ -4,7 +4,7 @@
 
   # QGIS2VectorTiles
 
-  **One-click export of styled QGIS projects into production-ready vector tile packages.**
+  **From styled QGIS projects to client-side web maps in just one click.**
 
 [![Issues](https://img.shields.io/badge/Issues-🛠️-black?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
 [![Homepage](https://img.shields.io/badge/Homepage-🚀-7ec44a?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
@@ -13,15 +13,15 @@
 </div>
 
 ### 📦 Output Package
-* **Vector Tiles:** A single, optimized `.mbtiles` dataset.
-* **QGIS Layer:** A styled vector tile `.qlr` layer file. 
-* **Web Style:** MapLibre-compatible `.json` styling with sprites as needed.
-* **Web Viewer:** A plug-and-play `.html` page to preview maps instantly.
+* **Vector Tiles:** single, optimized `.mbtiles` dataset.
+* **QGIS Layer:** styled vector tile `.qlr` layer file. 
+* **Web Style:** compatible Maplibre `.json` styling with sprites as needed.
+* **Web Viewer:** plug-and-play `.html` page to preview maps instantly.
 
 ### 🚀 Use Cases
-* **Web Apps:** Sharp, client-side rendering via MapLibre, OpenLayers, Mapbox and more.
-* **Map Servers:** Efficient WMS/WMTS serving via QGIS Server or GeoServer.
-* **Fast Sharing:** Distribute complex cartography using just a single source and a single layer.
+* **Web Apps:** sharp, client-side rendering via MapLibre, OpenLayers, Mapbox and more.
+* **Map Servers:** efficient WMS/WMTS serving via QGIS Server or GeoServer.
+* **Fast Sharing:** distribute complex cartography using just a single source and a single layer.
 
 ### 🎬 Demo
 
