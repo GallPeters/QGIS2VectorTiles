@@ -71,7 +71,7 @@ class GDALTilesGenerator:
             f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
             f'        <GeometryType>wkbUnknown</GeometryType>\n'
             f'        <LayerCreationOption name="MINZOOM" value="{min_zoom}"/>\n'
-            f'        <LayerCreationOption name="MAXZOOM" value="{max_zoom}"/>\n'
+            f'        <LayerCreationOption name="MAXZOOM" value="{min(max_zoom, 16)}"/>\n'
             f'    </OGRVRTLayer>\n'
         )
 
