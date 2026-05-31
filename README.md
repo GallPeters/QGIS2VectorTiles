@@ -15,7 +15,6 @@
 ### 📦 The Package Contains
 * **Vector Tiles:** A single, optimized `.mbtiles` dataset.
 * **QGIS Layer:** A styled vector tile `.qlr` file for QGIS. 
-instant desktop loading.
 * **Web Style:** MapLibre-compatible `.json` styling.
 * **Web Viewer:** A plug-and-play `.html` page to preview maps instantly.
 
