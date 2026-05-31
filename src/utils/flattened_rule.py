@@ -60,4 +60,4 @@ class FlattenedRule:
             geom_desc_str = 'conversion: none'
         else:
             geom_desc_str = f'conversion: {source_geom} to {target_geom}'
-        return  '{' + f'{lyr_name},{rule_type},{rule_index},{geom_desc_str}, ' 
+        return  "'{" + f'{lyr_name},{rule_type},{rule_index},{geom_desc_str}' + "}'"
