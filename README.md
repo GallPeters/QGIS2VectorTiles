@@ -1,10 +1,10 @@
 <div align="center">
-<img width="100" alt="icon" src="https://github.com/user-attachments/assets/8d4e4288-c561-4fa2-b3c0-229474064b93" />
 
+<img width="100" alt="icon" src="https://github.com/user-attachments/assets/3dde55e2-9441-4ad6-b29f-d9edb786742e" />
 
   # QGIS2VectorTiles
 
- ### From styled QGIS projects to client-side web maps in just one click.
+ **From styled QGIS projects to client-side web maps in just one click.**
 
 [![Issues](https://img.shields.io/badge/Issues-🛠️-f59e0b?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
 [![Homepage](https://img.shields.io/badge/Homepage-🚀-7ec44a?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
