@@ -37,6 +37,35 @@ To ensure portability and ease of installation, the tile generation process is b
 ### Use Cases
 
 * **Web mapping applications:** client-side rendering using MapLibre, OpenLayers, Mapbox and other web-mapping clients.
+
+<table>
+  <tr>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maplibre.png">
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/openlayers.png">
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/leaflet.png">
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maptiler.avif">
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/mapbox.png">
+    </td>
+  </tr>
+
+  <tr>
+    <td align="center"><sub><a href="https://maplibre.org">MapLibre</a></sub></td>
+    <td align="center"><sub><a href="https://openlayers.org">OpenLayers</a></sub></td>
+    <td align="center"><sub><a href="https://leafletjs.com/">Leaflet</a></sub></td>
+    <td align="center"><sub><a href="https://www.maptiler.com/">Maptiler</a></sub></td>
+    <td align="center"><sub><a href="https://www.mapbox.com/">Mapbox</a></sub></td>
+  </tr>
+</table>
+
 * **Map services:** WMS/WMTS publishing via QGIS Server or GeoServer.
 * **Project distribution:** distribution of complex cartographic outputs from a single QGIS project and data source.
 
