@@ -36,8 +36,7 @@ To ensure portability and ease of installation, the tile generation process is b
 
 ### Use Cases
 
-#### Web mapping applications
-Client-side vector tile rendering using web mapping libraries.
+**1. Web mapping applications** - Client-side vector tile rendering using web mapping libraries.
 
 <table>
   <tr>
@@ -67,8 +66,7 @@ Client-side vector tile rendering using web mapping libraries.
   </tr>
 </table>
 
-#### Map services
-WMS and WMTS publishing using standard map servers.
+**2. Map services** - WMS and WMTS publishing using standard map servers.
 
 <table>
   <tr>
@@ -86,8 +84,7 @@ WMS and WMTS publishing using standard map servers.
   </tr>
 </table>
 
-#### Projects distribution
-Distribution of complex cartographic outputs.
+**3. Projects distribution** - Distribution of complex cartographic outputs.
 
 <table>
   <tr>
