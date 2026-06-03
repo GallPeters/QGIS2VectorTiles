@@ -12,7 +12,7 @@
   
 </div>
 
-## Introduction
+### Introduction
 
 QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
 
@@ -20,7 +20,7 @@ The plugin is designed to bridge the gap between the rich and highly flexible en
 
 To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL MBTiles driver**, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments.
 
-## Output Package
+### Output Package
 
 | Component     | Format         | Description                                                                 |
 |---------------|----------------|-----------------------------------------------------------------------------|
@@ -34,11 +34,12 @@ To ensure portability and ease of installation, the tile generation process is b
 \* Optional. Generated only when required by the style.
 
 
-## Use Cases
+### Use Cases
+
 * **Web mapping applications:** client-side rendering using MapLibre, OpenLayers, Mapbox and other web-mapping clients.
 * **Map services:** WMS/WMTS publishing via QGIS Server or GeoServer.
 * **Project distribution:** distribution of complex cartographic outputs from a single QGIS project and data source.
 
-## Demo
+### Demo
 
 https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
