@@ -16,9 +16,9 @@
 
 QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
 
-The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS Desktop** - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets. The primary target ecosystem is **MapLibre** and compatible web mapping libraries.
+The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets. The primary target ecosystem is **MapLibre** and compatible web mapping libraries.
 
-To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL MBTiles driver**, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments.
+To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments.
 
 ### Output Package
 
