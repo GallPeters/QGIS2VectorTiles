@@ -51,7 +51,7 @@ Client-side vector tile rendering using web mapping libraries.
       <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/leaflet.png">
     </td>
     <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maptiler.avif">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maptiler.png">
     </td>
     <td align="center">
       <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/mapbox.png">
@@ -92,10 +92,10 @@ complex cartographic outputs distributions.
 <table>
   <tr>
     <td align="center">
-      🔗
+       <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/server.png">
     </td>
     <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qlr.png">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/layers.png">
     </td>
   </tr>
 
