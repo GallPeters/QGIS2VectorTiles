@@ -6,9 +6,9 @@
 
  **From styled QGIS projects to client-side web maps in just one click.**
 
-[![Issues](https://img.shields.io/badge/Issues-🛠️-f59e0b?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
-[![Homepage](https://img.shields.io/badge/Homepage-🚀-7ec44a?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
-[![License](https://img.shields.io/badge/License-📜-3b82f6?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
+[![Issues](https://img.shields.io/badge/Issues-🛠️-98b023?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
+[![Homepage](https://img.shields.io/badge/Homepage-🚀-black?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
+[![License](https://img.shields.io/badge/License-📜-98b023?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
   
 </div>
 
