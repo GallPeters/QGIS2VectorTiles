@@ -67,6 +67,23 @@ To ensure portability and ease of installation, the tile generation process is b
 </table>
 
 * **Map services:** WMS/WMTS publishing via QGIS Server or GeoServer.
+
+<table>
+  <tr>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qgis.png">
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/geoserver.png">
+    </td>
+  </tr>
+
+  <tr>
+    <td align="center"><sub><a href="https://qgis.org/">QGIS Server</a></sub></td>
+    <td align="center"><sub><a href="https://geoserver.org/">Geoserver</a></sub></td>
+  </tr>
+</table>
+
 * **Project distribution:** distribution of complex cartographic outputs from a single QGIS project and data source.
 
 ### Demo
