@@ -36,7 +36,8 @@ To ensure portability and ease of installation, the tile generation process is b
 
 ### Use Cases
 
-* **Web mapping applications:** client-side rendering using MapLibre, OpenLayers, Mapbox and other web-mapping clients.
+#### 1. Web mapping applications
+Client-side vector tile rendering using web mapping libraries.
 
 <table>
   <tr>
@@ -58,15 +59,16 @@ To ensure portability and ease of installation, the tile generation process is b
   </tr>
 
   <tr>
-    <td align="center"><sub><a href="https://maplibre.org">MapLibre</a></sub></td>
-    <td align="center"><sub><a href="https://openlayers.org">OpenLayers</a></sub></td>
-    <td align="center"><sub><a href="https://leafletjs.com/">Leaflet</a></sub></td>
-    <td align="center"><sub><a href="https://www.maptiler.com/">Maptiler</a></sub></td>
-    <td align="center"><sub><a href="https://www.mapbox.com/">Mapbox</a></sub></td>
+    <td align="center"><sub><a href="https://maplibre.org"><b>MapLibre</b></a></sub></td>
+    <td align="center"><sub><a href="https://openlayers.org"><b>OpenLayers</b></a></sub></td>
+    <td align="center"><sub><a href="https://leafletjs.com/"><b>Leaflet</b></a></sub></td>
+    <td align="center"><sub><a href="https://www.maptiler.com/"><b>Maptiler</b></a></sub></td>
+    <td align="center"><sub><a href="https://www.mapbox.com/"><b>Mapbox</b></a></sub></td>
   </tr>
 </table>
 
-* **Map services:** WMS/WMTS publishing via QGIS Server or GeoServer.
+#### 2. Map services
+WMS and WMTS publishing using standard map servers.
 
 <table>
   <tr>
@@ -79,12 +81,29 @@ To ensure portability and ease of installation, the tile generation process is b
   </tr>
 
   <tr>
-    <td align="center"><sub><a href="https://qgis.org/">QGIS Server</a></sub></td>
-    <td align="center"><sub><a href="https://geoserver.org/">Geoserver</a></sub></td>
+    <td align="center"><sub><a href="https://qgis.org/"><b>QGIS Server</b></a></sub></td>
+    <td align="center"><sub><a href="https://geoserver.org/"><b>Geoserver</b></a><br>using<a href="https://docs.geoserver.org/main/en/user/community/mbtiles/"> mbtiles</a> and<br><a href="https://docs.geoserver.org/main/en/user/styling/mbstyle/">mbstyle</a> extentions.</sub></td>
   </tr>
 </table>
 
-* **Project distribution:** distribution of complex cartographic outputs from a single QGIS project and data source.
+### 3. Projects distribution
+complex cartographic outputs distributions.
+
+<table>
+  <tr>
+    <td align="center">
+      🔗
+    </td>
+    <td align="center">
+      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qlr.png">
+    </td>
+  </tr>
+
+  <tr>
+    <td align="center"><sub><b>1x Dataset</b></sub></td>
+    <td align="center"><sub><b>1x Styled Layer</b></sub></td>
+  </tr>
+</table>
 
 ### Demo
 
