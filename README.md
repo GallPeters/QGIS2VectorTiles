@@ -12,17 +12,25 @@
   
 </div>
 
-### 📦 Output Package
-* **Vector Tiles:** single, optimized `.mbtiles` dataset.
-* **QGIS Layer:** styled vector tile `.qlr` layer file. 
-* **Web Style:** compatible Maplibre `.json` styling with sprites as needed.
-* **Web Viewer:** plug-and-play `.html` page to preview maps instantly.
+## Output Package
 
-### 🚀 Use Cases
-* **Web Apps:** client-side rendering with MapLibre, OpenLayers, Mapbox, and more.
-* **Map Servers:** efficient WMS/WMTS delivery via QGIS Server or GeoServer.
-* **Fast Sharing:** distribute complex cartography from a single source and layer.
+| Component     | Format         | Description                                                                 |
+|---------------|----------------|-----------------------------------------------------------------------------|
+| Tiles         | `mbtiles`      | Vector tile dataset generated from project layers and data sources.        |
+| Style         | `json`         | Client-side style sheet following the MapLibre style specification and preserving QGIS styling as closely as possible. |
+| Sprite*       | `png` + `json` | Icon package containing symbol images and metadata used by the client to resolve icons. |
+| Viewer        | `html`         | Ready-to-use MapLibre/OpenLayers viewer referencing the tiles and style.   |
+| Server        | `py`           | Local server that serves tiles and style resources locally.                |
+| Launcher      | `bat` + `vbs` / `sh` | Platform-specific scripts for starting the local tile server and opening the viewer. |
 
-### 🎬 Demo
+\* Optional. Generated only when required by the style.
+
+
+## Use Cases
+* **Web mapping applications:** client-side rendering using MapLibre, OpenLayers, Mapbox and other web-mapping clients.
+* **Map services:** WMS/WMTS publishing via QGIS Server or GeoServer.
+* **Project distribution:** distribution of complex cartographic outputs from a single QGIS project and data source.
+
+## Demo
 
 https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
