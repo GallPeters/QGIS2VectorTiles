@@ -12,15 +12,15 @@
   
 </div>
 
-### Introduction
+## Introduction
 
 QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
 
 The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets. The primary target ecosystem is **MapLibre** and compatible web mapping libraries.
 
-To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments.
+To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments
 
-### Output Package
+## Output Package
 
 | Component     | Format         | Description                                                                 |
 |---------------|----------------|-----------------------------------------------------------------------------|
@@ -34,9 +34,9 @@ To ensure portability and ease of installation, the tile generation process is b
 \* Optional. Generated only when required by the style.
 
 
-### Use Cases
+## Use Cases
 
-#### 1. Web mapping applications
+### Web mapping applications
 Client-side vector tile rendering using web mapping libraries.
 
 <table>
@@ -67,7 +67,7 @@ Client-side vector tile rendering using web mapping libraries.
   </tr>
 </table>
 
-#### 2. Map services
+### Map services
 WMS and WMTS publishing using standard map servers.
 
 <table>
@@ -86,8 +86,8 @@ WMS and WMTS publishing using standard map servers.
   </tr>
 </table>
 
-### 3. Projects distribution
-complex cartographic outputs distributions.
+### Projects distribution
+Distribution of complex cartographic outputs.
 
 <table>
   <tr>
@@ -105,6 +105,6 @@ complex cartographic outputs distributions.
   </tr>
 </table>
 
-### Demo
+## Demo
 
 https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
