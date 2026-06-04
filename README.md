@@ -1,6 +1,8 @@
 <div align="center">
 
-<img width="90" alt="icon" src="https://github.com/user-attachments/assets/3dde55e2-9441-4ad6-b29f-d9edb786742e" />
+
+
+<img width="90" alt="icon" src="https://github.com/user-attachments/assets/e1f0e64b-6850-4ae5-b3c0-2ce2fca5580e" />
 
   # QGIS2VectorTiles
 
@@ -13,24 +15,22 @@
 
  **From styled QGIS projects to client-side web maps in just one click.**
 
-<kbd> <img width="700" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/3cb566f0-0f9b-4c88-bc10-ec6cfe1d1839" /></kdb>
+<kbd> <img width="500" alt="QGIS2VectorTilesDemo"  src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" /></kdb>
 
 </div>
 
 
 
-
-## Introduction
+### Introduction
 
 QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
 
-The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets. The primary target ecosystem is **MapLibre** and compatible web mapping libraries.
+The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets.
 
+The primary target style is **MapLibre** style specification and compatible web mapping libraries.
 To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments
 
-
-
-## Output Package
+### Output Package
 
 | Component     | Format         | Description                                                                 |
 |---------------|--------------------------|-----------------------------------------------------------------------------|
@@ -43,8 +43,7 @@ To ensure portability and ease of installation, the tile generation process is b
 
 \* Optional. Generated only when required by the style.
 
-
-## Use Cases
+### Use Cases
 
 - **Web mapping applications** - Client-side vector tile rendering using web mapping libraries like [MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [Leaflet](https://leafletjs.com/), [MapTiler](https://www.maptiler.com/), [Mapbox](https://www.mapbox.com/) and more.
 
