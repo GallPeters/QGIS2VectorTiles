@@ -21,29 +21,45 @@
 
 
 
-### Introduction
+## Introduction
 
 QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
 
-The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets.
+The plugin combines the strengths of [**QGIS**](https://www.qgis.org/), [**GDAL**](https://gdal.org/en/stable/), and [**MapLibre**](https://maplibre.org/), allowing rich desktop cartography to be transformed into fast, client-side web maps in a single click.
 
-The primary target style is **MapLibre** style specification and compatible web mapping libraries.
-To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments
+> **QGIS** (cartographic design) → **GDAL** (tiles generation) → **MapLibre** (web rendering)
 
-### Output Package
 
-| Component     | Format         | Description                                                                 |
-|---------------|--------------------------|-----------------------------------------------------------------------------|
-| **Tiles**         | `mbtiles`      | Vector tile dataset generated from project layers and data sources.        |
-| **Style**         | `json`         | Client-side style sheet following the MapLibre style specification. |
-| **Sprite***       | `png` + `json` | Icon package containing symbol images and metadata used by the client to resolve icons. |
-| **Viewer**        | `html`         | Ready-to-use MapLibre/OpenLayers viewer referencing the tiles and style.   |
-| **Server**        | `py`           | Local server that serves tiles and style resources locally.                |
-| **Launcher**      | `bat` + `vbs` / `sh` | Platform-specific scripts for starting the local tile server and opening the viewer. |
+## Output Packag
 
-\* Optional. Generated only when required by the style.
-
-### Use Cases
+```
+root/
+├── tiles.mbtiles
+│
+├── style/
+│   ├── style.json
+│   ├── tiles.qlr
+│   │
+│   └── sprite/                  # Optional (only if marker symbols are used)
+│       ├── sprite.png
+│       ├── sprite.json
+│       ├── sprite@2x.png
+│       └── sprite@2x.json
+│
+├── utils/
+│   ├── tiles_server.py
+│   │
+│   ├── viewer/
+│   │   ├── viewer.html
+│   │   ├── maplibre.js        # Can be OpenLayers (depends on export)
+│   │   └── maplibre.css       # Can be OpenLayers (depends on export)
+│   │
+│   ├── activate_server.bat     # Windows (optional)
+│
+├── activate_server.vbs         # Windows shortcut (optional)
+└── activate_server.sh          # Linux/macOS (optional)
+```
+## Use Cases
 
 - **Web mapping applications** - Client-side vector tile rendering using web mapping libraries like **[MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [MapTiler](https://www.maptiler.com/), [Mapbox](https://www.mapbox.com/)** and more.
 
