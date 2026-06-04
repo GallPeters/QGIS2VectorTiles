@@ -33,85 +33,21 @@ To ensure portability and ease of installation, the tile generation process is b
 ## Output Package
 
 | Component     | Format         | Description                                                                 |
-|---------------|----------------|-----------------------------------------------------------------------------|
-| Tiles         | `mbtiles`      | Vector tile dataset generated from project layers and data sources.        |
-| Style         | `json`         | Client-side style sheet following the MapLibre style specification and preserving QGIS styling as closely as possible. |
-| Sprite*       | `png` + `json` | Icon package containing symbol images and metadata used by the client to resolve icons. |
-| Viewer        | `html`         | Ready-to-use MapLibre/OpenLayers viewer referencing the tiles and style.   |
-| Server        | `py`           | Local server that serves tiles and style resources locally.                |
-| Launcher      | `bat` + `vbs` / `sh` | Platform-specific scripts for starting the local tile server and opening the viewer. |
+|---------------|--------------------------|-----------------------------------------------------------------------------|
+| **Tiles**         | `mbtiles`      | Vector tile dataset generated from project layers and data sources.        |
+| **Style**         | `json`         | Client-side style sheet following the MapLibre style specification. |
+| **Sprite***       | `png` + `json` | Icon package containing symbol images and metadata used by the client to resolve icons. |
+| **Viewer**        | `html`         | Ready-to-use MapLibre/OpenLayers viewer referencing the tiles and style.   |
+| **Server**        | `py`           | Local server that serves tiles and style resources locally.                |
+| **Launcher**      | `bat` + `vbs` / `sh` | Platform-specific scripts for starting the local tile server and opening the viewer. |
 
 \* Optional. Generated only when required by the style.
 
 
 ## Use Cases
 
-### Web mapping applications
-Client-side vector tile rendering using web mapping libraries.
+- **Web mapping applications** - Client-side vector tile rendering using web mapping libraries like [MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [Leaflet](https://leafletjs.com/), [MapTiler](https://www.maptiler.com/), [Mapbox](https://www.mapbox.com/) and more.
 
-<table>
-  <tr>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maplibre.png">
-    </td>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/openlayers.png">
-    </td>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/leaflet.png">
-    </td>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/maptiler.png">
-    </td>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/mapbox.png">
-    </td>
-  </tr>
+- **Map services** - WMS and WMTS publishing using standard map server like [Geoserver](https://geoserver.org/) (using [mbtiles](https://docs.geoserver.org/main/en/user/community/mbtiles/) and [mbstyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/) extentions) and [QGIS Server](https://qgis.org/)
 
-  <tr>
-    <td align="center"><sub><a href="https://maplibre.org"><b>MapLibre</b></a></sub></td>
-    <td align="center"><sub><a href="https://openlayers.org"><b>OpenLayers</b></a></sub></td>
-    <td align="center"><sub><a href="https://leafletjs.com/"><b>Leaflet</b></a></sub></td>
-    <td align="center"><sub><a href="https://www.maptiler.com/"><b>Maptiler</b></a></sub></td>
-    <td align="center"><sub><a href="https://www.mapbox.com/"><b>Mapbox</b></a></sub></td>
-  </tr>
-</table>
-
-### Map services
-WMS and WMTS publishing using standard map servers.
-
-<table>
-  <tr>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qgis.png">
-    </td>
-    <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/geoserver.png">
-    </td>
-  </tr>
-
-  <tr>
-    <td align="center"><sub><a href="https://qgis.org/"><b>QGIS Server</b></a></sub></td>
-    <td align="center"><sub><a href="https://geoserver.org/"><b>Geoserver</b></a><br>using<a href="https://docs.geoserver.org/main/en/user/community/mbtiles/"> mbtiles</a> and<br><a href="https://docs.geoserver.org/main/en/user/styling/mbstyle/">mbstyle</a> extentions.</sub></td>
-  </tr>
-</table>
-
-### Projects distribution
-Distribution of complex cartographic outputs.
-
-<table>
-  <tr>
-    <td align="center">
-       <img width="30" height="30" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/server.png">
-    </td>
-    <td align="center">
-      <img width="30" height="30" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qlr.png">
-    </td>
-  </tr>
-
-  <tr>
-    <td align="center"><sub><b>1x Source</b></sub></td>
-    <td align="center"><sub><b>1x Layer</b></sub></td>
-  </tr>
-</table>
-
+- **Projects distribution** - Distribution of complex cartographic outputs with a single styled layer and a single source. 
