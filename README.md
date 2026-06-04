@@ -29,6 +29,14 @@ The plugin combines the strengths of [**QGIS**](https://www.qgis.org/), [**GDAL*
 
 > **QGIS** (cartographic design) → **GDAL** (tiles generation) → **MapLibre** (web rendering)
 
+## Use Cases
+
+- **Web mapping applications** - Client-side vector tile rendering using web mapping libraries like **[MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [MapTiler](https://www.maptiler.com/), [Mapbox](https://www.mapbox.com/)** and more.
+
+- **Map services** - WMS and WMTS publishing using standard map server like [**Geoserver**](https://geoserver.org/) (using [**MBTiles**](https://docs.geoserver.org/main/en/user/community/mbtiles/) and [**MBStyle**](https://docs.geoserver.org/main/en/user/styling/mbstyle/) extentions) and [**QGIS Server**](https://qgis.org/)
+
+- **Projects distribution** - Distribution of complex cartographic outputs with a single styled layer and a single source. 
+
 
 ## Output Packag
 
@@ -59,10 +67,3 @@ root/
 ├── activate_server.vbs         # Windows shortcut (optional)
 └── activate_server.sh          # Linux/macOS (optional)
 ```
-## Use Cases
-
-- **Web mapping applications** - Client-side vector tile rendering using web mapping libraries like **[MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [MapTiler](https://www.maptiler.com/), [Mapbox](https://www.mapbox.com/)** and more.
-
-- **Map services** - WMS and WMTS publishing using standard map server like [**Geoserver**](https://geoserver.org/) (using [**MBTiles**](https://docs.geoserver.org/main/en/user/community/mbtiles/) and [**MBStyle**](https://docs.geoserver.org/main/en/user/styling/mbstyle/) extentions) and [**QGIS Server**](https://qgis.org/)
-
-- **Projects distribution** - Distribution of complex cartographic outputs with a single styled layer and a single source. 
