@@ -1,16 +1,24 @@
 <div align="center">
 
-<img width="100" alt="icon" src="https://github.com/user-attachments/assets/3dde55e2-9441-4ad6-b29f-d9edb786742e" />
+<img width="90" alt="icon" src="https://github.com/user-attachments/assets/3dde55e2-9441-4ad6-b29f-d9edb786742e" />
 
   # QGIS2VectorTiles
 
- **From styled QGIS projects to client-side web maps in just one click.**
+
 
 [![Issues](https://img.shields.io/badge/Issues-🛠️-98b023?style=for-the-badge)](https://github.com/GallPeters/QGIS2VectorTiles/issues)
 [![Homepage](https://img.shields.io/badge/Homepage-🚀-black?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
 [![License](https://img.shields.io/badge/License-📜-98b023?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
-  
+
+
+ **From styled QGIS projects to client-side web maps in just one click.**
+
+<kbd> <img width="700" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/3cb566f0-0f9b-4c88-bc10-ec6cfe1d1839" /></kdb>
+
 </div>
+
+
+
 
 ## Introduction
 
@@ -19,6 +27,8 @@ QGIS2VectorTiles generates a vector tile package directly from the current QGIS 
 The plugin is designed to bridge the gap between the rich and highly flexible environment of **QGIS** Desktop - supporting complex spatial expressions, a wide range of data formats, geometry generators, and data-driven styling - and modern web mapping frameworks, which rely on client-side rendering of large datasets. The primary target ecosystem is **MapLibre** and compatible web mapping libraries.
 
 To ensure portability and ease of installation, the tile generation process is based on the built-in **GDAL** MBTiles driver, avoiding external dependencies such as Tippecanoe. While Tippecanoe may offer higher performance in some scenarios, it requires separate installation and is primarily limited to Linux environments
+
+
 
 ## Output Package
 
@@ -92,19 +102,16 @@ Distribution of complex cartographic outputs.
 <table>
   <tr>
     <td align="center">
-       <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/server.png">
+       <img width="30" height="30" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/server.png">
     </td>
     <td align="center">
-      <img width="50" height="50" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/layers.png">
+      <img width="30" height="30" src="https://raw.githubusercontent.com/GallPeters/QGIS2VectorTiles/main/docs/icons/qlr.png">
     </td>
   </tr>
 
   <tr>
-    <td align="center"><sub><b>1x Dataset</b></sub></td>
-    <td align="center"><sub><b>1x Styled Layer</b></sub></td>
+    <td align="center"><sub><b>1x Source</b></sub></td>
+    <td align="center"><sub><b>1x Layer</b></sub></td>
   </tr>
 </table>
 
-## Demo
-
-https://github.com/user-attachments/assets/5e7c4518-ebe0-45fa-8659-e53fd67692fc
