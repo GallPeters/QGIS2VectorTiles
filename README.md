@@ -38,7 +38,7 @@ The output includes a vector tile dataset, a client-side style package that pres
 
 - **Web mapping applications** – Client-side vector tile rendering using web mapping libraries such as **[MapLibre](https://maplibre.org)**, **[OpenLayers](https://openlayers.org)**, **[MapTiler](https://www.maptiler.com/)**, **[Mapbox](https://www.mapbox.com/)** and more.
 
-- **Map services** – WMS and WMTS publishing using standard map servers like **[GeoServer](https://geoserver.org/)** (using **MBTiles** and **MBStyle** extensions) and **[QGIS Server](https://qgis.org/)**.
+- **Map services** – WMS and WMTS publishing using standard map servers like **[GeoServer](https://geoserver.org/)** (using [**MBTiles**](https://docs.geoserver.org/main/en/user/styling/mbstyle/installing/) and [**MBStyle**](https://docs.geoserver.org/main/en/user/community/mbtiles/) extensions) and **[QGIS Server](https://qgis.org/)**.
 
 - **Project sharing** – Distribution of complex cartographic outputs with a single styled layer and a single source.
 
