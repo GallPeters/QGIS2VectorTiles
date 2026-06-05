@@ -22,9 +22,9 @@
 
 ## Introduction
 
-QGIS2VectorTiles generates a complete vector tile package directly from the current QGIS project.
+> **QGIS2VectorTiles** generates a complete vector tile package directly from the current QGIS project.
 
-The output includes a vector tile dataset, a client-side style package that preserves the original QGIS cartography as closely as possible, and a ready-to-use tile server and web viewer. This allows QGIS Desktop maps to be exported to the web for offline use or online publishing in a single click.
+The output includes a vector tile dataset, a client-side style package that preserves the original QGIS cartography as closely as possible, and a ready-to-use tile server and web viewer. This enables QGIS Desktop maps to be exported to the web for offline use or online publishing in a single click.
 
 ## Background
 
