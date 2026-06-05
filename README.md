@@ -20,14 +20,24 @@
 </div>
 
 
-
 ## Introduction
 
-QGIS2VectorTiles generates a vector tile package directly from the current QGIS project.
+QGIS2VectorTiles generates a complete vector tile package directly from the current QGIS project.
 
-The plugin combines the strengths of [**QGIS**](https://www.qgis.org/), [**GDAL**](https://gdal.org/en/stable/), and [**MapLibre**](https://maplibre.org/), allowing rich desktop cartography to be transformed into fast, client-side web maps in a single click.
+The output includes a vector tile dataset, a client-side style package that preserves the original QGIS cartography as closely as possible, and a ready-to-use tile server and web viewer. This allows QGIS Desktop maps to be exported to the web for offline use or online publishing in a single click.
 
-> **QGIS** (cartographic design) → **GDAL** (tiles generation) → **MapLibre** (web rendering)
+## Background
+
+> **QGIS** (cartographic design) → **GDAL** (tile generation) → **MapLibre** (web rendering)
+
+[**MapLibre**](https://maplibre.org/) provide fast client-side rendering of large spatial datasets, making them ideal for interactive web maps. However, their cartographic capabilities are intentionally more limited than those available in desktop GIS software.
+
+[**QGIS**](https://www.qgis.org/), offers a rich cartographic environment with advanced symbology, expressions, geometry generators, labeling engines, and support for a wide range of spatial data formats. While this makes QGIS an excellent platform for map design, it is not intended to serve web maps directly.
+
+[**GDAL**](https://gdal.org/en/stable/) bridges these two environments by providing a powerful and efficient vector tile generation engine. However, GDAL workflows are primarily command-line based and require additional configuration to connect desktop cartography with modern web mapping frameworks.
+
+**QGIS2VectorTiles** brings these technologies together into a single workflow. It allows users to design and style maps in QGIS, generate vector tiles using GDAL, and publish them as fast client-side web maps using MapLibre or OpenLayers - all from a familiar desktop interface.
+
 
 ## Use Cases
 
