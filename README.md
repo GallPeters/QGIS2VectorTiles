@@ -14,21 +14,12 @@
 
 </div>
 
+
 ### Introduction
 
 QGIS2VectorTiles generates a styled vector tile package directly from a QGIS project.
 
-It enables publishing lightweight client-side web maps without leaving the QGIS environment. The plugin unifies the workflow between QGIS, GDAL, and modern web mapping frameworks such as MapLibre and OpenLayers.
-
-| Technology                | Strength                                  | Gap                           |
-| ------------------------- | ----------------------------------------- | ----------------------------- |
-| **QGIS**                  | Advanced cartography and GIS design tools | Web map publishing            |
-| **GDAL**                  | High-performance vector tile generation   | Command-line workflow         |
-| **MapLibre / OpenLayers** | Fast client-side map rendering            | Limited cartographic modeling |
-| **QGIS2VectorTiles**      | End-to-end desktop-to-web workflow        | —                             |
-
-
-### Output Package
+The output package includes the following components:
 
 | Component    | Format               | Description                                                     |
 | ------------ | -------------------- | --------------------------------------------------------------- |
@@ -39,12 +30,27 @@ It enables publishing lightweight client-side web maps without leaving the QGIS 
 | **Server**   | `py`                 | Local tile and style server                                     |
 | **Launcher** | `bat` + `vbs` / `sh` | Platform-specific scripts to start server and open viewer       |
 
-* Optional. Generated only when required by the style.
+*Optional: generated only when required by the style.*
+
+
+### Motivation
+
+The plugin enables publishing lightweight client-side web maps directly from QGIS.
+
+This workflow bridges the gap between desktop GIS, tile generation, and web mapping frameworks:
+
+| Component                  | Strength                                  | Gap                         |
+| -------------------------- | ----------------------------------------- | --------------------------- |
+| **QGIS**                   | Advanced cartography and GIS design tools | No native web publishing    |
+| **GDAL**                   | High-performance vector tile generation   | Command-line workflow       |
+| **Web mapping frameworks** | Fast client-side rendering                | Limited cartographic design |
+| **QGIS2VectorTiles**       | End-to-end desktop-to-web workflow        | —                           |
+
 
 ### Use Cases
 
-* **Web mapping applications** – Client-side vector tile rendering using libraries such as [MapLibre](https://maplibre.org), [OpenLayers](https://openlayers.org), [Leaflet](https://leafletjs.com), [MapTiler](https://www.maptiler.com), and [Mapbox](https://www.mapbox.com).
-
-* **Map services** – Publishing via standard map servers such as [GeoServer](https://geoserver.org) or [QGIS Server](https://qgis.org) using MBTiles and Mapbox GL styles.
-
-* **Project distribution** – Packaging complex cartographic outputs into a single portable, styled dataset.
+| Use Case                     | Description                                                           | Technologies                                       |
+| ---------------------------- | --------------------------------------------------------------------- | -------------------------------------------------- |
+| **Web mapping applications** | Client-side vector tile rendering                                     | MapLibre, OpenLayers, Leaflet, MapTiler, Mapbox    |
+| **Map services**             | Publishing via standard OGC web services                              | GeoServer, QGIS Server (MBTiles, Mapbox GL styles) |
+| **Project distribution**     | Packaging complex cartographic outputs into a single portable dataset | —                                                  |
