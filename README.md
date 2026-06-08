@@ -20,7 +20,7 @@
 
 It enables users to design maps using QGIS Desktop and package them into a light web map in a single click.
 
-> **Installation:** Available via the official **[QGIS Plugin Repository](https://plugins.qgis.org/)** or the built-in QGIS **Plugin Manager**.
+> **Installation:** Available via the official **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or the built-in QGIS **Plugin Manager**.
 
 ### Key Features
 * **Design process** - Native support for the QGIS graphical interface, flexible expressions, geometry generators, and a variety of data formats.
