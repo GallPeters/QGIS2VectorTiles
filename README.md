@@ -8,7 +8,7 @@
 [![Homepage](https://img.shields.io/badge/Homepage-black?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
 [![License](https://img.shields.io/badge/License-GPL--2.0-98b023?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
 
-<h3>From styled QGIS projects to ready-to-use web maps in a single click</h3
+<h3>From styled QGIS projects to ready-to-use web maps in a single click</h3>
 
 <kbd><img width="750" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" /></kbd>
 
@@ -16,15 +16,17 @@
 
 ## Introduction
 
-**QGIS2VectorTiles** is a QGIS plugin that exports styled projects into web-ready vector tile packages. Design maps using QGIS (graphical interface, expressions, geometry generators, variety of supported data formats, etc.) and package them into a light web map in a single click.
+**QGIS2VectorTiles** is a QGIS plugin that exports projects into web-ready vector tile packages.
+
+It enables users to design maps using QGIS Desktop and package them into a light web map in a single click.
 
 > **Installation:** Available via the official **[QGIS Plugin Repository](https://plugins.qgis.org/)** or the built-in QGIS **Plugin Manager**.
 
 ### Key Features
-* **Data** - Vector tiles generated via the GDAL CLI engine.
-* **Style** - A MapLibre client-side style sheet mirroring the original QGIS project cartography.
-
-The output enforces a **tight data-styling coupling**, ensuring the client only receives the data required for rendering and the required styling rules.
+* **Design process** - Native support for the QGIS graphical interface, flexible expressions, geometry generators, and a variety of data formats.
+* **Output Dataset** - Vector tiles generated via the GDAL MBTiles driver.
+* **Output Style** - MapLibre-compliant web style matching the original QGIS cartography as closely as possible.
+* **Tight Data-Styling Coupling** - Client only receives the specific data and styling rules required for rendering.
 
 ## Generated Package
 
@@ -40,8 +42,8 @@ The output enforces a **tight data-styling coupling**, ensuring the client only 
 ## Key Use Cases
 
 * **Web Mapping Applications** - Build client-side maps using **[MapLibre](https://maplibre.org/)**, **[OpenLayers](https://openlayers.org/)**, **[MapTiler](https://www.maptiler.com/)**, or **[Mapbox](https://www.mapbox.com/)**.
-* **OGC Map Services** - Publish layers through **[GeoServer](https://geoserver.org/)** (using the **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions) or via **[QGIS Server](https://qgis.org/)**.
-* **Project Distribution** - Package cartographic projects into a portable, offline file structure with an integrated local runtime.
+* **OGC Map Services** - Publish maps using standard WMS/WMTS protocols via **[GeoServer](https://geoserver.org/)** (using the **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions) or via **[QGIS Server](https://qgis.org/)**.
+* **Project Distribution** - Package cartographic projects into a single styled layer and a single data source.
 
 ## Support & Community
 
