@@ -10,9 +10,7 @@
 
 <h3>From styled QGIS projects to ready-to-use web maps in a single click</h3
 
-<kbd>
-  <img width="750" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" />
-</kbd>
+<kbd><img width="750" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" /></kbd>
 
 </div>
 
