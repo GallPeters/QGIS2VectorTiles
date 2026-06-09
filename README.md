@@ -20,11 +20,11 @@
 
 > 🚀 **Installation:** Available via the **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or the QGIS **Plugin Manager**.
 
-Convert QGIS projects into lightweight, ready-to-use, client-rendered web maps using a **QGIS → GDAL → MapLibre** workflow in a single click.
+Pack a styled QGIS projects into lightweight, ready-to-use, client-rendered web maps in a single click.
 
 ### Key Features
 
-> ⚡ Tight data–style coupling — only the required data and styling rules are sent to the client.
+> ⚡ Tight data–style coupling — only the required data and relevant style rules are being sent to the client.
 
 * **Design in QGIS** — full support for expressions, geometry generators, and a wide variety of data formats.  
 * **Process with GDAL** — vector tiles generated using the GDAL MBTiles driver.  
@@ -37,7 +37,7 @@ Convert QGIS projects into lightweight, ready-to-use, client-rendered web maps u
 | **Tiles** | `mbtiles` | A single vector tile dataset. |
 | **Style** | `json` | MapLibre style sheet matching the original QGIS project design. |
 | **Sprites** | `png` + `json` | Marker symbol package generated only when required. |
-| **Viewer** | `html` + `js` + `css` | Offline MapLibre and OpenLayers web viewer. |
+| **Viewer** | `html` + `js` + `css` | Offline MapLibre / OpenLayers web viewer. |
 | **Server** | `py` | Local Python server for serving tiles and styles. |
 | **Launcher**| `bat` + `vbs` / `sh` | Platform-specific scripts to start the server and launch the browser. |
 
