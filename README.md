@@ -24,9 +24,9 @@ Pack a styled QGIS projects into lightweight, ready-to-use, client-rendered web 
 
 ### Key Features
 
-> ⚡ Tight data–style coupling — only the required data and relevant style rules are being sent to the client.
+> ⚡ **Tight data–style coupling** — only the required data and style rules are being sent to the client.
 
-* **Design in QGIS** — full support for expressions, geometry generators, and a wide variety of data formats.  
+* **Design in QGIS** — support for expressions, geometry generators and a wide variety of data formats.  
 * **Process with GDAL** — vector tiles generated using the GDAL MBTiles driver.  
 * **View in MapLibre** — client-side rendering with a MapLibre-based web viewer.  
 
@@ -34,18 +34,22 @@ Pack a styled QGIS projects into lightweight, ready-to-use, client-rendered web 
 
 | Component | Format | Description |
 | :--- | :--- | :--- |
-| **Tiles** | `mbtiles` | A single vector tile dataset. |
+| **Tiles** | `mbtiles` | Single vector tile dataset. |
 | **Style** | `json` | MapLibre style sheet matching the original QGIS project design. |
-| **Sprites** | `png` + `json` | Marker symbol package generated only when required. |
+| **Sprites*** | `png` + `json` | Marker symbol package. |
 | **Viewer** | `html` + `js` + `css` | Offline MapLibre / OpenLayers web viewer. |
 | **Server** | `py` | Local Python server for serving tiles and styles. |
-| **Launcher**| `bat` + `vbs` / `sh` | Platform-specific scripts to start the server and launch the browser. |
+| **Launcher**| `bat` + `vbs` / `sh` | Script to start the server and launch the browser. |
+
+**_*Only when marker symbols being used in the project_**
 
 ## Use Cases
 
-* **Client Side Maps** — build client-side maps using **[MapLibre](https://maplibre.org/)**, **[OpenLayers](https://openlayers.org/)**, **[MapTiler](https://www.maptiler.com/)**, or **[Mapbox](https://www.mapbox.com/)**.  
-* **OGC Map Services** — publish standard web map services via **[GeoServer](https://geoserver.org/)** (using the **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions) or via **[QGIS Server](https://qgis.org/)**.  
-* **Project Distribution** — package complex cartographic projects into a single, styled layer and a single data source.  
+* **Client Side Maps** — build client-side maps using **[MapLibre](https://maplibre.org/)**, **[OpenLayers](https://openlayers.org/)**, **[MapTiler](https://www.maptiler.com/)** or **[Mapbox](https://www.mapbox.com/)**.  
+* **OGC Map Services** — publish standard web map services via **[GeoServer*](https://geoserver.org/)** or **[QGIS Server](https://qgis.org/)**.  
+* **Project Distribution** — package projects into a single styled layer and a single data source.  
+
+**_*Using the **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions_**
 
 ## Support
 
