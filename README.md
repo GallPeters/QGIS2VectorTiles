@@ -11,7 +11,7 @@
 **From QGIS projects to fast, lightweight, client-rendered web maps in a single run.**
 
 <kbd>
-<img width="600" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" />
+<img width="630" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" />
 </kbd>
 
 </div>
