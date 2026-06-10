@@ -29,7 +29,19 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 
 1. **Install** the plugin from the **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or via the built-in Plugin Manager.
 2. **Run** the processing tool and wait a few seconds after it finishes.
-3. **View** a web version of your QGIS project that opens automatically in your browser.
+3. **View** your QGIS project, which opens automatically in your browser in its **web version**.
+
+<div align="center">
+
+
+
+<small> _Los Angeles area as displayed in the **[Natural Earth Project](https://www.naturalearthdata.com/)** in QGIS Desktop and in a web browser_ </small>
+
+  <kbd><img width="400px" src="https://github.com/user-attachments/assets/8860398d-ffb2-4114-a2f2-c8ea84241476" /></kbd>
+  <kbd><img width="400px" src="https://github.com/user-attachments/assets/92183570-1077-47a1-91ec-ced17c532d6f" /></kbd>
+</div>
+
+
 
 ### 🔄 Workflow
 
