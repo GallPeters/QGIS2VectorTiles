@@ -43,7 +43,7 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 - **Wide format support** - Compatible with QGIS-supported formats as GeoPackage and Parquets.  
 - **Optimized output** - Tiles and styles contain only the data and rules required for rendering.  
 - **Standalone package** - No server deployment, internet connection, or third-party installation required.  
-<br>
+
 <div align="center">
 
 <small> _Los Angeles area as displayed in the **[Natural Earth Project](https://www.naturalearthdata.com/)** in QGIS Desktop and in a web browser_ </small>
@@ -52,7 +52,6 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
   <kbd><img width="400px" src="https://github.com/user-attachments/assets/92183570-1077-47a1-91ec-ced17c532d6f" /></kbd>
 
 </div>
-<br>
 
 ## 📦 Generated Package
 
