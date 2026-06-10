@@ -27,9 +27,9 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 
 ### ⚡ Quick Start
 
-**1. Install** the plugin from the **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or via the built-in Plugin Manager.
-**2. Run** the processing tool and wait a few seconds after it finishes.
-**3. View** a web version of your QGIS project that opens automatically in your browser.
+1. **Install** the plugin from the **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or via the built-in Plugin Manager.
+2. **Run** the processing tool and wait a few seconds after it finishes.
+3. **View** a web version of your QGIS project that opens automatically in your browser.
 
 ### 🔄 Workflow
 
