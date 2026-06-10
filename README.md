@@ -48,8 +48,8 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 
 <small> _Los Angeles area as displayed in the **[Natural Earth Project](https://www.naturalearthdata.com/)** in QGIS Desktop and in a web browser_ </small>
 
-  <kbd><img width="400px" src="https://github.com/user-attachments/assets/8860398d-ffb2-4114-a2f2-c8ea84241476" /></kbd>
-  <kbd><img width="400px" src="https://github.com/user-attachments/assets/92183570-1077-47a1-91ec-ced17c532d6f" /></kbd>
+  <kbd><img width="350px" src="https://github.com/user-attachments/assets/8860398d-ffb2-4114-a2f2-c8ea84241476" /></kbd>
+  <kbd><img width="350px" src="https://github.com/user-attachments/assets/92183570-1077-47a1-91ec-ced17c532d6f" /></kbd>
 
 </div>
 
