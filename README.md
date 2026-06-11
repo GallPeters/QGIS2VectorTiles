@@ -57,13 +57,15 @@
 
 ### 🚀 Use Cases
 
-- **Client-side maps** - build modern web maps using **[MapLibre](https://maplibre.org/)**, **[OpenLayers](https://openlayers.org/)**, **[MapTiler](https://www.maptiler.com/)**, or **[Mapbox](https://www.mapbox.com/)**  
-- **OGC map services** - publish standard web map services via **[GeoServer](https://geoserver.org/)** or **[QGIS Server](https://qgis.org/)**  
+- **Client-side maps** - build modern web maps using **MapLibre**, **OpenLayers**, **MapTiler**, or **Mapbox**  
+- **OGC map services** - publish standard web map services via **GeoServer*** or **QGIS Server**  
 - **Project distribution** - package a QGIS project into a single styled dataset  
+
+_* Requires **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions for GeoServer._
 
 <div align="center">
 
-<small><i>Compatible platforms</i></small>
+<small><i>Compatible Platforms (click icons to visit platforms)</i></small>
 
 <table>
   <tr>
