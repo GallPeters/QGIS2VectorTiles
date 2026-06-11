@@ -20,7 +20,7 @@
 
 ### 🌍 Overview
 
-QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-rendered web maps.
+- **QGIS2VectorTiles** is a QGIS plugin that converts QGIS projects into **client-rendered web maps**.
 - **Data** is compressed into a fast, lightweight **vector tiles**.
 - **Style** is converted into a **client-side style** that closely matches the original project.
 - **Package** contains the generated data and style as a **fully offline standalone web map**.   
@@ -30,12 +30,6 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 1. **Install** the plugin from the **[QGIS Plugin Repository](https://plugins.qgis.org/plugins/QGIS2VectorTiles/)** or via the built-in Plugin Manager.
 2. **Run** the processing tool and wait a few seconds after it finishes.
 3. **View** your QGIS project, which opens automatically in your browser in its **web version**.
-
-### 🔄 Workflow
-
-- **Design in QGIS** - Advanced desktop cartography and styling.  
-- **Process with GDAL** - Powerful and scalable vector tile generation.  
-- **Render with MapLibre** - Fast and sharp client-side web maps.  
 
 ### ✨ Key Features
 
@@ -53,26 +47,62 @@ QGIS2VectorTiles is a QGIS plugin that converts QGIS projects into client-render
 
 </div>
 
-## 📦 Generated Package
+## 🧭 How It Works
 
-| Component | Format | Description |
-| :--- | :--- | :--- |
-| **Tiles** | `mbtiles` | Single vector tileset |
-| **Style** | `json` | MapLibre style sheet matching QGIS styling |
-| **Sprites** | `png + json` | Sprite sheet for markers and labels |
-| **Viewer** | `html + js + css` | Offline MapLibre / OpenLayers web viewer |
-| **Server** | `py` | Lightweight local Python server for tiles and styles |
-| **Launcher** | `bat + vbs / sh` | Script to start the server and open the browser |
+### 🔄 Workflow
 
-_* Only when marker symbols are used in the project._
+- **Design in QGIS** - Advanced desktop cartography and styling.  
+- **Process with GDAL** - Powerful and scalable vector tile generation.  
+- **Render with MapLibre** - Fast and sharp client-side web maps.  
 
-## 🚀 Use Cases
+### 🚀 Use Cases
 
 - **Client-side maps** - build modern web maps using **[MapLibre](https://maplibre.org/)**, **[OpenLayers](https://openlayers.org/)**, **[MapTiler](https://www.maptiler.com/)**, or **[Mapbox](https://www.mapbox.com/)**  
 - **OGC map services** - publish standard web map services via **[GeoServer](https://geoserver.org/)** or **[QGIS Server](https://qgis.org/)**  
 - **Project distribution** - package a QGIS project into a single styled dataset  
 
-_* Using the **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtiles/)** and **[MBStyle](https://docs.geoserver.org/main/en/user/styling/mbstyle/)** extensions._
+<div align="center">
+
+<small><i>Compatible platforms</i></small>
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://www.geoserver.org/"><kbd><img width="50" src="docs/icons/geoserver.png"></kbd></a>
+    </td>
+    <td align="center">
+      <a href="https://maplibre.org/"><kbd><img width="50" src="docs/icons/maplibre.png"></kbd></a>
+    </td>
+    <td align="center">
+      <a href="https://www.maptiler.com/"><kbd><img width="50" src="docs/icons/maptiler.png"></kbd></a>
+    </td>
+    <td align="center">
+      <a href="https://qgis.org/"><kbd><img width="50" src="docs/icons/qgis.png"></kbd></a>
+    </td>
+    <td align="center">
+      <a href="https://openlayers.org/"><kbd><img width="50" src="docs/icons/openlayers.png"></kbd></a>
+    </td>
+    <td align="center">
+      <a href="https://www.mapbox.com/"><kbd><img width="50" src="docs/icons/mapbox.png"></kbd></a>
+    </td>
+  </tr>
+</table>
+
+</div>
+
+
+## 📦 Generated Package
+
+| Component | Format | Description |
+| :-- | :-- | :-- |
+| **Tiles** | `mbtiles` | Single vector tileset |
+| **Style** | `json` | QGIS-matching MapLibre style sheet |
+| **Sprites** | `png + json` | Sprite sheet for markers* |
+| **Viewer** | `html + js + css` | Offline web viewer |
+| **Server** | `py` | Local Python server for tiles and styles |
+| **Launcher** | `bat + vbs / sh` | Script launch server and browser |
+
+_* Only when marker symbols are used in the project._
 
 ## 🛠️ Support
 
