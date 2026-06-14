@@ -87,6 +87,7 @@ from processing import run as run_processing
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsExpressionContext,
+    QgsExpression,
     QgsExpressionContextUtils,
     QgsProcessingContext,
     QgsProcessingFeedback,
@@ -541,6 +542,22 @@ class RulesExporter:
                     outputs[grp.output_dataset] = None
         return outputs
 
+    def validate_expression(self, expr_str: str):
+        if not isinstance(expr_str, str):
+            raise TypeError("Expression must be a string")
+
+        expr_str = expr_str.strip()
+
+        if not expr_str:
+            return None
+
+        expr = QgsExpression(expr_str)
+
+        if expr.hasParserError():
+            return None
+
+        return expr_str
+
     def _export_one_rule_group(
         self, grp: _RuleGroupSnapshot, source_path: str
     ) -> Optional[str]:
@@ -556,6 +573,10 @@ class RulesExporter:
         if grp.filter_expression:
             self._check_cancel()
             filt_out = self._temp_path("filt")
+
+            if not self.validate_expression(grp.filter_expression):
+                return None
+
             filt = self._run_alg_safe(
                 "extractbyexpression", "native",
                 INPUT=current_input,
@@ -571,6 +592,7 @@ class RulesExporter:
         field_mapping = self._build_field_mapping(grp, current_input)
 
         self._check_cancel()
+        field_mapping = list({tuple(sorted(d.items())): d for d in field_mapping}.values())
         refactored = self._run_alg_safe(
             "refactorfields", "native",
             INPUT=current_input,
