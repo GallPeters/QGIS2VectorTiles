@@ -8,7 +8,10 @@
 [![🌐 Website](https://img.shields.io/badge/Website-🌐-black?style=for-the-badge)](https://gallpeters.github.io/QGIS2VectorTiles/)
 [![📜 License](https://img.shields.io/badge/License-📜-98b023?style=for-the-badge)](https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html)
 
-**From QGIS projects to fast, lightweight, client-rendered web maps in a single run.**
+**Turn QGIS projects into fast, lightweight, client-rendered web maps in a single run.**
+
+ _No internet connection or third-party installation required._
+
 
 </div>
 
