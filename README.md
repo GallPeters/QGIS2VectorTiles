@@ -78,7 +78,6 @@ _* Requires **[MBTiles](https://docs.geoserver.org/main/en/user/community/mbtile
 
 <small><i>Compatible Platforms (click icons to visit platforms)</i></small>
 
-<br>
 <table>
   <tr>
     <td align="center">
