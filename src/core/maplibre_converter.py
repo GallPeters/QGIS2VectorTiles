@@ -550,6 +550,7 @@ class IconPropertyExtractor:
             buf_px = PropertyExtractor.convert_length_to_pixels(
                 background.size().width(), background.sizeUnit()
             )
+            buf_px = max(buf_px, 3)  
             return [buf_px * 2, buf_px, buf_px * 2, buf_px]
         return None
 
