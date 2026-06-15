@@ -544,7 +544,7 @@ class RulesExporter:
 
     def validate_expression(self, expr_str: str):
         if not isinstance(expr_str, str):
-            raise TypeError("Expression must be a string")
+            self.feedback.pushWarning(f"Warning! Expression ({expr_str}) must be valid.")
 
         expr_str = expr_str.strip()
 
@@ -554,6 +554,7 @@ class RulesExporter:
         expr = QgsExpression(expr_str)
 
         if expr.hasParserError():
+            self.feedback.pushWarning(f"Warning! Expression ({expr_str}) is not valid.")
             return None
 
         return expr_str
@@ -621,6 +622,8 @@ class RulesExporter:
         # layer.geometryType() returns 0 for point and 2 for polygon
         # but geometrybyexpression processing treats 0 as polygon and 2 as point
         # so we need to flip these values to get the correct geometry type.
+        if not self.validate_expression(grp.geometry_expression):
+                return None
         geom_target = abs(grp.geometry_target - 2)
         transformed = self._run_alg_safe(
             "geometrybyexpression", "native",
@@ -851,7 +854,11 @@ class RulesExporter:
         transform_expr = "@geometry"
         if settings and settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
-            transform_expr = settings.geometryGenerator
+           
+            generator_exp = settings.geometryGenerator
+            layer_crs = flat_rule.layer.crs().authid()
+            generator_exp = generator_exp.replace('@geometry', f"transform(@geometry, 'EPSG:3857', '{layer_crs}')")
+            transform_expr =  f"transform({generator_exp}, '{layer_crs}',  'EPSG:3857')"
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attr("c", target_geom)
         elif target_geom == 2:
@@ -869,7 +876,10 @@ class RulesExporter:
         transform_expr = "@geometry"
         if symbol_layer.layerType() == "GeometryGenerator":
             target_geom = symbol_layer.subSymbol().type()
-            transform_expr = symbol_layer.geometryExpression()
+            generator_exp = symbol_layer.geometryExpression()
+            layer_crs = flat_rule.layer.crs().authid()
+            generator_exp = generator_exp.replace('@geometry', f"transform(@geometry, 'EPSG:3857', '{layer_crs}')")
+            transform_expr =  f"transform({generator_exp}, '{layer_crs}',  'EPSG:3857')"
         else:
             target_geom = flat_rule.get_attr("c")
             source_geom = flat_rule.get_attr("g")

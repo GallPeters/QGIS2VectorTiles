@@ -909,9 +909,7 @@ class TextPropertyExtractor:
         # return PropertyExtractor.convert_length_to_pixels(distance, unit)
 
     @staticmethod
-    def get_text_variable_anchor(
-        label_settings: QgsPalLayerSettings,
-    ) -> Optional[List[str]]:
+    def get_text_variable_anchor() -> Optional[List[str]]:
         """Return ``text-variable-anchor`` when QGIS uses a flexible placement.
 
         For ``AroundPoint`` (0) and ``OrderedPositionsAroundPoint`` (6), a
@@ -919,13 +917,7 @@ class TextPropertyExtractor:
         best fit. ``None`` is returned otherwise so MapLibre falls back to
         the static ``text-anchor`` value.
         """
-        try:
-            placement = label_settings.placement
-        except AttributeError:
-            return None
-        if placement:
-            return ["bottom",  "bottom-left", "bottom-right", "left", "right", "top", "top-left", "top-right"]
-        return None
+        return ["bottom",  "bottom-left", "bottom-right", "left", "right", "top", "top-left", "top-right"]
 
     @staticmethod
     def get_text_max_angle(label_settings: QgsPalLayerSettings) -> float:
@@ -1506,8 +1498,8 @@ class QgisMapLibreStyleExporter:
             "visibility": "visible",
         })
 
-        variable_anchor = TextPropertyExtractor.get_text_variable_anchor(label_settings)
-        if variable_anchor:
+        variable_anchor = TextPropertyExtractor.get_text_variable_anchor()
+        if variable_anchor and label_settings.placement != 1:
             layer_def["layout"]["text-variable-anchor"] = variable_anchor
 
         layer_def["paint"].update({

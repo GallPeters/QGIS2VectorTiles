@@ -201,12 +201,6 @@ class RulesFlattener:
         flat_rule.set_attr("i", self._rule_max_zoom(flat_rule.rule))
         # "s" = symbol layer index for renderer; "f" = renderer index for labeling
         flat_rule.set_attr("s" if rule_type == 0 else "f", 0)
-        # "u" = tree-unique source-rule id (carried into output_dataset only;
-        # NOT read by FlattenedRule.get_description, so feature-level identity
-        # string stays unchanged). Splits clone the rule's description, so all
-        # split children of one source rule share the same "u".
-        flat_rule.set_attr("u", self._unique_counter)
-        self._unique_counter += 1
 
     def _rule_min_zoom(self, rule) -> int:
         return int(ZoomLevels.scale_to_zoom(rule.minimumScale(), "o"))

@@ -58,12 +58,30 @@ class TilesStyler:
 
     def apply_styling(self) -> QgsVectorTileLayer:
         """Apply all rule styles to the tiles layer and save the QLR definition."""
-        for rule in reversed(self.flattened_rules):
+        sorted_rules = reversed(sorted(self.flattened_rules, key=lambda x:self.get_label_priority(x)))
+        for rule in sorted_rules:
             self._create_style_from_rule(rule)
-
         self._apply_styles_to_layer()
         self._save_style()
         return self.tiles_layer
+
+    def get_label_priority(self, flat_rule: FlattenedRule):
+        """Get the label priority value which being expressed in the rendering process"""
+        if flat_rule.get_attr("t") == 0:
+            return self.flattened_rules.index(flat_rule) + 11
+        label_settings = flat_rule.rule.settings()
+        ddp = label_settings.dataDefinedProperties()
+        if not ddp or not ddp.property(87).isActive():
+            return label_settings.priority  
+        prop = ddp.property(87)
+        if prop.field():
+            return ["get", prop.field()]
+        if prop.expressionString():
+            try:
+                return round(float(prop.expressionString()), 2)
+            except (ValueError, TypeError):
+                pass
+        return label_settings.priority  
 
     def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
         """Create a vector tile layer and insert it at the top of the project legend."""
