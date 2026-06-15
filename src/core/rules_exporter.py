@@ -542,9 +542,13 @@ class RulesExporter:
                     outputs[grp.output_dataset] = None
         return outputs
 
-    def validate_expression(self, expr_str: str):
+    def validate_expression(self, grp, expr_str: str):
+        layer_name = grp.flat_rules[0].layer.name() or grp.layer_id
+        rule_type = 'labeling' if grp.rule_type == 1 else 'symbology'
+        warning_msg = f'The expression "{expr_str}" within the {rule_type} of the "{layer_name}" layer'
+
         if not isinstance(expr_str, str):
-            self.feedback.pushWarning(f"Warning! Expression ({expr_str}) must be valid.")
+            self.feedback.pushWarning(f"{warning_msg} must be a string.")
 
         expr_str = expr_str.strip()
 
@@ -554,7 +558,7 @@ class RulesExporter:
         expr = QgsExpression(expr_str)
 
         if expr.hasParserError():
-            self.feedback.pushWarning(f"Warning! Expression ({expr_str}) is not valid.")
+            self.feedback.pushWarning(f"{warning_msg} is not valid.")
             return None
 
         return expr_str
@@ -575,7 +579,7 @@ class RulesExporter:
             self._check_cancel()
             filt_out = self._temp_path("filt")
 
-            if not self.validate_expression(grp.filter_expression):
+            if not self.validate_expression(grp, grp.filter_expression):
                 return None
 
             filt = self._run_alg_safe(
@@ -622,7 +626,7 @@ class RulesExporter:
         # layer.geometryType() returns 0 for point and 2 for polygon
         # but geometrybyexpression processing treats 0 as polygon and 2 as point
         # so we need to flip these values to get the correct geometry type.
-        if not self.validate_expression(grp.geometry_expression):
+        if not self.validate_expression(grp, grp.geometry_expression):
                 return None
         geom_target = abs(grp.geometry_target - 2)
         transformed = self._run_alg_safe(
