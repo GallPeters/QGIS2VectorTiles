@@ -68,20 +68,20 @@ class TilesStyler:
     def get_label_priority(self, flat_rule: FlattenedRule):
         """Get the label priority value which being expressed in the rendering process"""
         if flat_rule.get_attr("t") == 0:
-            return self.flattened_rules.index(flat_rule) + 11
+            return self.flattened_rules.index(flat_rule) + 20
         label_settings = flat_rule.rule.settings()
         ddp = label_settings.dataDefinedProperties()
         if not ddp or not ddp.property(87).isActive():
-            return label_settings.priority  
+            return 11 - label_settings.priority  
         prop = ddp.property(87)
         if prop.field():
             return ["get", prop.field()]
         if prop.expressionString():
             try:
-                return round(float(prop.expressionString()), 2)
+                return 11 -round(float(prop.expressionString()), 2)
             except (ValueError, TypeError):
                 pass
-        return label_settings.priority  
+        return 11 -label_settings.priority  
 
     def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
         """Create a vector tile layer and insert it at the top of the project legend."""
