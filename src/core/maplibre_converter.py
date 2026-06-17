@@ -24,7 +24,6 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .sprite_generator import SpriteGenerator
-from ..utils.config import _SPRITE_SCALE_FACTOR
 
 
 class PropertyExtractor:
@@ -454,12 +453,12 @@ class IconPropertyExtractor:
 
     @staticmethod
     def get_icon_size(
-        symbol_layer: QgsSymbolLayer, default_size: float = 1.0
+        symbol_layer: QgsSymbolLayer, default_size: float = 1.0, sprite_quality: int = 1
     ) -> Union[float, List]:
         """Return ``icon-size`` honouring any data-defined override."""
         size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
         size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
-        return size_val / _SPRITE_SCALE_FACTOR
+        return size_val / sprite_quality
 
     @staticmethod
     def get_icon_rotate(
@@ -1056,6 +1055,7 @@ class QgisMapLibreStyleExporter:
         output_dir: str,
         layer: Optional[QgsVectorTileLayer] = None,
         background_type: int = 0,
+        sprite_quality: int = 1,
         viewer: int = 0,
         minzoom: int = 0,
         maxzoom: int = 14
@@ -1077,6 +1077,7 @@ class QgisMapLibreStyleExporter:
         self.marker_symbols: dict = {}
         self.marker_counter = 0
         self.viewer = viewer
+        self.sprite_quality = {0:1, 1:2, 2:3, 3:5}.get(sprite_quality, 1)
         self.minzoom = minzoom
         self.maxzoom = maxzoom
         self.layer = self._resolve_layer(layer)
@@ -1308,7 +1309,7 @@ class QgisMapLibreStyleExporter:
 
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
-            "icon-size": IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
+            "icon-size": IconPropertyExtractor.get_icon_size(symbol_layer, 1.0, self.sprite_quality),
             "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=symbol_layer),
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
             "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
@@ -1620,7 +1621,7 @@ class QgisMapLibreStyleExporter:
 
         if self.marker_symbols:
             SpriteGenerator(
-                self.marker_symbols, style_dir, _SPRITE_SCALE_FACTOR, False
+                self.marker_symbols, style_dir, self.sprite_quality, False
             ).generate()
         else:
             del self.style["sprite"]

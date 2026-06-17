@@ -51,6 +51,7 @@ class QGIS2VectorTiles:
         include_required_fields_only=0,
         cpu_percent: int = 100,
         cent_source: int = 0,
+        sprite_quality: int = 1,
         background_type: int = 0,
         viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
@@ -63,6 +64,7 @@ class QGIS2VectorTiles:
         self.include_required_fields_only = include_required_fields_only
         self.cpu_percent = min(cpu_percent, 90)
         self.cent_source = cent_source
+        self.sprite_quality = sprite_quality
         self.background_type = background_type
         self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
@@ -166,7 +168,7 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir, tiles_uri).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
+        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type, self.sprite_quality, self.viewer, self.min_zoom, self.max_zoom).export()
 
     def _log(self, message: str):
         if __name__ != "__console__":
