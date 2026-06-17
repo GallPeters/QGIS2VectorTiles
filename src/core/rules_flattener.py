@@ -402,10 +402,11 @@ class RulesFlattener:
             symbol_layer = symbol.symbolLayer(layer_idx)
             if not symbol_layer.enabled():
                 continue
-
+            geom_generator = None
             sub_symbol = symbol_layer.subSymbol()
             if symbol_layer.layerType() == "GeometryGenerator":
                 symbol_type = sub_symbol.type()
+                geom_generator = True
             elif symbol_layer.layerType() == "CentroidFill":
                 symbol_type = 0
             else:
@@ -413,7 +414,7 @@ class RulesFlattener:
 
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
             rule_clone.set_attr("c", symbol_type)
-            rule_clone.set_attr("s", layer_idx)
+            rule_clone.set_attr("s", layer_idx, geom_generator)
 
             clone_symbol = rule_clone.rule.symbol()
             for remove_idx in reversed(range(layer_count)):

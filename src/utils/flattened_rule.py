@@ -28,7 +28,7 @@ class FlattenedRule:
             return None
         return int(desc[start : start + 2])
 
-    def set_attr(self, char: str, value: int):
+    def set_attr(self, char: str, value: int, geom_generator=None):
         """Set rule attribute in description."""
         value = int(value)
         new_attr = f"{char}{value:02d}"
@@ -45,7 +45,7 @@ class FlattenedRule:
         self.output_dataset = desc
 
         i = desc.find("s")
-        if i >= 0:
+        if i >= 0 and geom_generator:
             self.output_dataset = self.output_dataset.replace(desc[i : i + 3], "s00")
 
     def get_description(self):

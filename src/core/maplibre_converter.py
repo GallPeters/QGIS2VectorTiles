@@ -1462,7 +1462,7 @@ class QgisMapLibreStyleExporter:
     ):
         """Convert a ``QgsPalLayerSettings`` into a MapLibre ``symbol`` layer."""
         layer_def = self._base_layer_def(
-            "symbol", f"{style_name}_label", source_layer_name, source_name, min_zoom, max_zoom
+            "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
 
         text_format = label_settings.format()
