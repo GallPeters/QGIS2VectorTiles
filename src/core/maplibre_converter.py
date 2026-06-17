@@ -24,6 +24,7 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .sprite_generator import SpriteGenerator
+from ..utils.config import _SPRITE_SCALE_FACTOR
 
 
 class PropertyExtractor:
@@ -457,7 +458,8 @@ class IconPropertyExtractor:
     ) -> Union[float, List]:
         """Return ``icon-size`` honouring any data-defined override."""
         size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
-        return PropertyExtractor.get_value_or_expression(default_size, size_prop)
+        size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
+        return size_val / _SPRITE_SCALE_FACTOR
 
     @staticmethod
     def get_icon_rotate(
@@ -1618,7 +1620,7 @@ class QgisMapLibreStyleExporter:
 
         if self.marker_symbols:
             SpriteGenerator(
-                self.marker_symbols, style_dir, scale_factor=1, test_mode=False
+                self.marker_symbols, style_dir, _SPRITE_SCALE_FACTOR, False
             ).generate()
         else:
             del self.style["sprite"]

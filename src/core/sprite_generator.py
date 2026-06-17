@@ -62,24 +62,37 @@ class SymbolImage:
     def __post_init__(self):
         self._render()
 
+    def _extract_markers(self, symbol: QgsSymbol, markers: list):
+        """Recursively extract marker symbols from a symbol object"""
+        if symbol.type() == 0:
+            markers.append(symbol)
+        else:
+            for sym_layer in symbol.symbolLayers():
+                sub_symbol = sym_layer.subSymbol()
+                if sub_symbol:
+                    self._extract_markers(sub_symbol, markers)
+        
+    def _set_symbol_size(self, marker, scale_factor):
+        """Set marker symbol size including outlines and buffer width"""
+        # Set marker size
+        if hasattr(marker, "size") and hasattr(marker, "setSize"):
+            marker.setSize(marker.size() * scale_factor)
+        # Set outline size
+        for sym_layer in marker.symbolLayers():
+            if hasattr(sym_layer, 'strokeWidth') and hasattr(sym_layer, 'setStrokeWidth'):
+                sym_layer.setStrokeWidth(sym_layer.strokeWidth() * scale_factor)
+        # Set buffer size
+        if hasattr(marker, "bufferSettings") and marker.bufferSettings():
+            marker.bufferSettings().setSize(marker.bufferSettings().size() * scale_factor)
+        
     def _render(self):
         """Render symbol at 1000 px, scale its size, then crop transparent borders."""
         try:
             symbol = self.symbol.clone()
-            for layer_idx in range(symbol.symbolLayerCount()):
-                layer = symbol.symbolLayer(layer_idx)
-                if layer and hasattr(layer, "setSize"):
-                    current = layer.size() if hasattr(layer, "size") else 0
-                    if current and current > 0:
-                        layer.setSize(current * self.scale_factor)
-                if layer and hasattr(layer, "setStrokeWidth"):
-                    try:
-                        current = layer.strokeWidth() if hasattr(layer, "strokeWidth") else 0
-                        if current and current > 0:
-                            layer.setStrokeWidth(current * self.scale_factor)
-                    except (RuntimeError, AttributeError):
-                        pass
-
+            markers = []
+            self._extract_markers(symbol, markers)
+            for marker in markers:
+                self._set_symbol_size(marker, self.scale_factor)
             qt_img = symbol.asImage(QSize(1000, 1000))
             pil_img = self._qt_to_pil(qt_img)
             bbox = pil_img.getbbox()

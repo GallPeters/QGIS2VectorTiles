@@ -21,6 +21,7 @@ _EPSG_CRS = 3857
 _DATA_SIMPLIFICATION_TOLERANCE = 1  # CRS Units
 _REMOVE_DUPLICATES_DISTANCE = 300  # Points
 _TOP_SCALE = 419311712
+_SPRITE_SCALE_FACTOR =1
 
 # PyQt version guard — import the right Qt5 / Qt6 symbols once, re-export
 
@@ -48,5 +49,6 @@ __all__ = [
     "_PLUGIN_DIR",
     "QDomDocument",
     "QVariant",
+    "_SPRITE_SCALE_FACTOR",
     "sip",
 ]
