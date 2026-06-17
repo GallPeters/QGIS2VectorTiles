@@ -91,10 +91,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         Returns a localised short helper string for the algorithm.
         """
         return self.tr(
-            "Generates styled vector tiles package from all visible project layers while preserving "  # pylint: disable=C0301
-            "their original styling. The generated tiles are automatically loaded "
-            "back into the project with identical appearance to the source layers."
-            "\nMore information can be found at: https://github.com/GallPeters/QGIS2VectorTiles"
+            "QGIS2VectorTiles converts a QGIS project into a vector tile package with a single vector tile source, a web style matching the original QGIS styling, and a ready-to-use web viewer.\nIt enables fast client-side rendering, lightweight publishing, and easy sharing - without servers or third-party libraries.\nMore information can be found at: https://gallpeters.github.io/QGIS2VectorTiles"
         )
 
     def initAlgorithm(self, config=None):  # pylint: disable=W0613
