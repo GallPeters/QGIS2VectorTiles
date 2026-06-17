@@ -607,22 +607,28 @@ class RulesExporter:
         # Geometry transformation.
         self._check_cancel()
         transbase = refactored
+        keep_biggest_part = False
         if grp.rule_type == 1:
             settings = grp.flat_rules[0].rule.settings()
             if settings and not settings.labelPerPart:
-                dissolved = self._run_alg_safe(
-                    "dissolve", "native",
-                    INPUT=refactored,
-                    FIELD=[f'{self.FIELD_PREFIX}_orig_id'],
-                    SEPARATE_DISJOINT=False
-                )
-                singlepart = self._run_alg_safe(
-                    "keepnbiggestparts", "native",
-                    POLYGONS=dissolved,
-                    PARTS=1
-                )
-                transbase = singlepart
-
+                keep_biggest_part = True
+        if grp.rule_type == 0:
+            symbol_layer = grp.flat_rules[0].rule.symbol().symbolLayers()[0]
+            if symbol_layer.layerType() == 'CentroidFill' and symbol_layer.pointOnAllParts():
+                keep_biggest_part = True
+        if keep_biggest_part:
+            dissolved = self._run_alg_safe(
+                "dissolve", "native",
+                INPUT=refactored,
+                FIELD=[f'{self.FIELD_PREFIX}_orig_id'],
+                SEPARATE_DISJOINT=False
+            )
+            singlepart = self._run_alg_safe(
+                "keepnbiggestparts", "native",
+                POLYGONS=dissolved,
+                PARTS=1
+            )
+            transbase = singlepart
         # layer.geometryType() returns 0 for point and 2 for polygon
         # but geometrybyexpression processing treats 0 as polygon and 2 as point
         # so we need to flip these values to get the correct geometry type.
