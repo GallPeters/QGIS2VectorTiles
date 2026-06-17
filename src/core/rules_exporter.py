@@ -614,7 +614,7 @@ class RulesExporter:
                 keep_biggest_part = True
         if grp.rule_type == 0:
             symbol_layer = grp.flat_rules[0].rule.symbol().symbolLayers()[0]
-            if symbol_layer.layerType() == 'CentroidFill' and symbol_layer.pointOnAllParts():
+            if symbol_layer.layerType() == 'CentroidFill' and not symbol_layer.pointOnAllParts():
                 keep_biggest_part = True
         if keep_biggest_part:
             dissolved = self._run_alg_safe(
