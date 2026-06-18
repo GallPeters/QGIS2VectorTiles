@@ -676,10 +676,10 @@ class RulesExporter:
                     if 'ogc_fid' not in f.name().lower():
                         mapping.append((f.type(), f'"{f.name()}"', f.name()))
 
-        if grp.rule_type == 1:
-            mapping.append(
-                (6, f'"{self.FIELD_PREFIX}_orig_id"', f"{self.FIELD_PREFIX}_orig_id")
-            )
+       
+        mapping.append(
+            (6, f'"{self.FIELD_PREFIX}_orig_id"', f"{self.FIELD_PREFIX}_orig_id")
+        )
         return [
             {"type": m[0], "expression": m[1], "name": m[2]} for m in mapping
         ]

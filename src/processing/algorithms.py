@@ -103,7 +103,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.MIN_ZOOM,
-                self.tr("Minimum Zoom"),
+                self.tr("Minimum Zoom (Inclusive)"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=0,
                 minValue=0,
@@ -136,7 +136,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.CPU_PERCENT,
-                self.tr("CPU Percent"),
+                self.tr("CPU Usage Limit (%)"),
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=100,
                 minValue=0,
@@ -156,7 +156,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterEnum(
                 self.POLYGONS_LABELS_BASE,
-                self.tr("Polygons Labels Base"),
+                self.tr("Polygon Labels Base"),
                 options=["Whole Polygon", "Visible Polygon"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
@@ -166,8 +166,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterEnum(
                 self.SPRITE_QUALITY,
-                self.tr("Sprite Quality"),
-                options=["Standard", "High", "Very High", "Ultra"],
+                self.tr("Icon Quality"),
+                options=["Standard (1×)", "High (2×)", "Very High (3×) High", "Ultra (5×)"],
                 defaultValue=2,  # Default to High
                 optional=False,
             )
@@ -176,7 +176,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterEnum(
                 self.BACKGROUND_TYPE,
-                self.tr("Background Type"),
+                self.tr("Background"),
                 options=["OpenStreetMap", "NASA's BlueMarble Imagery", "Project Background Color"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
