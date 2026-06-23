@@ -5,23 +5,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- Favicon -->
 <link rel="icon" type="image/png" sizes="16x16" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 
-<!-- Primary Meta Tags -->
-<title>QGIS2VectorTiles — From styled QGIS projects to ready-to-use web maps in a single click.</title>
+<title>QGIS2VectorTiles - From styled QGIS projects to ready-to-use web maps in a single run</title>
 
-<meta name="title" content="QGIS2VectorTiles — From styled QGIS projects to ready-to-use web maps in a single click.">
+<meta name="title" content="QGIS2VectorTiles - From styled QGIS projects to ready-to-use web maps in a single run">
 <meta name="description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
 
-<!-- Open Graph / Facebook / WhatsApp / Mastodon -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QGIS2VectorTiles">
 <meta property="og:locale" content="en_US">
 
 <meta property="og:title"
-      content="QGIS2VectorTiles — From styled QGIS projects to ready-to-use web maps in a single click.">
+      content="QGIS2VectorTiles - From styled QGIS projects to ready-to-use web maps in a single run">
 
 <meta property="og:description"
       content="Export QGIS projects as styled vector tiles, MBTiles packages, MapLibre styles and ready-to-use web maps.">
@@ -47,11 +44,10 @@
 <meta property="og:image:alt"
       content="QGIS2VectorTiles website preview">
 
-<!-- Twitter / X -->
 <meta name="twitter:card" content="summary_large_image">
 
 <meta name="twitter:title"
-      content="QGIS2VectorTiles — From styled QGIS projects to ready-to-use web maps in a single click.">
+      content="QGIS2VectorTiles - From styled QGIS projects to ready-to-use web maps in a single run">
 
 <meta name="twitter:description"
       content="Export QGIS projects as styled vector tiles, MBTiles packages, MapLibre styles and ready-to-use web maps.">
@@ -59,7 +55,6 @@
 <meta name="twitter:image"
       content="icons/icon.png">
 
-<!-- Theme Color -->
 <meta name="theme-color" content="#7ec44a">
 
 <style>
@@ -67,7 +62,7 @@
 
 /* ════════════════════════════════════════
    DESIGN TOKENS
-   Flat dark UI — QGIS brand palette.
+   Flat dark UI - QGIS brand palette.
    No gradients, no transparency, no blur.
 ════════════════════════════════════════ */
 :root {
@@ -82,11 +77,11 @@
   --border-2:      #333333;
   --border-3:      #404040;
 
-  /* Brand accents — QGIS */
---accent:        #98B023;   /* olive green */
---accent-hover:  #A9C33A;   /* brighter hover */
---accent-deep:   #38410F;   /* dark olive */
---accent-2:      #98B023;
+  /* Brand accents - QGIS */
+  --accent:        #98B023;   /* olive green */
+  --accent-hover:  #A9C33A;   /* brighter hover */
+  --accent-deep:   #38410F;   /* dark olive */
+  --accent-2:      #98B023;
 
   /* Typography */
   --text:          #ececec;
@@ -96,7 +91,7 @@
 
   --header-h:      56px;
 
-  /* Border radii — small, flat */
+  /* Border radii - small, flat */
   --r-sm: 3px;
   --r-md: 4px;
   --r-lg: 6px;
@@ -136,7 +131,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 ::selection { background: var(--accent); color: var(--bg); }
 
 /* ════════════════════════════════════════
-   FIXED HEADER — solid, opaque, flat
+   FIXED HEADER - solid, opaque, flat
 ════════════════════════════════════════ */
 .header {
   position: fixed;
@@ -243,7 +238,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   SECTIONS / SCROLL SNAP (untouched behavior)
+   SECTIONS / SCROLL SNAP
 ════════════════════════════════════════ */
 section {
   scroll-snap-align: start;
@@ -256,7 +251,16 @@ section {
   padding: calc(var(--header-h) + clamp(28px, 4vh, 60px)) clamp(18px, 4vw, 56px) clamp(48px, 6vh, 80px);
   position: relative;
   background: var(--bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(24px, 6vh, 80px) 4vw;
+  scroll-margin-top: 0px;
 }
+
 
 section + section { border-top: 1px solid var(--border); }
 
@@ -267,7 +271,7 @@ section + section { border-top: 1px solid var(--border); }
 }
 
 /* ════════════════════════════════════════
-   SHARED — eyebrow / headings
+   SHARED - eyebrow / headings
 ════════════════════════════════════════ */
 .eyebrow {
   display: inline-flex;
@@ -278,7 +282,7 @@ section + section { border-top: 1px solid var(--border); }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-bottom: 18px;
+  margin-bottom: 14px; /* Reduced for compression */
 }
 .eyebrow::before {
   content: '';
@@ -317,75 +321,234 @@ section + section { border-top: 1px solid var(--border); }
 }
 
 /* ════════════════════════════════════════
-   SECTION 1 — HERO (flat, no gradients)
+   SECTION 1 - HERO (REDESIGN)
 ════════════════════════════════════════ */
-.hero { text-align: center; }
-
-/* Kept for HTML compatibility — no decorative styling */
-.hero-bg {
-  display: none;
+.hero {
+  position: relative;
+  width: 100%;
 }
 
-.hero-content {
-  position: relative;
-  max-width: min(760px, 90vw);
+.hero-bg { display: none; }
+
+.hero-redesign-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(32px, 5vw, 64px);
+  max-width: var(--max-w-xl);
+  width: 100%;
   margin: 0 auto;
+  z-index: 10;
+}
+
+.hero-redesign-left {
+  flex: 1.1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hero-redesign-header {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 2vw, 24px);
+  margin-bottom: 20px;
 }
 
 .hero-icon {
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 32px;
-  overflow: hidden;
-  border: 0px solid var(--border-2);
-  background: #0d0d0d;
-  position: relative;
+  width: clamp(64px, 6vw, 84px);
+  height: clamp(64px, 6vw, 84px);
+  border-radius: var(--r-md);
+  background: transparent;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.hero-icon svg { width: 100%; height: 100%; display: block; }
+.hero-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 
 .hero h1 {
-  font-size: clamp(40px, 6.2vw, 64px);
+  font-size: clamp(36px, 5vw, 64px);
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1.05;
   color: var(--text);
-  margin-bottom: 22px;
+  margin: 0;
 }
+
 .hero h1 .accent { color: var(--accent); }
 
 .hero-tagline {
-  font-size: clamp(16px, 1.5vw, 18px);
+  font-size: clamp(16px, 1.6vw, 18px);
   color: var(--text-muted);
-  max-width: 600px;
-  margin: 0 auto;
   line-height: 1.6;
+  text-align: center;
+  align-content: center;
+  margin-bottom: 32px;
+  max-width: 600px;
 }
 
-.hero-meta {
-  margin-top: 36px;
+.hero-feature-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 12px;
+  max-width: 600px;
+}
+
+.feature-badge {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  letter-spacing: 0.01em;
+  gap: 8px;
+  font-size: clamp(12px, 1vw, 13px);
+  color: var(--text);
+  min-width: 100px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-weight: 500;
+  transition: border-color var(--t), background var(--t), transform var(--t);
 }
-.hero-meta .dot {
-  display: inline-flex;
+
+.feature-badge:hover {
+  border-color: var(--border-3);
+  background: var(--surface-3);
+  transform: translateY(-1px);
+}
+
+.feature-badge svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.hero-redesign-right {
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 100%;
 }
-.hero-meta .dot::before {
-  content: '';
-  width: 6px; height: 6px;
-  border-radius: 50%;
+
+.hero-anim-container {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-3);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+  overflow: hidden;
+  background: var(--surface);
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+.hero-anim-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.hero-anim-img.base {
+  z-index: 1;
+}
+
+.hero-anim-img.top-img {
+  z-index: 2;
+  clip-path: inset(0 100% 0 0);
+  animation: revealWeb 8s infinite alternate ease-in-out;
+}
+
+.hero-slider-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
   background: var(--accent);
+  z-index: 5;
+  animation: moveLine 8s infinite alternate ease-in-out;
+  box-shadow: 0 0 12px rgba(152, 176, 35, 0.5);
+  pointer-events: none;
 }
-.hero-meta .sep {
-  width: 3px; height: 3px;
-  border-radius: 50%;
-  background: var(--text-faint);
+
+.hero-slider-line::after {
+  content: '◂▸';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #0d0d0d;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.hero-anim-labels {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(13, 13, 13, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 6px 8px;
+  border-radius: 30px;
+  border: 1px solid var(--border-3);
+  z-index: 10;
+}
+
+.anim-status-label {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  transition: all 0.3s ease;
+}
+
+.web-status { animation: highlightWeb 8s infinite alternate ease-in-out; }
+.qgis-status { animation: highlightQgis 8s infinite alternate ease-in-out; }
+
+@keyframes revealWeb {
+  0%, 15% { clip-path: inset(0 100% 0 0); }
+  85%, 100% { clip-path: inset(0 0% 0 0); }
+}
+
+@keyframes moveLine {
+  0%, 15% { left: 0%; opacity: 0; }
+  16%, 84% { opacity: 1; }
+  85%, 100% { left: 100%; opacity: 0; }
+}
+
+@keyframes highlightQgis {
+  0%, 35% { background: var(--surface-3); color: #fff; border-color: var(--border-3); }
+  65%, 100% { background: transparent; color: var(--text-dim); border-color: transparent; }
+}
+
+@keyframes highlightWeb {
+  0%, 35% { background: transparent; color: var(--text-dim); border-color: transparent; }
+  65%, 100% { background: var(--accent); color: #0d0d0d; border-color: var(--accent); }
 }
 
 .scroll-cue {
@@ -403,25 +566,81 @@ section + section { border-top: 1px solid var(--border); }
   gap: 10px;
   font-weight: 500;
 }
+
 .scroll-cue .line {
   width: 1px;
   height: 26px;
   background: var(--text-dim);
   animation: scrollCue 2.4s ease-in-out infinite;
 }
+
 @keyframes scrollCue {
   0%, 100% { opacity: 0.3; transform: scaleY(0.6); }
   50%      { opacity: 1;   transform: scaleY(1); }
 }
 
+/* Hero Redesign Responsiveness */
+@media (max-width: 980px) {
+  .hero-redesign-container {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    gap: clamp(24px, 4vh, 40px);
+  }
+  .hero-redesign-left {
+    align-items: center;
+    flex: none;
+  }
+  .hero-redesign-header {
+    justify-content: center;
+  }
+  .hero-feature-badges {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-redesign-header {
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .hero-tagline {
+    font-size: 14.5px;
+    margin-bottom: 20px;
+  }
+  .feature-badge {
+    padding: 5px 10px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  .feature-badge svg {
+    width: 12px;
+    height: 12px;
+  }
+  .hero-feature-badges {
+    gap: 8px;
+  }
+  .hero-anim-container {
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--r-md);
+  }
+  .hero-anim-labels {
+    bottom: 8px;
+    padding: 4px;
+    transform: translateX(-50%) scale(0.9);
+  }
+}
+
 /* ════════════════════════════════════════
-   SECTION 2 — DEMO + OUTPUT PACKAGE
+   SECTION 2 - DEMO + OUTPUT PACKAGE
 ════════════════════════════════════════ */
 .demo-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: clamp(32px, 4.5vw, 72px);
-  align-items: stretch;
+  align-items: stretch; /* Forces equal height columns */
 }
 
 .demo-side, .outputs-side {
@@ -429,57 +648,16 @@ section + section { border-top: 1px solid var(--border); }
   flex-direction: column;
 }
 
-.demo-video-wrap {
-  flex: 1;
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: #000;
-  position: relative;
-  max-height: clamp(352px, 35vh, 450px);
-}
-.demo-video-wrap video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  background: #000;
-  display: block;
-}
-
-/* The demo-side wraps its video in an `.outputs-list` div in the HTML — strip
-   the list styling there so we don't get a doubled container. */
-.demo-side .outputs-list {
-  border: none;
-  background: transparent;
-  border-radius: 0;
-  margin-top: 22px;
-}
-
-.demo-caption {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-}
-.demo-caption .badge {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-sm);
-  color: var(--text-muted);
-  background: var(--surface);
-}
-
-.outputs-list {
-  margin-top: 22px;
+/* Ensure inner lists stretch dynamically to perfectly match heights */
+.outputs-list, .mini-wf {
+  margin-top: 18px; /* Compressed */
   display: flex;
   flex-direction: column;
+  flex: 1; /* Stretch to fill container height */
+}
+
+/* Outputs List Side Styles */
+.outputs-list {
   border: 1px solid var(--border-2);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -490,7 +668,8 @@ section + section { border-top: 1px solid var(--border); }
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 18px;
+  padding: 10px 16px; /* Compressed padding */
+  flex: 1; /* Stretch rows equally to fill space */
   transition: background var(--t);
   border-bottom: 1px solid var(--border);
 }
@@ -504,7 +683,6 @@ section + section { border-top: 1px solid var(--border); }
   font-variant-numeric: tabular-nums;
   min-width: 16px;
 }
-
 .output-icon {
   width: 32px;
   height: 32px;
@@ -517,7 +695,6 @@ section + section { border-top: 1px solid var(--border); }
   color: var(--accent);
   flex-shrink: 0;
 }
-
 .output-info { flex: 1; min-width: 0; }
 .output-name {
   font-size: 14px;
@@ -533,39 +710,504 @@ section + section { border-top: 1px solid var(--border); }
 }
 
 /* ════════════════════════════════════════
-   SECTIONS 3-5 — USE CASES
+   COMPACT WORKFLOW PIPELINE (LEFT COLUMN)
+════════════════════════════════════════ */
+.mini-orchestrator {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 10px 14px; /* Compressed */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1; /* Distribute vertical space */
+  transition: background var(--t), border-color var(--t), box-shadow var(--t), transform var(--t);
+  cursor: pointer;
+  min-height: 42px; /* Compressed */
+}
+.mini-orchestrator:hover {
+  background: #191919;
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.mini-orch-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0d0d0d;
+  background: var(--accent);
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+
+.mini-connector {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 10px; /* Compressed */
+  color: var(--border-3);
+  flex-shrink: 0;
+}
+.mini-connector svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.mini-node {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  padding: 8px 14px; /* Compressed */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1; /* Distribute vertical space */
+  transition: border-color var(--t), background var(--t), transform var(--t), box-shadow var(--t);
+  cursor: pointer;
+  min-height: 38px; /* Compressed */
+}
+.mini-node:hover {
+  border-color: var(--border-3);
+  background: var(--surface-3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.mini-node:hover .mini-node-step { border-color: var(--accent); }
+.mini-node:hover .mini-node-icon { color: var(--accent); }
+
+.mini-node-step {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color var(--t);
+}
+.mini-node-icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--t);
+}
+.mini-node-icon svg { width: 16px; height: 16px; }
+
+.mini-node-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-node-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.mini-node-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+
+/* ════════════════════════════════════════
+   SECTION 3 - DEMOS SHOWCASE (Fully Responsive)
+════════════════════════════════════════ */
+.section-demos .container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.demo-showcase-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: clamp(12px, 2.5vh, 40px);
+  align-items: stretch;
+  margin-top: clamp(12px, 2vh, 24px);
+  flex: 1;
+  min-height: 0; /* Crucial for preventing overflow on short screens */
+}
+
+.demo-card {
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: background var(--t), border-color var(--t), transform var(--t), box-shadow var(--t);
+  cursor: pointer;
+  display: flex;
+  min-height: 0;
+}
+
+
+.demo-card:hover {
+  background: var(--surface-2);
+  border-color: var(--border-3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.demo-card:hover .play-btn { color: var(--accent); transform: translate(-50%, -50%) scale(1.1); }
+
+.demo-card.large {
+  flex-direction: column;
+  flex: 1; 
+}
+
+.demo-thumb {
+  background: #000;
+  position: relative;
+  flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.demo-card.large .demo-thumb {
+  width: 100%;
+  flex: 1; /* Automatically scales height to fit available bounds */
+  min-height: 120px;
+}
+
+/* Make the video take up 75% (3 parts) and the description 25% (1 part) */
+.demo-card.large .demo-thumb {
+  flex: 4 !important; 
+}
+
+.demo-card.large .demo-info {
+  flex: 1 !important;
+}
+
+.demo-card.small {
+  flex-direction: row;
+  align-items: center;
+  padding: clamp(6px, 1vh, 12px);
+  gap: clamp(10px, 1vw, 16px);
+  flex: 1; 
+}
+
+.demo-card.small .demo-thumb {
+  width: clamp(90px, 12vw, 140px);
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.play-btn {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  transition: color var(--t), transform var(--t);
+}
+.play-btn svg { width: 36px; height: 36px; fill: currentColor; }
+.demo-card.small .play-btn svg { width: 24px; height: 24px; }
+
+.demo-info {
+  padding: clamp(12px, 2vh, 20px); 
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center; 
+  min-height: 0;
+}
+.demo-card.small .demo-info { padding: 0; padding-right: 8px; }
+
+.demo-title { 
+  font-size: clamp(14px, 2vh, 16px); 
+  font-weight: 600; 
+  color: var(--text); 
+  margin-bottom: 4px; 
+  letter-spacing: -0.01em; 
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.demo-card.small .demo-title { 
+  font-size: clamp(13px, 1.8vh, 14px); 
+  margin-bottom: 2px; 
+}
+
+.demo-desc { 
+  font-size: clamp(12px, 1.6vh, 14px); 
+  color: var(--text-muted); 
+  line-height: 1.4; 
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.demo-card.small .demo-desc { 
+  font-size: clamp(11px, 1.4vh, 12px); 
+  line-height: 1.3; 
+}
+
+.demo-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.5vh, 16px);
+  flex: 1;
+  min-height: 0;
+}
+
+/* ════════════════════════════════════════
+   MODALS (WORKFLOW & VIDEO)
+════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(5, 5, 5, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-slow);
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-window {
+  background: var(--surface-2);
+  border: 1px solid var(--border-3);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 580px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+  transform: translateY(15px);
+  transition: transform var(--t-slow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-overlay.open .modal-window {
+  transform: translateY(0);
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-2);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface);
+}
+
+.modal-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.015em;
+}
+
+.modal-close {
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  padding: 4px;
+  transition: color var(--t), background var(--t);
+  display: inline-flex;
+}
+.modal-close:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.modal-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  max-height: calc(80vh - 120px);
+}
+
+.modal-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-bullets li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.modal-bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-2);
+  background: var(--surface);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0d0d0d;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  transition: background var(--t), border-color var(--t);
+  text-decoration: none;
+}
+.btn-github:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Video Modal Specifics */
+.vid-modal-window {
+  max-width: 900px;
+  padding: 0;
+  background: #000;
+  border: 1px solid var(--border-3);
+  position: relative;
+}
+.vid-modal-header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 16px;
+  display: flex;
+  justify-content: flex-end;
+  z-index: 10;
+  pointer-events: none;
+  border: none;
+  background: transparent;
+}
+.vid-modal-header .modal-close {
+  pointer-events: auto;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+}
+.vid-modal-header .modal-close:hover {
+  background: var(--accent);
+  color: #000;
+}
+.vid-wrapper {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vid-wrapper video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+
+
+
+/* ════════════════════════════════════════
+   SECTIONS 4-6 - USE CASES
 ════════════════════════════════════════ */
 .usecase {
   text-align: center;
   max-width: min(1020px, 100%);
   margin: 0 auto;
-}
-.usecase .lead {
-  margin-left: auto;
-  margin-right: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .platform-row {
   display: flex;
   justify-content: center;
-  gap: clamp(10px, 1.5vw, 20px);
+  align-items: flex-start;
+  gap: clamp(10px, 1.5vw, 18px);
   flex-wrap: wrap;
-  margin-top: clamp(36px, 5vh, 64px);
+  margin-top: clamp(20px, 3.5vh, 40px);
+  max-width: 860px;
+  width: 100%;
+}
+
+.platform-card, .platform-wrapper {
+  flex: 1 1 140px;
+  max-width: 160px;
+  min-width: 125px;
+}
+
+.platform-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
 }
 
 .platform-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: clamp(16px, 2vw, 28px) clamp(18px, 2vw, 28px) clamp(14px, 1.8vw, 22px);
+  gap: 8px;
+  padding: clamp(12px, 1.5vh, 18px) clamp(12px, 1.5vw, 22px);
   border: 1px solid var(--border-2);
   border-radius: var(--r-md);
   background: var(--surface);
-  min-width: clamp(120px, 12vw, 160px);
   cursor: pointer;
   transition: border-color var(--t), background var(--t), transform var(--t-slow);
 }
+
+.platform-wrapper .platform-card {
+  flex: none;
+  max-width: none;
+  min-width: none;
+  height: 100%;
+}
+
 .platform-card:hover {
   border-color: var(--accent);
   background: var(--surface-2);
@@ -585,21 +1227,21 @@ a.platform-card {
 }
 
 .platform-logo {
-  width: 48px;
-  height: 48px;
+  width: clamp(36px, 4vh, 42px);
+  height: clamp(36px, 4vh, 42px);
   border-radius: var(--r-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   background: #fff;
   overflow: hidden;
-  padding: 6px;
+  padding: 5px;
   flex-shrink: 0;
 }
 .platform-logo.dark {
   background: var(--surface-3);
   border: 1px solid var(--border-2);
-  padding: 10px;
+  padding: 8px;
   color: var(--accent);
 }
 .platform-logo img {
@@ -618,28 +1260,62 @@ a.platform-card {
 .platform-sub {
   font-size: 11px;
   color: var(--text-dim);
-  margin-top: -6px;
+  margin-top: -4px;
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 }
 
-/* small footer line under final use case */
+.platform-note {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0 4px;
+}
+.platform-note a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border-3);
+  text-underline-offset: 2px;
+  transition: color var(--t), text-decoration-color var(--t);
+}
+.platform-note a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+/* footer line under final use case */
 .section-foot {
-  margin-top: 72px;
-  padding-top: 22px;
+  position: absolute;
+  bottom: clamp(16px, 3vh, 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - clamp(32px, 6vw, 112px));
+  padding-top: 7px;
   border-top: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: center;
+  margin-bottom: 10px;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-dim);
-  flex-wrap: wrap;
+  text-align: center;
+  z-index: 10;
+}
+@media (min-width: 600px) {
+  .section-foot {
+    flex-direction: row;
+    gap: 24px;
+  }
 }
 .section-foot a { color: var(--text-muted); transition: color var(--t); }
 .section-foot a:hover { color: var(--accent); }
 
+
+
 /* ════════════════════════════════════════
-   BACK TO TOP — flat, opaque
+   BACK TO TOP - flat, opaque
 ════════════════════════════════════════ */
 .back-top {
   position: fixed;
@@ -674,73 +1350,88 @@ a.platform-card {
 .back-top svg { width: 14px; height: 14px; }
 
 /* ════════════════════════════════════════
-   SECTION 2 — MOBILE / DESKTOP SPLIT
-   Desktop: single section with side-by-side grid.
-            The mobile-only section is hidden.
-   Mobile:  demo-side shows alone in section 2a.
-            outputs-side-desktop is hidden.
-            section-outputs-mobile becomes a full snap section.
+   SECTION 2 - MOBILE / DESKTOP SPLIT
 ════════════════════════════════════════ */
-
-/* Desktop default: hide the mobile-only section entirely */
-.section-outputs-mobile {
-  display: none;
-}
+.section-outputs-mobile { display: none; }
 
 @media (max-width: 768px) {
-  /* Hide the outputs column inside section 2a on mobile */
-  .outputs-side-desktop {
-    display: none;
-  }
-
-  /* Show the dedicated mobile outputs section as a real snap page */
-  .section-outputs-mobile {
-    display: flex;
-  }
+  .outputs-side-desktop { display: none; }
+  .section-outputs-mobile { display: flex; }
 }
 
+
+
+
 /* ════════════════════════════════════════
-   RESPONSIVE — LARGE SCREENS (1440p +)
+   RESPONSIVE - LARGE SCREENS (1440p +)
 ════════════════════════════════════════ */
 @media (min-width: 1440px) {
   :root { --header-h: 62px; }
-
   .header-inner { padding: 0 clamp(40px, 4vw, 80px); }
-
   .demo-grid { grid-template-columns: 1.5fr 1fr; }
-
-  .output-row { padding: 16px 22px; }
+  .output-row { padding: 12px 22px; }
   .output-name { font-size: 15px; }
   .output-ext  { font-size: 12.5px; }
-
-  .section-foot { font-size: 13px; margin-top: 88px; }
+  
+  .mini-orchestrator { padding: 12px 16px; }
+  .mini-node { padding: 10px 16px; }
 }
 
 @media (min-width: 1920px) {
   :root { --header-h: 66px; }
   body { font-size: 16px; }
-  .platform-card { min-width: 170px; }
 }
 
 /* ════════════════════════════════════════
-   RESPONSIVE — TABLET
+   RESPONSIVE - TABLET
 ════════════════════════════════════════ */
 @media (max-width: 980px) {
   .demo-grid {
     grid-template-columns: 1fr;
     gap: 36px;
   }
-  .demo-video-wrap { aspect-ratio: 16 / 10; max-height: none; }
   .outputs-list { margin-top: 18px; }
+  .mini-node-info { flex-wrap: wrap; gap: 4px; } 
+
+  /* Demos Section Tablet Overrides */
+  .demo-showcase-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .demo-card.large .demo-thumb {
+    aspect-ratio: 16 / 9;
+    flex: none;
+  }
+  .demo-side-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    flex: none;
+  }
+  .demo-card.small {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+  }
+  .demo-card.small .demo-thumb {
+    width: 100%;
+    border-radius: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .demo-card.small .demo-info {
+    padding: 12px;
+  }
+  .demo-card.small .demo-title {
+    white-space: normal;
+  }
 }
 
 /* ════════════════════════════════════════
-   RESPONSIVE — MOBILE
+   RESPONSIVE - MOBILE
 ════════════════════════════════════════ */
 @media (max-width: 768px) {
   :root { --header-h: 52px; }
-
-  /* Looser snap on mobile to avoid jank */
   html { scroll-snap-type: y proximity; }
 
   .header-inner { padding: 0 14px; gap: 8px; }
@@ -763,22 +1454,74 @@ a.platform-card {
   .scroll-cue { display: none; }
 
   .demo-grid { gap: 28px; }
-
-  /* Output rows: tighter on mobile */
   .output-row { padding: 12px 14px; gap: 10px; }
   .output-name { font-size: 13px; }
 
-  .platform-row { gap: 10px; margin-top: 36px; }
-  .platform-card {
-    min-width: clamp(90px, 26vw, 130px);
-    padding: 14px 12px 12px;
-    gap: 10px;
-  }
-  .platform-logo { width: 38px; height: 38px; }
-  .platform-name { font-size: 11.5px; }
-  .platform-sub { font-size: 10px; }
+  .mini-orchestrator { padding: 10px; gap: 10px; }
+  .mini-orch-badge { font-size: 9px; }
+  .mini-node { padding: 8px 12px; gap: 10px; }
+  .mini-node-title { font-size: 13.5px; }
+  
+  .mini-node-desc { display: none; } 
 
-  .section-foot { font-size: 11.5px; gap: 10px; flex-direction: column; text-align: center; }
+  /* Demos Section Mobile Overrides */
+  .section-demos {
+    /* Allow scrolling if content is too tall on mobile to avoid strict snap cutoff */
+    scroll-snap-type: none; 
+  }
+  .section-demos .container {
+    height: auto;
+  }
+  .demo-showcase-grid { 
+    gap: 12px; 
+    margin-top: 16px; 
+  }
+  .demo-side-list {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .demo-card.large .demo-thumb { 
+    aspect-ratio: 16 / 9; 
+  }
+  .demo-card.large .demo-info { 
+    padding: 12px; 
+  }
+  .demo-card.large .demo-title { 
+    font-size: 14px; 
+    white-space: normal; 
+    margin-bottom: 2px; 
+  }
+  .demo-card.large .demo-desc { 
+    font-size: 12px; 
+    -webkit-line-clamp: 2; 
+  }
+  .demo-card.small { 
+    padding: 0; 
+    gap: 0; 
+  }
+  .demo-card.small .demo-thumb { 
+    width: 100%; 
+    aspect-ratio: 16 / 9; 
+    border-radius: 0; 
+  }
+  .demo-card.small .demo-info { 
+    padding: 8px; 
+  }
+  .demo-card.small .demo-title { 
+    font-size: 11.5px; 
+    white-space: normal; 
+    display: -webkit-box; 
+    -webkit-line-clamp: 2; 
+    -webkit-box-orient: vertical; 
+    margin-bottom: 0; 
+  }
+  .demo-card.small .demo-desc { 
+    display: none; /* Crucial for vertical fit on mobile */
+  }
+  .demo-card.small .play-btn svg { 
+    width: 20px; 
+    height: 20px; 
+  }
 
   .back-top { bottom: 16px; right: 16px; width: 36px; height: 36px; }
 }
@@ -787,19 +1530,11 @@ a.platform-card {
 @media (max-width: 420px) {
   .nav-btn { padding: 6px 8px; gap: 0; }
   .header-inner { gap: 4px; }
-
   .hero h1 { font-size: clamp(28px, 10vw, 40px); }
   .hero-meta { gap: 8px; }
-
-  .platform-card { min-width: clamp(80px, 28vw, 110px); padding: 12px 10px 10px; }
-  .platform-logo { width: 34px; height: 34px; }
-  .platform-name { font-size: 10.5px; }
-
-  /* Prevent cards from going single-column if there are only 2 */
-  .platform-row { justify-content: center; }
 }
 
-/* Landscape phones — give sections more breathing room */
+/* Landscape phones */
 @media (max-height: 500px) and (orientation: landscape) {
   :root { --header-h: 46px; }
   section {
@@ -810,13 +1545,96 @@ a.platform-card {
   .scroll-cue { display: none; }
   html { scroll-snap-type: none; }
 }
+
+
+
+/* ════════════════════════════════════════
+   RESPONSIVE GRID LAYOUT MERGE
+════════════════════════════════════════ */
+
+/* Mobile overrides */
+@media (max-width: 1023px) {
+  section.desktop-only-snap {
+    scroll-snap-align: none;
+    min-height: auto;
+    padding: 0;
+    display: block;
+    border: none;
+  }
+}
+
+/* Desktop overrides */
+@media (min-width: 1024px) {
+  section.desktop-only-snap {
+    padding: calc(var(--header-h) + 40px) clamp(20px, 3vw, 56px) 80px;
+  }
+
+  .usecases-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(24px, 3vw, 48px);
+    width: 100%;
+    max-width: var(--max-w-xl);
+    margin: 0 auto;
+    align-items: stretch;
+  }
+
+  /* Disable individual section behaviors */
+  section.mobile-snap {
+    scroll-snap-align: none;
+    min-height: auto;
+    padding: 0;
+    border: none;
+    display: block;
+  }
+  section.mobile-snap + section.mobile-snap {
+    border: none;
+  }
+  
+  /* Horizontal Ordering: Left(2), Center(1), Right(3) */
+  .uc-1 { order: 2; }
+  .uc-2 { order: 1; }
+  .uc-3 { order: 3; }
+
+  /* Inner elements strictly structured for grid display */
+  .mobile-snap .usecase {
+    height: 100%;
+    justify-content: flex-start;
+  }
+  .mobile-snap .h2 {
+    font-size: clamp(22px, 2.2vw, 32px);
+  }
+  .mobile-snap .lead {
+    font-size: clamp(14px, 1.1vw, 15px);
+  }
+  .mobile-snap .platform-row {
+    margin-top: auto; 
+    padding-top: 32px;
+    gap: 12px;
+  }
+  .mobile-snap .platform-card, .mobile-snap .platform-wrapper {
+    flex: 1 1 calc(50% - 12px);
+    min-width: 110px;
+  }
+  .mobile-snap .platform-card {
+    padding: 12px 10px;
+  }
+
+  /* Global footer placement */
+  .section-foot {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - clamp(40px, 6vw, 112px));
+    margin-top: 0;
+  }
+}
+
 </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════
-     FIXED HEADER
-═══════════════════════════════════════ -->
 <header class="header">
   <div class="header-inner">
 
@@ -825,17 +1643,9 @@ a.platform-card {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span class="label">Download</span>
       </a>
-      <a href="demos.html" class="nav-btn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span class="label">Demos</span>
-      </a>
       <a href="changelog.html" class="nav-btn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span class="label">Changelog</span>
-      </a>
-            <a href="workflow.html" class="nav-btn" aria-current="page">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        <span class="label">Workflow</span>
       </a>
       <a href="compatibility.html" class="nav-btn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
@@ -863,30 +1673,66 @@ a.platform-card {
 </header>
 
 
-<!-- ═══════════════════════════════════════
-     SECTION 1 — HERO
-═══════════════════════════════════════ -->
 <section class="hero" id="top">
   <div class="hero-bg"></div>
-  <div class="hero-content">
+  <div class="hero-redesign-container">
+    
+    <div class="hero-redesign-left">
+      <div class="hero-redesign-header">
+        <div class="hero-icon"> <img src="icons/icon.svg" alt="qgis2vectortiles"> </div>
+        <h1><span class="accent">QGIS2</span>VectorTiles</h1>
+      </div>
 
+      <p class="hero-tagline">
+        From styled QGIS projects to ready-to-use web maps in a single run
+      </p>
 
-    <div class="hero-icon"> <img src="icons/icon.svg" alt="qgis2vectortiles" width="300"> </div>
+      <div class="hero-feature-badges">
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Large Datasets
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          Complex Cartography
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          Data &amp; Styling Coupling
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          Familiar Workflow
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="15"></line></svg>
+          Lightweight Output
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          Client-Side Rendering
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          Standalone Package
+        </span>
+        <span class="feature-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          Universal Compatibility
+        </span>
+      </div>
+    </div>
 
-
-
-    <h1><span class="accent">QGIS2</span>VectorTiles</h1>
-
-    <p class="hero-tagline">
-    From styled QGIS projects to ready-to-use web maps in a single click.
-    </p>
-
-    <div class="hero-meta">
-      <span class="dot">Large Data</span>
-      <span class="sep"></span>
-      <span class="dot">Complex Styling</span>
-      <span class="sep"></span>
-      <span class="dot">Fast Web Maps</span>
+    <div class="hero-redesign-right">
+      <div class="hero-anim-container">
+        <img src="screenshots/qgis_screenshot.png" alt="QGIS Desktop" class="hero-anim-img base">
+        <img src="screenshots/web_screenshot.png" alt="Web Vector Tiles Output" class="hero-anim-img top-img">
+        <div class="hero-slider-line"></div>
+        <div class="hero-anim-labels">
+          <span class="anim-status-label web-status">Web Export</span>
+          <span class="anim-status-label qgis-status">QGIS Native</span>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -898,37 +1744,124 @@ a.platform-card {
 </section>
 
 
-<!-- ═══════════════════════════════════════
-     SECTION 2a — DEMO (always) + OUTPUT PACKAGE (desktop only, side-by-side)
-     On mobile this section shows ONLY the demo video.
-     The output list appears in section 2b below (mobile only).
-═══════════════════════════════════════ -->
 <section class="section-demo-outputs">
   <div class="container">
     <div class="demo-grid">
 
-      <!-- LEFT: demo video -->
       <div class="demo-side">
-        <div class="eyebrow"><span>Demo</span></div>
-        <h2 class="h2-sm" style="margin-bottom: 14px;">See it in action</h2>
+        <div class="eyebrow"><span>Workflow</span></div>
+        <h2 class="h2-sm" style="margin-bottom: 10px;">Processing Pipeline</h2>
         <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6;">
-        From styled QGIS projects to client-side web maps in just one click.
+        Converting QGIS styles to interactive web maps. Click to view the source code.
         </p>
-        <div class="outputs-list">
-        <div class="demo-video-wrap">
-          <video controls preload="metadata" playsinline>
-            <source src="demos/demo_main.mp4" type="video/mp4">
-            Your browser does not support the video tag.
-          </video>
+
+        <div class="mini-wf">
+          
+          <div role="button" tabindex="0" class="mini-orchestrator" data-node="orchestrator" aria-label="View QGIS2VectorTiles.py details">
+            <div class="mini-orch-badge">Orchestrator</div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">QGIS2VectorTiles.py</span>
+              <span class="mini-node-desc">- Core execution wrapper</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node1" aria-label="View rules_flattener.py details">
+            <div class="mini-node-step">1</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 12l10 5 10-5M2 17l10 5 10-5"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">rules_flattener.py</span>
+              <span class="mini-node-desc">- Flattens complex styles</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node2" aria-label="View rules_exporter.py details">
+            <div class="mini-node-step">2</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v14"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">rules_exporter.py</span>
+              <span class="mini-node-desc">- Exports to intermediate vectors</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node3" aria-label="View tiles_generator.py details">
+            <div class="mini-node-step">3</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">tiles_generator.py</span>
+              <span class="mini-node-desc">- Slices geometries via GDAL</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node4" aria-label="View tiles_styler.py details">
+            <div class="mini-node-step">4</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19C5.03453 19.176 5.14143 19.4174 5.14143 19.6667V20.3333C5.14143 21.2538 5.88762 22 6.80811 22H12Z"/><circle cx="7.5" cy="10.5" r="1.5"/><circle cx="11.5" cy="7.5" r="1.5"/><circle cx="16.5" cy="9.5" r="1.5"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">tiles_styler.py</span>
+              <span class="mini-node-desc">- Re-binds original QGIS styles</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node5" aria-label="View maplibre_converter.py details">
+            <div class="mini-node-step">5</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">maplibre_converter.py</span>
+              <span class="mini-node-desc">- Generates MapLibre JSON</span>
+            </div>
+          </div>
+
+          <div class="mini-connector">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,9 12,15 18,9"/></svg>
+          </div>
+
+          <div role="button" tabindex="0" class="mini-node" data-node="node6" aria-label="View server_initializer.py details">
+            <div class="mini-node-step">6</div>
+            <div class="mini-node-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            </div>
+            <div class="mini-node-info">
+              <span class="mini-node-title">server_initializer.py</span>
+              <span class="mini-node-desc">- Prepares local web server</span>
+            </div>
+          </div>
+
         </div>
 
       </div>
-    </div>
 
-      <!-- RIGHT: output package — hidden on mobile (lives in section-outputs-mobile instead) -->
       <div class="outputs-side outputs-side-desktop">
         <div class="eyebrow"><span>Output Package</span></div>
-        <h2 class="h2-sm" style="margin-bottom: 14px;">Everything in one bundle</h2>
+        <h2 class="h2-sm" style="margin-bottom: 10px;">Everything in one bundle</h2>
         <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6;">
           A self-contained set of artifacts ready to deploy.
         </p>
@@ -990,6 +1923,17 @@ a.platform-card {
             </div>
           </div>
 
+          <div class="output-row">
+            <span class="output-num">06</span>
+            <div class="output-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+            </div>
+            <div class="output-info">
+              <div class="output-name">Glyphs</div>
+              <div class="output-ext">.pbf (Planned)</div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -997,17 +1941,11 @@ a.platform-card {
   </div>
 </section>
 
-
-<!-- ═══════════════════════════════════════
-     SECTION 2b — OUTPUT PACKAGE (mobile only)
-     Hidden on desktop (display:none via CSS).
-     On mobile this is a dedicated full-screen snap section.
-═══════════════════════════════════════ -->
 <section class="section-outputs-mobile" aria-label="Output Package">
   <div class="container">
     <div class="outputs-side">
       <div class="eyebrow"><span>Output Package</span></div>
-      <h2 class="h2-sm" style="margin-bottom: 14px;">Everything in one bundle</h2>
+      <h2 class="h2-sm" style="margin-bottom: 10px;">Everything in one bundle</h2>
       <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6;">
         A self-contained set of artifacts ready to deploy.
       </p>
@@ -1069,135 +2007,90 @@ a.platform-card {
           </div>
         </div>
 
-      </div>
-    </div>
-  </div>
-</section>
-
-
-<!-- ═══════════════════════════════════════
-     SECTION 3 — USE CASE 01
-═══════════════════════════════════════ -->
-<section>
-  <div class="container">
-    <div class="usecase">
-
-      <div class="eyebrow">
-        <span class="num">01</span>
-        <span>Use case</span>
-      </div>
-
-      <h2 class="h2">Client-Side Rendering</h2>
-
-      <p class="lead">
-        Drop the generated MapLibre style straight into your favorite web map client.
-        No server processing, no on-the-fly rasterization &mdash; just fast, sharp, fully styled
-        vector tiles rendered in the browser.
-      </p>
-
-      <div class="platform-row">
-        <a class="platform-card" href="https://maplibre.org/" target="_blank" rel="noopener noreferrer" aria-label="MapLibre — official website" title="MapLibre">
-          <div class="platform-logo"><img src="icons/maplibre.png" alt="MapLibre"></div>
-          <div class="platform-name">MapLibre</div>
-        </a>
-        <a class="platform-card" href="https://openlayers.org/" target="_blank" rel="noopener noreferrer" aria-label="OpenLayers — official website" title="OpenLayers">
-          <div class="platform-logo"><img src="icons/openlayers.png" alt="OpenLayers"></div>
-          <div class="platform-name">OpenLayers</div>
-        </a>
-        <a class="platform-card" href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer" aria-label="Leaflet — official website" title="Leaflet">
-          <div class="platform-logo"><img src="icons/leaflet.png" alt="Leaflet"></div>
-          <div class="platform-name">Leaflet</div>
-        </a>
-        <a class="platform-card" href="https://www.maptiler.com/" target="_blank" rel="noopener noreferrer" aria-label="MapTiler — official website" title="MapTiler">
-          <div class="platform-logo"><img src="icons/maptiler.png" alt="MapTiler"></div>
-          <div class="platform-name">MapTiler</div>
-        </a>
-        <a class="platform-card" href="https://www.mapbox.com/" target="_blank" rel="noopener noreferrer" aria-label="Mapbox — official website" title="Mapbox">
-          <div class="platform-logo"><img src="icons/mapbox.png" alt="Mapbox"></div>
-          <div class="platform-name">Mapbox</div>
-        </a>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-
-<!-- ═══════════════════════════════════════
-     SECTION 4 — USE CASE 02
-═══════════════════════════════════════ -->
-<section>
-  <div class="container">
-    <div class="usecase">
-
-      <div class="eyebrow">
-        <span class="num">02</span>
-        <span>Use case</span>
-      </div>
-
-      <h2 class="h2">Efficient WMS / WMTS Serving</h2>
-
-      <p class="lead">
-        Serve lightweight vector tiles through standard GIS infrastructure.
-        Smaller payloads, faster response times, and a single source of truth
-        for both server-side rendering and client styling.
-      </p>
-
-      <div class="platform-row">
-        <a class="platform-card" href="https://geoserver.org/" target="_blank" rel="noopener noreferrer" aria-label="GeoServer — official website" title="GeoServer">
-          <div class="platform-logo"><img src="icons/geoserver.png" alt="GeoServer"></div>
-          <div class="platform-name">GeoServer</div>
-        </a>
-        <a class="platform-card" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank" rel="noopener noreferrer" aria-label="QGIS Server — official website" title="QGIS Server">
-          <div class="platform-logo"><img src="icons/qgis.png" alt="QGIS Server"></div>
-          <div class="platform-name">QGIS Server</div>
-        </a>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-
-<!-- ═══════════════════════════════════════
-     SECTION 5 — USE CASE 03
-═══════════════════════════════════════ -->
-<section>
-  <div class="container">
-    <div class="usecase">
-
-      <div class="eyebrow">
-        <span class="num">03</span>
-        <span>Use case</span>
-      </div>
-
-      <h2 class="h2">Project Sharing</h2>
-
-      <p class="lead">
-        Collapse a complex multi-source project into a single lightweight bundle.
-        Share one styled layer file instead of dozens of datasets, projections,
-        and dependencies &mdash; with the visuals baked in.
-      </p>
-
-      <div class="platform-row">
-        <!-- PLACEHOLDER_LINK: "1× Source / project bundle" is a generic concept card with no official URL. Replace '#PLACEHOLDER_LINK' with a relevant URL if desired. -->
-        <div class="platform-card" tabindex="0" role="img" aria-label="Single source project bundle">
-          <div class="platform-logo dark">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <div class="output-row">
+          <span class="output-num">06</span>
+          <div class="output-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           </div>
-          <div class="platform-name">1× Source</div>
-          <div class="platform-sub">project bundle</div>
+          <div class="output-info">
+            <div class="output-name">Glyphs</div>
+            <div class="output-ext">.pbf (Planned)</div>
+          </div>
         </div>
-        <a class="platform-card" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank" rel="noopener noreferrer" aria-label="QGIS Layer Definition File (.qlr) — QGIS documentation" title="QGIS Layer Definition File (.qlr)">
-          <div class="platform-logo"><img src="icons/qlr.png" alt="QGIS Layer File"></div>
-          <div class="platform-name">1× Layer</div>
-          <div class="platform-sub">.qlr</div>
-        </a>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-demos">
+  <div class="container">
+    <div class="eyebrow"><span>Demos</span></div>
+    <h2 class="h2">See it in action</h2>
+    <p class="lead" style="margin-top: 10px; margin-bottom: 0;">Explore the capabilities of QGIS2VectorTiles through these examples.</p>
+    
+    <div class="demo-showcase-grid">
+      
+      <div role="button" onclick="openCardFullscreen(this)" tabindex="0" class="demo-card large" data-video="demo-main" aria-label="Play full workflow overview video">
+        <div class="demo-thumb">
+<video src="demos/demo_main.mp4" controls controlsList="nodownload noremoteplayback" loop muted playsinline 
+       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; cursor: pointer;">
+</video>
+        </div>
+        <div class="demo-info">
+          <div class="demo-title">Full Workflow Overview</div>
+          <div class="demo-desc">Watch how the complex QGIS Natural Earth project with millions of features is exported, tiled, and rendered in MapLibre within minutes.</div>
+        </div>
       </div>
 
-      <div class="section-foot">
-        <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
-        <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+      <div class="demo-side-list">
+        <div role="button" onclick="openCardFullscreen(this)" tabindex="0" class="demo-card small" data-video="demo-1" aria-label="Play Data-Defined Properties demo">
+          <div class="demo-thumb">
+<video src="demos/demo_data_driven.mp4" controls controlsList="nodownload noremoteplayback" loop muted playsinline 
+       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; cursor: pointer;">
+</video>  
+          </div>
+          <div class="demo-info">
+            <div class="demo-title">Data-Defined Properties</div>
+            <div class="demo-desc">Exporting complex QGIS expressions to get an identical web map.</div>
+          </div>
+        </div>
+        
+        <div role="button" onclick="openCardFullscreen(this)" tabindex="0" class="demo-card small" data-video="demo-2" aria-label="Play High-Resolution Styling demo">
+          <div class="demo-thumb">
+<video src="demos/demo_transparency.mp4" controls controlsList="nodownload noremoteplayback" loop muted playsinline 
+       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; cursor: pointer;">
+</video>         
+          </div>
+          <div class="demo-info">
+            <div class="demo-title">Random Colors</div>
+            <div class="demo-desc">Use QGIS expression engine to get random transparent colors web map.</div>
+          </div>
+        </div>
+
+        <div role="button" onclick="openCardFullscreen(this)"  tabindex="0" class="demo-card small" data-video="demo-3" aria-label="Play Web Font Integration demo">
+          <div class="demo-thumb">
+<video src="demos/demo_main.mp4" controls controlsList="nodownload noremoteplayback" loop muted playsinline 
+       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; cursor: pointer;">
+</video>   
+          </div>
+          <div class="demo-info">
+            <div class="demo-title">Project Backgrund</div>
+            <div class="demo-desc">Choose your web map background - OSM, Imagery or QGIS project background color.</div>
+          </div>
+        </div>
+
+        <div role="button" onclick="openCardFullscreen(this)" tabindex="0" class="demo-card small" data-video="demo-4" aria-label="Play MapLibre Interactivity demo">
+          <div class="demo-thumb">
+<video src="demos/complex_lines_cartography.mp4" controls controlsList="nodownload noremoteplayback" loop muted playsinline 
+       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; cursor: pointer;">
+</video>         
+        </div>
+          <div class="demo-info">
+            <div class="demo-title">Complex cartography</div>
+            <div class="demo-desc">Use QGIS powerfull symbology and labeling option to create fast and sharp webmaps.</div>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -1205,139 +2098,490 @@ a.platform-card {
 </section>
 
 
-<!-- ═══════════════════════════════════════
-     BACK TO TOP
-═══════════════════════════════════════ -->
-<button class="back-top" id="backTop" aria-label="Back to top" title="Back to top">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-</button>
+
+
+<section class="desktop-only-snap">
+  <div class="usecases-grid">
+
+    <section class="mobile-snap uc-1">
+      <div class="container">
+        <div class="usecase">
+
+          <div class="eyebrow">
+            <span class="num">01</span>
+            <span>Use case</span>
+          </div>
+
+          <h2 class="h2">Client-Side Rendering</h2>
+
+          <p class="lead">
+            Drop the generated MapLibre style straight into your favorite web map client.
+            No server processing, no on-the-fly rasterization &mdash; just fast, sharp, fully styled
+            vector tiles rendered in the browser.
+          </p>
+
+          <div class="platform-row">
+            <a class="platform-card" href="https://maplibre.org/" target="_blank" rel="noopener noreferrer" aria-label="MapLibre - official website" title="MapLibre">
+              <div class="platform-logo"><img src="icons/maplibre.png" alt="MapLibre"></div>
+              <div class="platform-name">MapLibre</div>
+            </a>
+            <a class="platform-card" href="https://openlayers.org/" target="_blank" rel="noopener noreferrer" aria-label="OpenLayers - official website" title="OpenLayers">
+              <div class="platform-logo"><img src="icons/openlayers.png" alt="OpenLayers"></div>
+              <div class="platform-name">OpenLayers</div>
+            </a>
+            <a class="platform-card" href="https://www.maptiler.com/" target="_blank" rel="noopener noreferrer" aria-label="MapTiler - official website" title="MapTiler">
+              <div class="platform-logo"><img src="icons/maptiler.png" alt="MapTiler"></div>
+              <div class="platform-name">MapTiler</div>
+            </a>
+            <a class="platform-card" href="https://www.mapbox.com/" target="_blank" rel="noopener noreferrer" aria-label="Mapbox - official website" title="Mapbox">
+              <div class="platform-logo"><img src="icons/mapbox.png" alt="Mapbox"></div>
+              <div class="platform-name">Mapbox</div>
+            </a>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile-snap uc-2">
+      <div class="container">
+        <div class="usecase">
+
+          <div class="eyebrow">
+            <span class="num">02</span>
+            <span>Use case</span>
+          </div>
+
+          <h2 class="h2">WMS / WMTS Serving</h2>
+
+          <p class="lead">
+            Serve lightweight vector tiles through standard GIS infrastructure.
+            Smaller payloads, faster response times, and a single source of truth
+            for both server-side rendering and client styling.
+          </p>
+
+          <div class="platform-row">
+            <div class="platform-wrapper">
+              <a class="platform-card" href="https://geoserver.org/" target="_blank" rel="noopener noreferrer" aria-label="GeoServer - official website" title="GeoServer">
+                <div class="platform-logo"><img src="icons/geoserver.png" alt="GeoServer"></div>
+                <div class="platform-name">GeoServer</div>
+              </a>
+              <div class="platform-note">
+                * Requires <a href="https://docs.geoserver.org/latest/en/user/community/mbtiles/index.html" target="_blank" rel="noopener noreferrer">MBTiles</a> &amp; <a href="https://docs.geoserver.org/latest/en/user/community/mbstyle/index.html" target="_blank" rel="noopener noreferrer">MBStyle</a> extensions
+              </div>
+            </div>
+            <a class="platform-card" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank" rel="noopener noreferrer" aria-label="QGIS Server - official website" title="QGIS Server">
+              <div class="platform-logo"><img src="icons/qgis.png" alt="QGIS Server"></div>
+              <div class="platform-name">QGIS Server</div>
+            </a>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile-snap uc-3">
+      <div class="container">
+        <div class="usecase">
+
+          <div class="eyebrow">
+            <span class="num">03</span>
+            <span>Use case</span>
+          </div>
+
+          <h2 class="h2">Project Sharing</h2>
+
+          <p class="lead">
+            Collapse a complex multi-source project into a single lightweight bundle.
+            Share one styled layer file instead of dozens of datasets, projections,
+            and dependencies &mdash; with the visuals baked in.
+          </p>
+
+          <div class="platform-row">
+            <div class="platform-card" tabindex="0" role="img" aria-label="Single source project bundle">
+              <div class="platform-logo dark">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="platform-name">1× Source</div>
+              <div class="platform-sub">project bundle</div>
+            </div>
+            <a class="platform-card" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank" rel="noopener noreferrer" aria-label="QGIS Layer Definition File (.qlr) - QGIS documentation" title="QGIS Layer Definition File (.qlr)">
+              <div class="platform-logo"><img src="icons/qlr.png" alt="QGIS Layer File"></div>
+              <div class="platform-name">1× Layer</div>
+              <div class="platform-sub">.qlr</div>
+            </a>
+          </div>
+
+        </div>
+      </div>
+
+
+  </div>
+
+  <div class="section-foot">
+    <span><a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a>&nbsp;·&nbsp;<a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+  </div>
+</section>
+
+
+<div id="wfModal" class="modal-overlay">
+  <div class="modal-window">
+    <div class="modal-header">
+      <h2 id="modalTitle">Title</h2>
+      <button id="modalClose" class="modal-close" onclick="closeModal()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <ul id="modalBullets" class="modal-bullets">
+        </ul>
+    </div>
+    <div class="modal-footer">
+      <a id="modalGitLink" href="#" class="btn-github" target="_blank">
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</div>
 
 <script>
-(function () {
-  var btn = document.getElementById('backTop');
-  var hero = document.querySelector('.hero');
-  if (!btn) return;
- 
-  if ('IntersectionObserver' in window && hero) {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting && e.intersectionRatio > 0.4) {
-          btn.classList.remove('visible');
-        } else {
-          btn.classList.add('visible');
+
+
+function openCardFullscreen(card) {
+    const video = card.querySelector('video');
+    
+    if (video) {
+      video.style.pointerEvents = 'auto'; 
+      
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if (video.webkitRequestFullscreen) {
+        video.webkitRequestFullscreen();
+      }
+
+      video.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+          video.style.pointerEvents = 'none'; 
         }
       });
-    }, { threshold: [0, 0.4, 1] });
-    io.observe(hero);
-  } else {
-    window.addEventListener('scroll', function () {
-      if (window.scrollY > window.innerHeight * 0.6) btn.classList.add('visible');
-      else btn.classList.remove('visible');
-    }, { passive: true });
+    }
   }
- 
-  btn.addEventListener('click', function () {
-    var top = document.getElementById('top');
-    if (top && top.scrollIntoView) {
-      top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+(function () {
+  // --- Back to top logic ---
+  var btn = document.getElementById('backTop');
+  var hero = document.querySelector('.hero');
+  if (btn) {
+    if ('IntersectionObserver' in window && hero) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting && e.intersectionRatio > 0.4) {
+            btn.classList.remove('visible');
+          } else {
+            btn.classList.add('visible');
+          }
+        });
+      }, { threshold: [0, 0.4, 1] });
+      io.observe(hero);
     } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.addEventListener('scroll', function () {
+        if (window.scrollY > window.innerHeight * 0.6) btn.classList.add('visible');
+        else btn.classList.remove('visible');
+      }, { passive: true });
+    }
+   
+    btn.addEventListener('click', function () {
+      var top = document.getElementById('top');
+      if (top && top.scrollIntoView) {
+        top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+  }
+  
+  document.querySelectorAll('video').forEach(video => {
+      video.addEventListener('dblclick', (e) => {
+        e.preventDefault(); // Prevents default browser actions
+        if (video.requestFullscreen) {
+          video.requestFullscreen();
+        } else if (video.webkitRequestFullscreen) { /* Safari / iOS support */
+          video.webkitRequestFullscreen();
+        }
+      });
+    });
+
+
+  // --- Workflow Modal Logic ---
+  const workflowData = {
+    orchestrator: {
+      title: "QGIS2VectorTiles.py",
+      file: "qgis2vectortiles.py",
+      bullets: [
+        "The core plugin framework entry point script.",
+        "Manages operational properties and runtime variables.",
+        "Coordinates the sequential execution of all nested scripts across the workspace environment."
+      ]
+    },
+    node1: {
+      title: "rules_flattener.py",
+      file: "core/rules_flattener.py",
+      bullets: [
+        "Processes intricate desktop renderer rules and layered map labeling states.",
+        "Flattens compound parameters into clear, non-nested conditional groups.",
+        "Preserves filters and scaling logic required for target web rendering."
+      ]
+    },
+    node2: {
+      title: "rules_exporter.py",
+      file: "core/rules_exporter.py",
+      bullets: [
+        "Slices vector features matching specific style rules into separate intermediate datastores.",
+        "Executes spatial bounds trimming for optimized map extents.",
+        "Applies geometry correction and functional database schemas prior to downstream generation."
+      ]
+    },
+    node3: {
+      title: "tiles_generator.py",
+      file: "core/tiles_generator.py",
+      bullets: [
+        "Coordinates multi-threaded tile slicing processes over the intermediate geometries.",
+        "Hooks directly into system-level GDAL installations.",
+        "Runs optimized map routines bounded by client multi-core capacities."
+      ]
+    },
+    node4: {
+      title: "tiles_styler.py",
+      file: "core/tiles_styler.py",
+      bullets: [
+        "Transforms styling definitions originating from desktop properties.",
+        "Matches and binds QGIS styles to newly minted vector channels.",
+        "Outputs unified QGIS vector tile specification archives (.qlr layers)."
+      ]
+    },
+    node5: {
+      title: "maplibre_converter.py",
+      file: "core/maplibre_converter.py",
+      bullets: [
+        "Translates active QGIS configurations into client-side MapLibre JSON schemas.",
+        "Maps coordinate grids, fonts, and zoom limits directly to target web formats.",
+        "Generates necessary icon sprite sheets and layout elements."
+      ]
+    },
+    node6: {
+      title: "server_initializer.py",
+      file: "core/server_initializer.py",
+      bullets: [
+        "Bundles output formats, scripts, map styles, and local resources inside destination directories.",
+        "Constructs isolated ready-to-deploy environments.",
+        "Provides instant web preview frameworks via background Python distribution tools."
+      ]
+    }
+  };
+
+  const modal = document.getElementById('wfModal');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalBullets = document.getElementById('modalBullets');
+  const modalGitLink = document.getElementById('modalGitLink');
+  const modalClose = document.getElementById('modalClose');
+  const gitHubBasePath = "https://github.com/GallPeters/QGIS2VectorTiles/blob/main/src/";
+
+  function openModal(key) {
+    const data = workflowData[key];
+    if (!data) return;
+    
+    modalTitle.textContent = data.title;
+    modalGitLink.href = gitHubBasePath + data.file;
+    
+    modalBullets.innerHTML = '';
+    data.bullets.forEach(function(bulletText) {
+      const li = document.createElement('li');
+      li.textContent = bulletText;
+      modalBullets.appendChild(li);
+    });
+
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    locked = true; 
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    document.body.style.overflow = 'hidden'; 
+    locked = false; 
+  }
+
+  document.querySelectorAll('[data-node]').forEach(function(elem) {
+    elem.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openModal(this.getAttribute('data-node'));
+    });
+    elem.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openModal(this.getAttribute('data-node'));
+      }
+    });
+  });
+
+  if(modalClose) modalClose.addEventListener('click', closeModal);
+  
+  if(modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  // --- Video Modal Logic ---
+  const vidModal = document.getElementById('vidModal');
+  const vidClose = document.getElementById('vidClose');
+  const mainVideo = document.getElementById('mainVideo');
+
+  function openVideoModal(vidId) {
+    if(vidModal) {
+      vidModal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      locked = true;
+      // Future integration: update mainVideo.src based on vidId, then mainVideo.play()
+    }
+  }
+  
+  function closeVideoModal() {
+    if(vidModal) {
+      vidModal.classList.remove('open');
+      document.body.style.overflow = 'hidden'; 
+      locked = false;
+      if(mainVideo) mainVideo.pause();
+    }
+  }
+
+  document.querySelectorAll('[data-video]').forEach(function(card) {
+    card.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openVideoModal(this.getAttribute('data-video'));
+    });
+    card.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openVideoModal(this.getAttribute('data-video'));
+      }
+    });
+  });
+
+  if(vidClose) vidClose.addEventListener('click', closeVideoModal);
+  
+  if(vidModal) {
+    vidModal.addEventListener('click', function(e) {
+      if (e.target === vidModal) closeVideoModal();
+    });
+  }
+
+  // --- Escape Key Listener ---
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if(modal && modal.classList.contains('open')) closeModal();
+      if(vidModal && vidModal.classList.contains('open')) closeVideoModal();
     }
   });
+
+  // --- Scroll Snapping Logic ---
+  function getVisibleSections() {
+    const isDesktop = window.innerWidth >= 1024;
+    return [...document.querySelectorAll("section")].filter(s => {
+      // Ignore hidden elements
+      if (getComputedStyle(s).display === "none") return false;
+      
+      // Dynamic filtering to maintain distinct scroll targets:
+      // On desktop, ignore the inner .mobile-snap sections so the wrapper becomes the sole snap target.
+      if (isDesktop && s.classList.contains('mobile-snap')) return false;
+      // On mobile, ignore the wrapper so the inner .mobile-snap sections become the distinct snap targets.
+      if (!isDesktop && s.classList.contains('desktop-only-snap')) return false;
+      
+      return true;
+    });
+  }
+
+  let sections;
+  let current = 0;
+  let locked = false;
+  let touchStartY = 0;
+
+  window.addEventListener("resize", () => {
+    current = 0;
+  }, { passive: true });
+
+  function goToSection(index) {
+    if (locked || (modal && modal.classList.contains('open')) || (vidModal && vidModal.classList.contains('open'))) return;
+
+    sections = getVisibleSections();
+
+    if (index < 0 || index >= sections.length) return;
+
+    locked = true;
+    current = index;
+  
+    sections[current].scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+
+    setTimeout(() => {
+      locked = false;
+    }, 900);
+  }
+
+  window.addEventListener("wheel", (e) => {
+    if ((modal && modal.classList.contains('open')) || (vidModal && vidModal.classList.contains('open'))) return;
+    e.preventDefault();
+    if (locked) return;
+
+    if (e.deltaY > 0) {
+      goToSection(current + 1);
+    } else if (e.deltaY < 0) {
+      goToSection(current - 1);
+    }
+  }, { passive: false });
+
+  window.addEventListener("keydown", (e) => {
+    if ((modal && modal.classList.contains('open')) || (vidModal && vidModal.classList.contains('open'))) return;
+    const downKeys = ["ArrowDown", "PageDown", " "];
+    const upKeys = ["ArrowUp", "PageUp"];
+
+    if (downKeys.includes(e.key)) {
+      e.preventDefault();
+      goToSection(current + 1);
+    }
+
+    if (upKeys.includes(e.key)) {
+      e.preventDefault();
+      goToSection(current - 1);
+    }
+  });
+
+  window.addEventListener("touchstart", (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  window.addEventListener("touchend", (e) => {
+    if (locked || (modal && modal.classList.contains('open')) || (vidModal && vidModal.classList.contains('open'))) return;
+
+    const touchEndY = e.changedTouches[0].clientY;
+    const delta = touchStartY - touchEndY;
+
+    if (Math.abs(delta) < 50) return;
+
+    if (delta > 0) {
+      goToSection(current + 1);
+    } else {
+      goToSection(current - 1);
+    }
+  }, { passive: true });
+
+
+  window.addEventListener("load", () => {
+    window.scrollTo(0, 0);
+  });
 })();
-
-// Query only sections that are actually visible (not display:none)
-function getVisibleSections() {
-  return [...document.querySelectorAll("section")].filter(s => {
-    return getComputedStyle(s).display !== "none";
-  });
-}
-
-let sections = getVisibleSections();
-
-let current = 0;
-let locked = false;
-let touchStartY = 0;
-
-// Re-sync section list and clamp current index on resize
-window.addEventListener("resize", () => {
-  sections = getVisibleSections();
-  if (current >= sections.length) current = sections.length - 1;
-}, { passive: true });
-
-function goToSection(index) {
-  if (locked) return;
-  if (index < 0 || index >= sections.length) return;
-
-  locked = true;
-  current = index;
-
-  window.scrollTo({
-    top: sections[current].offsetTop,
-    behavior: "smooth"
-  });
-
-  setTimeout(() => {
-    locked = false;
-  }, 900); // animation lock duration
-}
-
-/* WHEEL */
-window.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  if (locked) return;
-
-  if (e.deltaY > 0) {
-    goToSection(current + 1);
-  } else if (e.deltaY < 0) {
-    goToSection(current - 1);
-  }
-}, { passive: false });
-
-/* KEYBOARD */
-window.addEventListener("keydown", (e) => {
-  const downKeys = ["ArrowDown", "PageDown", " "];
-  const upKeys = ["ArrowUp", "PageUp"];
-
-  if (downKeys.includes(e.key)) {
-    e.preventDefault();
-    goToSection(current + 1);
-  }
-
-  if (upKeys.includes(e.key)) {
-    e.preventDefault();
-    goToSection(current - 1);
-  }
-});
-
-/* TOUCH START */
-window.addEventListener("touchstart", (e) => {
-  touchStartY = e.touches[0].clientY;
-}, { passive: true });
-
-/* TOUCH END */
-window.addEventListener("touchend", (e) => {
-  if (locked) return;
-
-  const touchEndY = e.changedTouches[0].clientY;
-  const delta = touchStartY - touchEndY;
-
-  if (Math.abs(delta) < 50) return; // ignore tiny swipes
-
-  if (delta > 0) {
-    goToSection(current + 1);
-  } else {
-    goToSection(current - 1);
-  }
-}, { passive: true });
-
-/* PREVENT MANUAL SCROLLING */
-document.body.style.overflow = "hidden";
-
-/* KEEP CURRENT INDEX IN SYNC */
-window.addEventListener("load", () => {
-  window.scrollTo(0, 0);
-});
 </script>
 </body>
 </html>
