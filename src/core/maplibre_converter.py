@@ -696,7 +696,7 @@ class TextPropertyExtractor:
         return None
 
     @staticmethod
-    def get_text_font(self, text_format: QgsTextFormat) -> List[str]:
+    def get_text_font(text_format: QgsTextFormat) -> List[str]:
         """Return ``text-font`` as a single-element list of ``"family style"``."""
         font = text_format.font()
         font_str = f"{font.family()} {font.styleName()}"
@@ -1479,7 +1479,7 @@ class QgisMapLibreStyleExporter:
         font, font_family = TextPropertyExtractor.get_text_font(text_format)
         self.glyphs.append(font_family)
         layer_def["layout"].update({
-            "text-font": TextPropertyExtractor.get_text_font(font),
+            "text-font": font,
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
