@@ -7,24 +7,20 @@ from typing import List, Dict, Optional, Tuple
 from qgis.PyQt.QtCore import qVersion
 # PyQt version guard — import the right Qt5 / Qt6 symbols once, re-export
 
+from qgis.PyQt.QtCore import qVersion
+
 if int(qVersion()[0]) == 5:
     from PyQt5.QtGui import (
-        QGuiApplication,
-        QFontDatabase,
-        QFont,
-        QFontMetrics,
-        QPainterPath
+        QGuiApplication, QFontDatabase, QFont, QFontMetrics, 
+        QPainterPath, QImage, QPainter, QColor
     )
-    from PyQt5.QtCore import QCoreApplication
+    from PyQt5.QtCore import QCoreApplication, Qt
 else:
     from PyQt6.QtGui import (
-        QGuiApplication,
-        QFontDatabase,
-        QFont,
-        QFontMetrics,
-        QPainterPath
+        QGuiApplication, QFontDatabase, QFont, QFontMetrics, 
+        QPainterPath, QImage, QPainter, QColor
     )
-    from PyQt6.QtCore import QCoreApplication
+    from PyQt6.QtCore import QCoreApplication, Qt
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +91,51 @@ class GlyphGenerator:
                 with open(pbf_path, "wb") as f:
                     f.write(pbf_data)
 
+    @staticmethod
+    def _encode_varint(value: int) -> bytes:
+        """Encode an integer as a protobuf varint."""
+        out = bytearray()
+        while True:
+            byte = value & 0x7f
+            value >>= 7
+            if value:
+                out.append(byte | 0x80)
+            else:
+                out.append(byte)
+                break
+        return bytes(out)
+
+    @staticmethod
+    def _encode_svarint(value: int) -> bytes:
+        """ZigZag encode a signed integer (used for negative offsets)."""
+        zigzag = (value << 1) ^ (value >> 31)
+        return GlyphGenerator._encode_varint(zigzag)
+
+    @staticmethod
+    def _encode_tag(field_number: int, wire_type: int) -> bytes:
+        return GlyphGenerator._encode_varint((field_number << 3) | wire_type)
+
+    @staticmethod
+    def _encode_string(field_number: int, value: str) -> bytes:
+        encoded = value.encode('utf-8')
+        return GlyphGenerator._encode_tag(field_number, 2) + GlyphGenerator._encode_varint(len(encoded)) + encoded
+
+    @staticmethod
+    def _encode_bytes(field_number: int, value: bytes) -> bytes:
+        return GlyphGenerator._encode_tag(field_number, 2) + GlyphGenerator._encode_varint(len(value)) + value
+
+    @staticmethod
+    def _encode_uint(field_number: int, value: int) -> bytes:
+        return GlyphGenerator._encode_tag(field_number, 0) + GlyphGenerator._encode_varint(value)
+
+    @staticmethod
+    def _encode_sint(field_number: int, value: int) -> bytes:
+        return GlyphGenerator._encode_tag(field_number, 0) + GlyphGenerator._encode_svarint(value)
+
+    @staticmethod
+    def _encode_message(field_number: int, message_bytes: bytes) -> bytes:
+        return GlyphGenerator._encode_tag(field_number, 2) + GlyphGenerator._encode_varint(len(message_bytes)) + message_bytes
+    
     def _create_sdf_pbf_for_range(self, font: QFont, fontstack_name: str, start: int, end: int) -> Optional[bytes]:
         """Extracts metrics and paths, generates an SDF bitmap, and encodes into PBF format."""
         metrics = QFontMetrics(font)
@@ -134,40 +175,79 @@ class GlyphGenerator:
 
         return self._serialize_to_pbf(fontstack_name, glyphs_data)
 
-    def _render_sdf_bitmap(self, path: QPainterPath, bounding_rect) -> Tuple[bytes, int, int, int, int]:
-            """
-            Converts a Qt vector path into a Signed Distance Field bitmap
-            with scaled metrics to maintain visual consistency.
-            """
-            # Increase this for higher sharpness; keep it consistent
-            BUFFER = 5
-            
-            # 1. Expand the container size (The PBF asset size)
-            # This gives the SDF algorithm more room for the distance field
-            width = int(bounding_rect.width() + (BUFFER * 2))
-            height = int(bounding_rect.height() + (BUFFER * 2))
-            
-            # 2. Correct the Metrics (The "True" Fix)
-            # We shift the coordinate system so the letter stays anchored 
-            # to the baseline despite the extra buffer padding.
-            # bounding_rect.left() is usually 0 or negative for overhangs
-            left = int(bounding_rect.left() - BUFFER)
-            top = int(bounding_rect.top() - BUFFER)
-            
-            # 3. Create the bitmap
-            # Note: In a real implementation, you would rasterize the QPainterPath 
-            # into a QImage, then calculate the SDF values here.
-            dummy_sdf_bitmap = b'\x00' * (width * height) 
-            
-            return dummy_sdf_bitmap, width, height, left, top
 
+    def _render_sdf_bitmap(self, path: QPainterPath, bounding_rect) -> Tuple[bytes, int, int, int, int]:
+            BUFFER = 3
+            glyph_width = int(bounding_rect.width())
+            glyph_height = int(bounding_rect.height())
+
+            if glyph_width == 0 or glyph_height == 0:
+                return b'', 0, 0, 0, 0
+
+            bitmap_width = glyph_width + (BUFFER * 2)
+            bitmap_height = glyph_height + (BUFFER * 2)
+            
+            # 1. Create the image
+            image = QImage(bitmap_width, bitmap_height, QImage.Format.Format_Grayscale8)
+            image.fill(0)
+            
+            # 2. Draw
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setBrush(QColor(255, 255, 255))
+            painter.setPen(Qt.PenStyle.NoPen if hasattr(Qt, 'PenStyle') else Qt.NoPen)
+            
+            # Adjust for buffer
+            painter.translate(-bounding_rect.left() + BUFFER, -bounding_rect.top() + BUFFER)
+            painter.drawPath(path)
+            painter.end()
+
+            # 3. FIX: Strip padding bytes row-by-row
+            # We need a flat array of exactly bitmap_width * bitmap_height
+            raw_data = bytearray()
+            bytes_per_line = image.bytesPerLine()
+            
+            # Access the raw bits
+            ptr = image.constBits()
+            ptr.setsize(image.sizeInBytes())
+            
+            # Copy only the valid pixels, skipping padding
+            for y in range(bitmap_height):
+                # Calculate the start of the row in the QImage buffer
+                row_start = y * bytes_per_line
+                # Slice exactly the width we need
+                row_data = ptr[row_start : row_start + bitmap_width]
+                raw_data.extend(row_data)
+
+            return bytes(raw_data), glyph_width, glyph_height, int(bounding_rect.left()), int(bounding_rect.top())
 
     def _serialize_to_pbf(self, fontstack_name: str, glyphs_data: List[Dict]) -> bytes:
-        """Serializes the glyph data into the mapnik/maplibre protobuf format."""
-        # FIX: Return a non-empty mock byte string.
-        # This prevents Python from evaluating the result as `False` and skipping file creation.
-        # Note: MapLibre will not be able to render this until actual VarInt Protobuf encoding is implemented.
-        return b'[MOCK_PBF_DATA] Replace with actual Protobuf serialization.'
+            """Serializes the glyph data into the MapLibre protobuf format."""
+            fontstack_bytes = bytearray()
+            
+            # Field 1: Fontstack Name
+            fontstack_bytes += self._encode_string(1, fontstack_name)
+            # Field 2: Range (Optional but good practice)
+            fontstack_bytes += self._encode_string(2, "0-255") 
+            
+            for glyph in glyphs_data:
+                glyph_bytes = bytearray()
+                
+                # MapLibre expects these exact field indices
+                glyph_bytes += self._encode_uint(1, glyph["id"])
+                if glyph.get("bitmap"):
+                    glyph_bytes += self._encode_bytes(2, glyph["bitmap"])
+                glyph_bytes += self._encode_uint(3, glyph["width"])
+                glyph_bytes += self._encode_uint(4, glyph["height"])
+                glyph_bytes += self._encode_sint(5, glyph["left"])
+                glyph_bytes += self._encode_sint(6, glyph["top"])
+                glyph_bytes += self._encode_uint(7, glyph["advance"])
+                
+                # Field 3 in Fontstack is the repeated Glyph message
+                fontstack_bytes += self._encode_message(3, bytes(glyph_bytes))
+                
+            # Field 1 in the Root message is the repeated Fontstack message
+            return self._encode_message(1, bytes(fontstack_bytes))
 
 
 def main():
