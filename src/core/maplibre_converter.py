@@ -23,6 +23,7 @@ from qgis.core import (
     QgsTextBackgroundSettings,
 )
 from qgis.utils import iface
+from .glyphs_generator import GlyphGenerator
 from .sprite_generator import SpriteGenerator
 
 
@@ -695,10 +696,11 @@ class TextPropertyExtractor:
         return None
 
     @staticmethod
-    def get_text_font(text_format: QgsTextFormat) -> List[str]:
+    def get_text_font(self, text_format: QgsTextFormat) -> List[str]:
         """Return ``text-font`` as a single-element list of ``"family style"``."""
         font = text_format.font()
-        return [f"{font.family()} {font.styleName()}"]
+        font_str = f"{font.family()} {font.styleName()}"
+        return [font_str], font.family()
 
     @staticmethod
     def get_text_size(
@@ -1076,6 +1078,7 @@ class QgisMapLibreStyleExporter:
         self.output_dir = output_dir
         self.marker_symbols: dict = {}
         self.marker_counter = 0
+        self.glyphs = []
         self.viewer = viewer
         self.sprite_quality = {0:1, 1:2, 2:3, 3:5}.get(sprite_quality, 1)
         self.minzoom = minzoom
@@ -1115,7 +1118,7 @@ class QgisMapLibreStyleExporter:
                     "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf?v=10031993"],
                 }
             },
-            "glyphs": "local://{fontstack}/{range}.pbf",
+            "glyphs": "http://localhost:9000/style/glyphs/{fontstack}/{range}.pbf",
             "sprite": "http://localhost:9000/style/sprite/sprite",
             "layers": [],
         }
@@ -1473,9 +1476,10 @@ class QgisMapLibreStyleExporter:
         text_field = TextPropertyExtractor.get_text_field(label_settings)
         if text_field:
             layer_def["layout"]["text-field"] = text_field
-
+        font, font_family = TextPropertyExtractor.get_text_font(text_format)
+        self.glyphs.append(font_family)
         layer_def["layout"].update({
-            "text-font": TextPropertyExtractor.get_text_font(text_format),
+            "text-font": TextPropertyExtractor.get_text_font(font),
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
@@ -1625,6 +1629,12 @@ class QgisMapLibreStyleExporter:
             ).generate()
         else:
             del self.style["sprite"]
+        if self.glyphs:
+            glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
+            os.mkdir(glyphs_dir)
+            GlyphGenerator(self.glyphs, glyphs_dir).generate()
+        else:
+             del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:

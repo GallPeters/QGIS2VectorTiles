@@ -50,6 +50,7 @@ MIME_TYPES = {
     ".woff":  "font/woff",
     ".woff2": "font/woff2",
     ".map":   "application/json",
+    ".pbf":   "application/x-protobuf",
 }
 
 
@@ -220,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    # ---- static (viewer + style + sprite) ----
+    # ---- static (viewer + style + sprite + glyphs) ----
     def _serve_static(self, target: Path):
         entry = self.server.static_cache.get(target)
         if entry is None:
@@ -228,11 +229,9 @@ class Handler(BaseHTTPRequestHandler):
 
         data, mime, etag = entry
 
-        # Conditional GET: tell the browser it can keep its copy if its
-        # ETag still matches the server's (almost-free 304 response).
         if self.headers.get("If-None-Match") == etag:
             self.send_response(304)
-            self.send_header("ETag",          etag)
+            self.send_header("ETag", etag)
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Content-Length", "0")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -240,14 +239,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self.send_response(200)
-        self.send_header("Content-Type",   mime)
+        self.send_header("Content-Type", mime)
+        
+        if mime == "application/x-protobuf" and data[:2] == b"\x1f\x8b":
+            self.send_header("Content-Encoding", "gzip")
+
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("ETag",           etag)
-        # "no-cache" = browser keeps copy but MUST revalidate every time.
-        # Combined with ETag, this means stale viewer.html is impossible:
-        # the browser asks before showing, gets 200+new bytes if the plugin
-        # regenerated the file, or 304 (free) if nothing changed.
-        self.send_header("Cache-Control",  "no-cache")
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
