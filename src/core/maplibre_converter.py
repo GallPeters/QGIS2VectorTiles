@@ -1529,7 +1529,7 @@ class QgisMapLibreStyleExporter:
             ),
             "text-halo-width": round(TextPropertyExtractor.get_text_halo_width(
                 text_format, label_settings
-            )/1.4,2),
+            )/2.5,2),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
