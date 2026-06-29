@@ -708,7 +708,7 @@ class TextPropertyExtractor:
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
-        base_size = text_format.font().pointSizeF() * (96.0 / 72.0)
+        base_size = round((text_format.font().pointSizeF() * (96.0 / 72.0))/1.4, 2) # divide by 2 to encompaste ultra preset values in glyph generator
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
@@ -963,7 +963,7 @@ class TextPropertyExtractor:
     @staticmethod
     def get_text_padding() -> float:
         """Return ``text-padding`` in pixels (MapLibre default: 2)."""
-        return 1
+        return 10
 
     @staticmethod
     def get_text_line_height() -> float:
@@ -1517,18 +1517,19 @@ class QgisMapLibreStyleExporter:
         if variable_anchor and label_settings.placement != 1:
             layer_def["layout"]["text-variable-anchor"] = variable_anchor
 
+
+        #         "text-halo-blur": TextPropertyExtractor.get_text_halo_blur(
+        #     text_format, label_settings
+        # ),
         layer_def["paint"].update({
             "text-color": TextPropertyExtractor.get_text_color(text_format, label_settings),
             "text-opacity": TextPropertyExtractor.get_text_opacity(text_format, label_settings),
             "text-halo-color": TextPropertyExtractor.get_text_halo_color(
                 text_format, label_settings
             ),
-            "text-halo-width": TextPropertyExtractor.get_text_halo_width(
+            "text-halo-width": round(TextPropertyExtractor.get_text_halo_width(
                 text_format, label_settings
-            ),
-            "text-halo-blur": TextPropertyExtractor.get_text_halo_blur(
-                text_format, label_settings
-            ),
+            )/1.4,2),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
@@ -1639,7 +1640,7 @@ class QgisMapLibreStyleExporter:
         if self.glyphs:
             glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
             os.mkdir(glyphs_dir)
-            GlyphGenerator.from_quality_preset(self.glyphs, 'q2vt_label', glyphs_dir, 'high').generate()
+            GlyphGenerator(self.glyphs, 'q2vt_label', glyphs_dir).generate()
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
