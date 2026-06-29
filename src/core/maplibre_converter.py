@@ -2,6 +2,7 @@
 
 import json
 import os
+from os.path import join
 from typing import Any, Dict, List, Optional, Union
 
 from qgis.PyQt.QtGui import QColor
@@ -700,7 +701,7 @@ class TextPropertyExtractor:
         """Return ``text-font`` as a single-element list of ``"family style"``."""
         font = text_format.font()
         font_str = f"{font.family()} {font.styleName()}"
-        return [font_str], font.family()
+        return font_str
 
     @staticmethod
     def get_text_size(
@@ -1055,6 +1056,7 @@ class QgisMapLibreStyleExporter:
     def __init__(
         self,
         output_dir: str,
+        utils_dir,
         layer: Optional[QgsVectorTileLayer] = None,
         background_type: int = 0,
         sprite_quality: int = 1,
@@ -1076,9 +1078,10 @@ class QgisMapLibreStyleExporter:
                              anything else = solid project background colour.
         """
         self.output_dir = output_dir
+        self.utils_dir = utils_dir
         self.marker_symbols: dict = {}
         self.marker_counter = 0
-        self.glyphs = []
+        self.glyphs = {}
         self.viewer = viewer
         self.sprite_quality = {0:1, 1:2, 2:3, 3:5}.get(sprite_quality, 1)
         self.minzoom = minzoom
@@ -1476,10 +1479,14 @@ class QgisMapLibreStyleExporter:
         text_field = TextPropertyExtractor.get_text_field(label_settings)
         if text_field:
             layer_def["layout"]["text-field"] = text_field
-        font, font_family = TextPropertyExtractor.get_text_font(text_format)
-        self.glyphs.append(font_family)
+        font = TextPropertyExtractor.get_text_font(text_format)
+        dataset = join(self.utils_dir, f'{source_layer_name}.gpkg')
+        if self.glyphs.get(font):
+            self.glyphs[font].append(dataset)
+        else:
+            self.glyphs[font] = [dataset]
         layer_def["layout"].update({
-            "text-font": font,
+            "text-font": [font],
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
@@ -1632,7 +1639,7 @@ class QgisMapLibreStyleExporter:
         if self.glyphs:
             glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
             os.mkdir(glyphs_dir)
-            GlyphGenerator(self.glyphs, glyphs_dir).generate()
+            GlyphGenerator.from_quality_preset(self.glyphs, 'q2vt_label', glyphs_dir, 'high').generate()
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
