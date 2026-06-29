@@ -1,99 +1,329 @@
 import os
+import math
 import logging
-import tempfile
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 
-from qgis.PyQt.QtCore import qVersion
-# PyQt version guard — import the right Qt5 / Qt6 symbols once, re-export
+import numpy as np
+from scipy.ndimage import distance_transform_edt
+
+try:
+    import cv2
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
 
 from qgis.PyQt.QtCore import qVersion
 
 if int(qVersion()[0]) == 5:
     from PyQt5.QtGui import (
-        QGuiApplication, QFontDatabase, QFont, QFontMetrics, 
+        QGuiApplication, QFontDatabase, QFont, QFontMetrics,
         QPainterPath, QImage, QPainter, QColor
     )
     from PyQt5.QtCore import QCoreApplication, Qt
 else:
     from PyQt6.QtGui import (
-        QGuiApplication, QFontDatabase, QFont, QFontMetrics, 
+        QGuiApplication, QFontDatabase, QFont, QFontMetrics,
         QPainterPath, QImage, QPainter, QColor
     )
     from PyQt6.QtCore import QCoreApplication, Qt
 
 logger = logging.getLogger(__name__)
 
+
+def _edt(mask: np.ndarray) -> np.ndarray:
+    """Distance from each True pixel to the nearest False pixel.
+    DIST_MASK_PRECISE is required for true circular (not octagonal) iso-
+    distance contours — an approximate mask mode produces visibly square
+    halos at larger radii. Falls back to scipy if cv2 is unavailable."""
+    if _HAS_CV2:
+        src = (mask.astype(np.uint8)) * 255
+        return cv2.distanceTransform(src, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+    return distance_transform_edt(mask)
+
+
 class GlyphGenerator:
     """
-    Generates MapLibre-compatible SDF glyphs (PBF format) from system fonts.
-    
-    Leverages PyQt6 for cross-platform system font discovery and path extraction.
+    Generates MapLibre-compatible SDF glyphs (PBF format) from system fonts,
+    scoped to only the characters that actually appear in a given field
+    across one or more Parquet datasets per font. This keeps generation
+    time bounded even at high/ultra render quality, since only the glyphs
+    actually used get rendered instead of a full Unicode sweep.
+
+    Character discovery is done via GDAL/OGR (osgeo) rather than pyqgis
+    vector layers, with column-projection push-down where the driver
+    supports it (Parquet/Arrow do).
     """
 
     GLYPH_RANGE_SIZE = 256
-    MAX_UNICODE = 65535 
+    MAX_UNICODE = 65535
 
-    def __init__(self, fonts: List[str], output_dir: str):
-        self.requested_fonts = fonts
+    MAPLIBRE_GLYPH_BORDER = 3      # MapLibre client's fixed border, never changes
+    REFERENCE_EM = 24.0             # Mapbox/MapLibre reference glyph generator
+    REFERENCE_BUFFER = 3.0          # (tiny-sdf) defaults at a 24px em — used
+    REFERENCE_RADIUS = 8.0          # as the scaling baseline below.
+
+    SDF_COVERAGE_THRESHOLD = 127    # AA coverage midpoint for mask binarization
+
+    QUALITY_PRESETS = {
+        "basic":  dict(font_render_size=24, max_halo_width=3.0, supersample=1),
+        "high":   dict(font_render_size=36, max_halo_width=4.0, supersample=2),
+        "ultra":  dict(font_render_size=48, max_halo_width=4.0, supersample=2),
+    }
+
+    def __init__(
+        self,
+        fonts_datasets: Dict[str, List[str]],
+        field_name: str,
+        output_dir: str,
+        font_render_size: int = 24,
+        max_halo_width: float = 3.0,
+        sdf_cutoff: float = 0.25,
+        supersample: int = 2,
+        buffer: Optional[int] = None,
+        sdf_radius: Optional[float] = None,
+    ):
+        """
+        fonts_datasets: dict mapping a combined "Family + Style" string
+            (e.g. "Open Sans Extra Bold", "David Bold") to a list of
+            Parquet dataset paths whose `field_name` field contains text
+            that must be renderable in that font.
+        field_name: the attribute field to scan for characters, in every
+            dataset, for every font.
+        """
+        self.fonts_datasets = fonts_datasets
+        self.field_name = field_name
         self.output_dir = Path(output_dir)
-        
-        # Ensure a QCoreApplication exists, required for QFontDatabase access
+        self.font_render_size = font_render_size
+        self.sdf_cutoff = sdf_cutoff
+        self.supersample = min(max(1, int(supersample)), 2)
+
+        scale = font_render_size / self.REFERENCE_EM
+
+        min_radius_for_halo = max_halo_width * scale
+        computed_radius = max(self.REFERENCE_RADIUS * scale, min_radius_for_halo)
+        self.sdf_radius = sdf_radius if sdf_radius is not None else computed_radius
+
+        computed_buffer = max(
+            self.REFERENCE_BUFFER * scale,
+            self.sdf_radius + 2,
+            self.MAPLIBRE_GLYPH_BORDER,
+        )
+        self.buffer = buffer if buffer is not None else int(math.ceil(computed_buffer))
+
+        if self.buffer < self.MAPLIBRE_GLYPH_BORDER:
+            logger.warning(
+                "buffer=%d < MapLibre's fixed %dpx border; narrow glyphs may "
+                "get invalid (negative) width/height metadata.",
+                self.buffer, self.MAPLIBRE_GLYPH_BORDER
+            )
+        if self.buffer < self.sdf_radius:
+            logger.warning(
+                "buffer=%d < sdf_radius=%.2f. Halos near max_halo_width may "
+                "still show flat/clipped edges.",
+                self.buffer, self.sdf_radius
+            )
+        if not _HAS_CV2:
+            logger.info("cv2 not found — using slower scipy distance transform "
+                        "and numpy downsampling. Install opencv-python-headless "
+                        "for a significant speed boost.")
+
         self._app = QCoreApplication.instance()
         if not self._app:
             self._app = QGuiApplication([])
 
-    def generate(self) -> str:
+    @classmethod
+    def from_quality_preset(cls, fonts_datasets: Dict[str, List[str]], field_name: str,
+                             output_dir: str, preset: str, **overrides):
+        """preset: 'basic' | 'high' | 'ultra'"""
+        params = dict(cls.QUALITY_PRESETS[preset])
+        params.update(overrides)
+        return cls(fonts_datasets=fonts_datasets, field_name=field_name,
+                    output_dir=output_dir, **params)
+
+    # ------------------------------------------------------------------
+    # Font key resolution: "Open Sans Extra Bold" -> ("Open Sans", "Extra Bold")
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _resolve_font_key(font_key: str, available_families: List[str]) -> Optional[Tuple[str, str]]:
         """
-        Main execution method. Discovers fonts, generates SDF ranges, and writes PBFs.
+        Resolves a combined 'Family + Style' string into a (family, style)
+        tuple matching what QFontDatabase actually has installed, via
+        longest-prefix family matching validated against that family's own
+        real style list (so 'Open Sans Extra Bold' isn't mis-split by a
+        shorter family name like 'Open').
         """
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # In PyQt6, families() is a static method on QFontDatabase
-        available_families = QFontDatabase.families()
-        
-        for requested_family in self.requested_fonts:
-            matched_family = next((f for f in available_families if f.lower() == requested_family.lower()), None)
-            
-            if not matched_family:
-                logger.warning(f"Font family '{requested_family}' not found. Skipping.")
+        key = font_key.strip()
+        for family in sorted(available_families, key=len, reverse=True):
+            if not key.lower().startswith(family.lower()):
                 continue
-                
-            logger.info(f"Processing font family: {matched_family}")
-            
-            # styles() is also a static method in PyQt6
-            styles = QFontDatabase.styles(matched_family)
+            remainder = key[len(family):].strip()
+            styles = QFontDatabase.styles(family)
+            if remainder == "":
+                default_style = next((s for s in styles if s.lower() in ("regular", "normal")), None)
+                return family, default_style or (styles[0] if styles else "Regular")
             for style in styles:
-                style_name = "Regular" if style.lower() in ["normal", "regular"] or not style else style
-                fontstack_name = f"{matched_family} {style_name}".strip()
-                
-                fontstack_dir = self.output_dir / fontstack_name
-                fontstack_dir.mkdir(exist_ok=True)
-                
-                # font() is a static method in PyQt6
-                qfont = QFontDatabase.font(matched_family, style, 24)
-                
-                self._generate_ranges_for_fontstack(qfont, fontstack_name, fontstack_dir)
+                if remainder.lower() == style.lower():
+                    return family, style
+        return None
+
+    # ------------------------------------------------------------------
+    # Character discovery via GDAL/OGR
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_unique_chars(dataset_paths: List[str], field_name: str) -> Set[str]:
+        """
+        Reads each dataset via GDAL/OGR (osgeo), not pyqgis vector layers —
+        lower overhead for a read-only, single-field scan — and accumulates
+        the set of unique characters found in `field_name` across all of
+        them. Uses column-projection push-down (ExecuteSQL selecting only
+        the needed field) where the driver supports it.
+        """
+        try:
+            from osgeo import ogr, gdal
+            gdal.UseExceptions()
+        except ImportError:
+            logger.error("GDAL/OGR Python bindings (osgeo) not available in this environment.")
+            return set()
+
+        unique_chars: Set[str] = set()
+
+        for path in dataset_paths:
+            ds = None
+            result_layer = None
+            try:
+                ds = ogr.Open(path)
+                if ds is None:
+                    logger.warning(f"Could not open dataset '{path}' with GDAL/OGR. Skipping.")
+                    continue
+
+                base_layer = ds.GetLayer(0)
+                if base_layer is None:
+                    logger.warning(f"No layers found in dataset '{path}'. Skipping.")
+                    continue
+
+                if base_layer.GetLayerDefn().GetFieldIndex(field_name) < 0:
+                    logger.warning(f"Field '{field_name}' not found in dataset '{path}'. Skipping.")
+                    continue
+
+                layer_name = base_layer.GetName()
+                read_layer = base_layer
+                try:
+                    projected = ds.ExecuteSQL(f'SELECT "{field_name}" FROM "{layer_name}"')
+                    if projected is not None:
+                        result_layer = projected
+                        read_layer = projected
+                except Exception:
+                    read_layer = base_layer
+
+                read_layer.ResetReading()
+                field_idx = read_layer.GetLayerDefn().GetFieldIndex(field_name)
+                feat = read_layer.GetNextFeature()
+                while feat is not None:
+                    if field_idx >= 0 and feat.IsFieldSetAndNotNull(field_idx):
+                        val = feat.GetFieldAsString(field_idx)
+                        if val:
+                            unique_chars.update(val)
+                    feat = read_layer.GetNextFeature()
+
+            except Exception as e:
+                logger.warning(f"Error reading dataset '{path}': {e}")
+            finally:
+                if result_layer is not None and ds is not None:
+                    try:
+                        ds.ReleaseResultSet(result_layer)
+                    except Exception:
+                        pass
+
+        return unique_chars
+
+    # ------------------------------------------------------------------
+    # Main generation flow
+    # ------------------------------------------------------------------
+    def generate(self) -> str:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        available_families = QFontDatabase.families()
+
+        for font_key, dataset_paths in self.fonts_datasets.items():
+            resolved = self._resolve_font_key(font_key, available_families)
+            if not resolved:
+                logger.warning(f"Could not resolve font '{font_key}' to an installed family+style. Skipping.")
+                continue
+            family, style = resolved
+            logger.info(f"Processing font '{font_key}' -> family='{family}', style='{style}'")
+
+            needed_chars = self._extract_unique_chars(dataset_paths, self.field_name)
+            if not needed_chars:
+                logger.warning(f"No characters found in field '{self.field_name}' for font '{font_key}'. Skipping.")
+                continue
+
+            codepoints = sorted({ord(c) for c in needed_chars if ord(c) <= self.MAX_UNICODE})
+            logger.info(
+                f"Font '{font_key}': {len(codepoints)} unique codepoints required "
+                f"across {len(dataset_paths)} dataset(s)."
+            )
+
+            style_name = "Regular" if style.lower() in ("normal", "regular") or not style else style
+            fontstack_name = f"{family} {style_name}".strip()
+            fontstack_dir = self.output_dir / fontstack_name
+            fontstack_dir.mkdir(exist_ok=True)
+
+            qfont = QFontDatabase.font(family, style, self.font_render_size)
+            hi_font = QFont(qfont)
+            hi_font.setPointSizeF(qfont.pointSizeF() * self.supersample)
+            renderer = _GlyphRenderer(self, qfont, hi_font)
+
+            self._generate_blocks_for_fontstack(renderer, fontstack_name, fontstack_dir, codepoints)
 
         return str(self.output_dir)
 
-    def _generate_ranges_for_fontstack(self, font: QFont, fontstack_name: str, out_dir: Path) -> None:
-        """Iterates over Unicode ranges and creates the .pbf files."""
-        for start in range(0, self.MAX_UNICODE, self.GLYPH_RANGE_SIZE):
-            end = start + self.GLYPH_RANGE_SIZE - 1
-            
-            pbf_data = self._create_sdf_pbf_for_range(font, fontstack_name, start, end)
-            
-            # Since pbf_data is now guaranteed to be a non-empty byte string (if glyphs exist), 
-            # this check passes and the file is written.
+    def _generate_blocks_for_fontstack(self, renderer: "_GlyphRenderer", fontstack_name: str,
+                                        out_dir: Path, codepoints: List[int]) -> None:
+        """Groups required codepoints into MapLibre's 256-wide range blocks
+        and generates a PBF only for blocks that actually contain a needed
+        codepoint, containing only those codepoints (not the whole block)."""
+        blocks: Dict[int, List[int]] = {}
+        for cp in codepoints:
+            block_start = (cp // self.GLYPH_RANGE_SIZE) * self.GLYPH_RANGE_SIZE
+            blocks.setdefault(block_start, []).append(cp)
+
+        for block_start, cps_in_block in sorted(blocks.items()):
+            block_end = block_start + self.GLYPH_RANGE_SIZE - 1
+            pbf_data = self._create_sdf_pbf_for_codepoints(renderer, fontstack_name, cps_in_block)
             if pbf_data:
-                pbf_path = out_dir / f"{start}-{end}.pbf"
+                pbf_path = out_dir / f"{block_start}-{block_end}.pbf"
                 with open(pbf_path, "wb") as f:
                     f.write(pbf_data)
 
+    def _create_sdf_pbf_for_codepoints(self, renderer: "_GlyphRenderer", fontstack_name: str,
+                                        codepoints: List[int]) -> Optional[bytes]:
+        metrics = renderer.metrics
+        glyphs_data = []
+
+        for char_code in codepoints:
+            if not metrics.inFontUcs4(char_code):
+                continue
+
+            char_str = chr(char_code)
+            advance = metrics.horizontalAdvance(char_str)
+            rect = metrics.boundingRect(char_str)
+
+            sdf_bitmap, width, height, left, top = renderer.render(char_str, rect)
+
+            glyphs_data.append({
+                "id": char_code, "bitmap": sdf_bitmap, "width": width,
+                "height": height, "left": left, "top": top, "advance": advance
+            })
+
+        if not glyphs_data:
+            return None
+        return self._serialize_to_pbf(fontstack_name, glyphs_data)
+
+    # ------------------------------------------------------------------
+    # PBF encoding (protobuf, hand-rolled — MapLibre glyph spec)
+    # ------------------------------------------------------------------
     @staticmethod
     def _encode_varint(value: int) -> bytes:
-        """Encode an integer as a protobuf varint."""
         out = bytearray()
         while True:
             byte = value & 0x7f
@@ -107,7 +337,6 @@ class GlyphGenerator:
 
     @staticmethod
     def _encode_svarint(value: int) -> bytes:
-        """ZigZag encode a signed integer (used for negative offsets)."""
         zigzag = (value << 1) ^ (value >> 31)
         return GlyphGenerator._encode_varint(zigzag)
 
@@ -135,156 +364,164 @@ class GlyphGenerator:
     @staticmethod
     def _encode_message(field_number: int, message_bytes: bytes) -> bytes:
         return GlyphGenerator._encode_tag(field_number, 2) + GlyphGenerator._encode_varint(len(message_bytes)) + message_bytes
-    
-    def _create_sdf_pbf_for_range(self, font: QFont, fontstack_name: str, start: int, end: int) -> Optional[bytes]:
-        """Extracts metrics and paths, generates an SDF bitmap, and encodes into PBF format."""
-        metrics = QFontMetrics(font)
-        
-        has_glyphs = any(metrics.inFontUcs4(char_code) for char_code in range(start, end + 1))
-        if not has_glyphs:
-            return None 
-            
-        glyphs_data = []
-
-        for char_code in range(start, end + 1):
-            if not metrics.inFontUcs4(char_code):
-                continue
-                
-            char_str = chr(char_code)
-            
-            advance = metrics.horizontalAdvance(char_str)
-            rect = metrics.boundingRect(char_str)
-            
-            path = QPainterPath()
-            path.addText(0, 0, font, char_str)
-            
-            sdf_bitmap, width, height, left, top = self._render_sdf_bitmap(path, rect)
-            
-            glyphs_data.append({
-                "id": char_code,
-                "bitmap": sdf_bitmap,
-                "width": width,
-                "height": height,
-                "left": left,
-                "top": top,
-                "advance": advance
-            })
-
-        if not glyphs_data:
-            return None
-
-        return self._serialize_to_pbf(fontstack_name, glyphs_data)
-
-
-    def _render_sdf_bitmap(self, path: QPainterPath, bounding_rect) -> Tuple[bytes, int, int, int, int]:
-            BUFFER = 3
-            glyph_width = int(bounding_rect.width())
-            glyph_height = int(bounding_rect.height())
-
-            if glyph_width == 0 or glyph_height == 0:
-                return b'', 0, 0, 0, 0
-
-            bitmap_width = glyph_width + (BUFFER * 2)
-            bitmap_height = glyph_height + (BUFFER * 2)
-            
-            # 1. Create the image
-            image = QImage(bitmap_width, bitmap_height, QImage.Format.Format_Grayscale8)
-            image.fill(0)
-            
-            # 2. Draw
-            painter = QPainter(image)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QColor(255, 255, 255))
-            painter.setPen(Qt.PenStyle.NoPen if hasattr(Qt, 'PenStyle') else Qt.NoPen)
-            
-            # Adjust for buffer
-            painter.translate(-bounding_rect.left() + BUFFER, -bounding_rect.top() + BUFFER)
-            painter.drawPath(path)
-            painter.end()
-
-            # 3. FIX: Strip padding bytes row-by-row
-            # We need a flat array of exactly bitmap_width * bitmap_height
-            raw_data = bytearray()
-            bytes_per_line = image.bytesPerLine()
-            
-            # Access the raw bits
-            ptr = image.constBits()
-            ptr.setsize(image.sizeInBytes())
-            
-            # Copy only the valid pixels, skipping padding
-            for y in range(bitmap_height):
-                # Calculate the start of the row in the QImage buffer
-                row_start = y * bytes_per_line
-                # Slice exactly the width we need
-                row_data = ptr[row_start : row_start + bitmap_width]
-                raw_data.extend(row_data)
-
-            return bytes(raw_data), glyph_width, glyph_height, int(bounding_rect.left()), int(bounding_rect.top())
 
     def _serialize_to_pbf(self, fontstack_name: str, glyphs_data: List[Dict]) -> bytes:
-            """Serializes the glyph data into the MapLibre protobuf format."""
-            fontstack_bytes = bytearray()
-            
-            # Field 1: Fontstack Name
-            fontstack_bytes += self._encode_string(1, fontstack_name)
-            # Field 2: Range (Optional but good practice)
-            fontstack_bytes += self._encode_string(2, "0-255") 
-            
-            for glyph in glyphs_data:
-                glyph_bytes = bytearray()
-                
-                # MapLibre expects these exact field indices
-                glyph_bytes += self._encode_uint(1, glyph["id"])
-                if glyph.get("bitmap"):
-                    glyph_bytes += self._encode_bytes(2, glyph["bitmap"])
-                glyph_bytes += self._encode_uint(3, glyph["width"])
-                glyph_bytes += self._encode_uint(4, glyph["height"])
-                glyph_bytes += self._encode_sint(5, glyph["left"])
-                glyph_bytes += self._encode_sint(6, glyph["top"])
-                glyph_bytes += self._encode_uint(7, glyph["advance"])
-                
-                # Field 3 in Fontstack is the repeated Glyph message
-                fontstack_bytes += self._encode_message(3, bytes(glyph_bytes))
-                
-            # Field 1 in the Root message is the repeated Fontstack message
-            return self._encode_message(1, bytes(fontstack_bytes))
+        fontstack_bytes = bytearray()
+        fontstack_bytes += self._encode_string(1, fontstack_name)
+        fontstack_bytes += self._encode_string(2, "0-255")
+
+        for glyph in glyphs_data:
+            glyph_bytes = bytearray()
+            glyph_bytes += self._encode_uint(1, glyph["id"])
+            if glyph.get("bitmap"):
+                glyph_bytes += self._encode_bytes(2, glyph["bitmap"])
+            glyph_bytes += self._encode_uint(3, glyph["width"])
+            glyph_bytes += self._encode_uint(4, glyph["height"])
+            glyph_bytes += self._encode_sint(5, glyph["left"])
+            glyph_bytes += self._encode_sint(6, glyph["top"])
+            glyph_bytes += self._encode_uint(7, glyph["advance"])
+            fontstack_bytes += self._encode_message(3, bytes(glyph_bytes))
+
+        return self._encode_message(1, bytes(fontstack_bytes))
+
+
+class _GlyphRenderer:
+    """
+    Holds a single reused QImage scratch canvas + QPainter for an entire
+    fontstack, so per-glyph rendering only does a cheap fill(0) instead of
+    allocating a new QImage/QPainter per glyph. Falls back to a one-off
+    allocation for the rare glyph too large for the scratch canvas.
+    """
+
+    def __init__(self, gen: GlyphGenerator, font: QFont, hi_font: QFont):
+        self.gen = gen
+        self.font = font
+        self.hi_font = hi_font
+        self.metrics = QFontMetrics(font)
+        self.ss = gen.supersample
+        self.buffer = gen.buffer
+
+        fm = self.metrics
+        max_w = int(fm.maxWidth() * 1.5) + self.buffer * 2
+        max_h = int((fm.ascent() + fm.descent()) * 1.5) + self.buffer * 2
+        self.scratch_w = max(max_w * self.ss, 16)
+        self.scratch_h = max(max_h * self.ss, 16)
+
+        self.scratch_image = QImage(self.scratch_w, self.scratch_h, QImage.Format.Format_Grayscale8)
+        self.painter = QPainter()
+
+    def render(self, char_str: str, bounding_rect) -> Tuple[bytes, int, int, int, int]:
+        render_buffer = self.buffer
+        ss = self.ss
+        glyph_width = int(bounding_rect.width())
+        glyph_height = int(bounding_rect.height())
+
+        if glyph_width == 0 or glyph_height == 0:
+            return b'', 0, 0, 0, 0
+
+        bitmap_width = glyph_width + (render_buffer * 2)
+        bitmap_height = glyph_height + (render_buffer * 2)
+        hi_w, hi_h = bitmap_width * ss, bitmap_height * ss
+
+        if hi_w <= self.scratch_w and hi_h <= self.scratch_h:
+            image = self.scratch_image
+            image.fill(0)
+        else:
+            image = QImage(hi_w, hi_h, QImage.Format.Format_Grayscale8)
+            image.fill(0)
+
+        hi_path = QPainterPath()
+        hi_path.addText(0, 0, self.hi_font, char_str)
+
+        self.painter.begin(image)
+        self.painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.painter.setBrush(QColor(255, 255, 255))
+        self.painter.setPen(Qt.PenStyle.NoPen if hasattr(Qt, 'PenStyle') else Qt.NoPen)
+        self.painter.translate((-bounding_rect.left() + render_buffer) * ss,
+                                (-bounding_rect.top() + render_buffer) * ss)
+        self.painter.drawPath(hi_path)
+        self.painter.end()
+
+        bytes_per_line = image.bytesPerLine()
+        ptr = image.constBits()
+        ptr.setsize(image.sizeInBytes())
+        full = np.frombuffer(ptr, dtype=np.uint8).reshape(image.height(), bytes_per_line)
+        coverage = full[:hi_h, :hi_w]
+
+        inside_mask = coverage >= self.gen.SDF_COVERAGE_THRESHOLD
+
+        if not inside_mask.any():
+            logger.warning("No pixels above threshold (%dx%d); blank SDF.", glyph_width, glyph_height)
+            sdf_hi = np.zeros((hi_h, hi_w), dtype=np.float32)
+        else:
+            outer = _edt(~inside_mask)
+            inner = _edt(inside_mask)
+            signed_distance = (outer - inner) / ss
+            sdf_hi = np.clip(
+                255.0 - 255.0 * (signed_distance / self.gen.sdf_radius + self.gen.sdf_cutoff),
+                0, 255
+            ).astype(np.float32)
+
+        if ss > 1:
+            if _HAS_CV2:
+                sdf_bitmap = cv2.resize(sdf_hi, (bitmap_width, bitmap_height), interpolation=cv2.INTER_AREA)
+                sdf_bitmap = np.clip(sdf_bitmap, 0, 255).astype(np.uint8)
+            else:
+                sdf_bitmap = sdf_hi.reshape(bitmap_height, ss, bitmap_width, ss).mean(axis=(1, 3)).astype(np.uint8)
+        else:
+            sdf_bitmap = sdf_hi.astype(np.uint8)
+
+        width_field = max(0, bitmap_width - 2 * self.gen.MAPLIBRE_GLYPH_BORDER)
+        height_field = max(0, bitmap_height - 2 * self.gen.MAPLIBRE_GLYPH_BORDER)
+
+        return sdf_bitmap.tobytes(), width_field, height_field, int(bounding_rect.left()), int(bounding_rect.top())
 
 
 def main():
-    # Setup basic logging to see progress in the QGIS console
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    
-    # 1. Define target fonts to locate on the system
-    target_fonts = ["Arial", "Open Sans", "Courier New"]
 
-    # 2. Define cross-platform output directory
-    output_directory = os.path.join(tempfile.gettempdir(), "maplibre_glyphs")
+    output_directory = os.path.join(os.path.expanduser("~"), "maplibre_glyphs")
 
-    print(f"Starting glyph generation...")
+    # Maps each "Family + Style" font key to the Parquet datasets whose
+    # text field must be coverable by that font.
+    fonts_datasets = {
+        "Open Sans Extra Bold": [
+            "/path/to/dataset_labels_a.parquet",
+            "/path/to/dataset_labels_b.parquet",
+        ],
+        "David Bold": [
+            "/path/to/dataset_hebrew_labels.parquet",
+        ],
+        "Arial Italic Bold": [
+            "/path/to/dataset_misc_labels.parquet",
+        ],
+    }
+
+    field_name = "label"
+
+    print("Starting glyph generation...")
     print(f"Target directory: {output_directory}")
 
-    # 3. Initialize and run
-    generator = GlyphGenerator(
-        fonts=target_fonts,
-        output_dir=output_directory
+    generator = GlyphGenerator.from_quality_preset(
+        fonts_datasets=fonts_datasets,
+        field_name=field_name,
+        output_dir=output_directory,
+        preset="ultra",          # "basic" | "high" | "ultra"
+        max_halo_width=4.0,      # largest text-halo-width you'll use, in px
     )
 
     try:
         final_path = generator.generate()
-        print(f"\nSuccess! Glyphs successfully generated at:\n{final_path}")
-        
-        # Display the generated structure
+        print(f"\nSuccess! Glyphs generated at:\n{final_path}")
         print("\nGenerated Font Stacks:")
         for fontstack in os.listdir(final_path):
             stack_path = os.path.join(final_path, fontstack)
             if os.path.isdir(stack_path):
                 pbf_count = len([f for f in os.listdir(stack_path) if f.endswith('.pbf')])
                 print(f"{fontstack}/ ({pbf_count} .pbf files)")
-
     except Exception as e:
         print(f"Error during generation: {e}")
-            
 
 
 if __name__ == "__console__":
-     main()
+    main()
