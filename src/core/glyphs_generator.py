@@ -46,30 +46,30 @@ class GlyphGenerator:
     """
     Generates MapLibre-compatible SDF glyphs (PBF format) from system fonts,
     scoped to only the characters that actually appear in a given field
-    across one or more Parquet datasets per font. This keeps generation
-    time bounded even at high/ultra render quality, since only the glyphs
-    actually used get rendered instead of a full Unicode sweep.
+    across one or more datasets per font (read via GDAL/OGR — works with
+    Parquet, GeoPackage, or anything else OGR can open).
 
-    Character discovery is done via GDAL/OGR (osgeo) rather than pyqgis
-    vector layers, with column-projection push-down where the driver
-    supports it (Parquet/Arrow do).
+    Fixed at high-quality settings tuned for sharp, smooth, near-vector
+    text and halos, including on high-DPI displays, while keeping
+    generation time bounded by only rendering the glyphs actually used.
     """
 
     GLYPH_RANGE_SIZE = 256
     MAX_UNICODE = 65535
 
-    MAPLIBRE_GLYPH_BORDER = 3      # MapLibre client's fixed border, never changes
-    REFERENCE_EM = 24.0             # Mapbox/MapLibre reference glyph generator
-    REFERENCE_BUFFER = 3.0          # (tiny-sdf) defaults at a 24px em — used
-    REFERENCE_RADIUS = 8.0          # as the scaling baseline below.
+    MAPLIBRE_GLYPH_BORDER = 3   # MapLibre client's fixed border, never changes
+    REFERENCE_EM = 24.0          # MapLibre's internal reference em size
+    REFERENCE_BUFFER = 3.0       # Mapbox/MapLibre reference glyph generator
+                                  # (tiny-sdf) buffer default at 24px em.
 
-    SDF_COVERAGE_THRESHOLD = 127    # AA coverage midpoint for mask binarization
+    # Minimum SDF radius (in source pixels) needed for a clean antialiased
+    # text edge, independent of font_render_size. Tying radius to a large
+    # scale-proportional floor (as an earlier version did) needlessly
+    # inflates it at high render sizes and coarsens SDF quantization,
+    # producing visible softness — so this stays small and fixed.
+    REFERENCE_RADIUS = 8.0 
 
-    QUALITY_PRESETS = {
-        "basic":  dict(font_render_size=24, max_halo_width=3.0, supersample=1),
-        "high":   dict(font_render_size=36, max_halo_width=4.0, supersample=2),
-        "ultra":  dict(font_render_size=48, max_halo_width=4.0, supersample=2),
-    }
+    SDF_COVERAGE_THRESHOLD = 127  # AA coverage midpoint for mask binarization
 
     def __init__(
         self,
@@ -77,31 +77,40 @@ class GlyphGenerator:
         field_name: str,
         output_dir: str,
         font_render_size: int = 24,
-        max_halo_width: float = 3.0,
+        max_halo_width: float = 0,
         sdf_cutoff: float = 0.25,
-        supersample: int = 2,
+        supersample: int = 8,
         buffer: Optional[int] = None,
         sdf_radius: Optional[float] = None,
     ):
         """
         fonts_datasets: dict mapping a combined "Family + Style" string
             (e.g. "Open Sans Extra Bold", "David Bold") to a list of
-            Parquet dataset paths whose `field_name` field contains text
-            that must be renderable in that font.
+            dataset paths (Parquet, GeoPackage, etc. — anything OGR can
+            open) whose `field_name` field contains text that must be
+            renderable in that font.
         field_name: the attribute field to scan for characters, in every
             dataset, for every font.
+        font_render_size: source rasterization point size. Defaults to a
+            high value (96 = 4x MapLibre's 24px reference) for near-vector
+            sharpness on high-DPI displays. Divide your style's text-size
+            by (font_render_size / 24) to preserve the original on-screen
+            text size.
+        max_halo_width: largest text-halo-width (style px, at a 24px em)
+            you intend to use in MapLibre. buffer/sdf_radius are sized to
+            cover this without rectangular clipping.
         """
         self.fonts_datasets = fonts_datasets
         self.field_name = field_name
         self.output_dir = Path(output_dir)
         self.font_render_size = font_render_size
         self.sdf_cutoff = sdf_cutoff
-        self.supersample = min(max(1, int(supersample)), 2)
+        # self.supersample = min(max(1, int(supersample)), 4)
+        self.supersample = 8
 
         scale = font_render_size / self.REFERENCE_EM
 
-        min_radius_for_halo = max_halo_width * scale
-        computed_radius = max(self.REFERENCE_RADIUS * scale, min_radius_for_halo)
+        computed_radius = max(self.REFERENCE_RADIUS * scale, max_halo_width * scale)
         self.sdf_radius = sdf_radius if sdf_radius is not None else computed_radius
 
         computed_buffer = max(
@@ -131,15 +140,6 @@ class GlyphGenerator:
         self._app = QCoreApplication.instance()
         if not self._app:
             self._app = QGuiApplication([])
-
-    @classmethod
-    def from_quality_preset(cls, fonts_datasets: Dict[str, List[str]], field_name: str,
-                             output_dir: str, preset: str, **overrides):
-        """preset: 'basic' | 'high' | 'ultra'"""
-        params = dict(cls.QUALITY_PRESETS[preset])
-        params.update(overrides)
-        return cls(fonts_datasets=fonts_datasets, field_name=field_name,
-                    output_dir=output_dir, **params)
 
     # ------------------------------------------------------------------
     # Font key resolution: "Open Sans Extra Bold" -> ("Open Sans", "Extra Bold")
@@ -173,11 +173,12 @@ class GlyphGenerator:
     @staticmethod
     def _extract_unique_chars(dataset_paths: List[str], field_name: str) -> Set[str]:
         """
-        Reads each dataset via GDAL/OGR (osgeo), not pyqgis vector layers —
+        Reads each dataset via GDAL/OGR (osgeo) — not pyqgis vector layers,
         lower overhead for a read-only, single-field scan — and accumulates
         the set of unique characters found in `field_name` across all of
         them. Uses column-projection push-down (ExecuteSQL selecting only
-        the needed field) where the driver supports it.
+        the needed field) where the driver supports it. Works with
+        Parquet, GeoPackage, or any other OGR-readable format.
         """
         try:
             from osgeo import ogr, gdal
@@ -482,18 +483,15 @@ def main():
 
     output_directory = os.path.join(os.path.expanduser("~"), "maplibre_glyphs")
 
-    # Maps each "Family + Style" font key to the Parquet datasets whose
-    # text field must be coverable by that font.
+    # Maps each "Family + Style" font key to the datasets (Parquet,
+    # GeoPackage, etc.) whose text field must be coverable by that font.
     fonts_datasets = {
         "Open Sans Extra Bold": [
-            "/path/to/dataset_labels_a.parquet",
-            "/path/to/dataset_labels_b.parquet",
+            "/path/to/dataset_labels_a.gpkg",
+            "/path/to/dataset_labels_b.gpkg",
         ],
         "David Bold": [
-            "/path/to/dataset_hebrew_labels.parquet",
-        ],
-        "Arial Italic Bold": [
-            "/path/to/dataset_misc_labels.parquet",
+            "/path/to/dataset_hebrew_labels.gpkg",
         ],
     }
 
@@ -502,12 +500,16 @@ def main():
     print("Starting glyph generation...")
     print(f"Target directory: {output_directory}")
 
-    generator = GlyphGenerator.from_quality_preset(
+    # Fixed high-quality configuration — no presets. font_render_size=96
+    # means: divide your MapLibre style's text-size by 4 (96/24) to keep
+    # the displayed text the same size as the QGIS original.
+    generator = GlyphGenerator(
         fonts_datasets=fonts_datasets,
         field_name=field_name,
         output_dir=output_directory,
-        preset="ultra",          # "basic" | "high" | "ultra"
-        max_halo_width=4.0,      # largest text-halo-width you'll use, in px
+        font_render_size=96,
+        max_halo_width=6.0,
+        supersample=4,
     )
 
     try:
