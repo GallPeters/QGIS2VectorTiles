@@ -168,7 +168,7 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir, tiles_uri).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        QgisMapLibreStyleExporter(temp_dir, styled_layer, self.background_type, self.sprite_quality, self.viewer, self.min_zoom, self.max_zoom).export()
+        QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.background_type, self.sprite_quality, self.viewer, self.min_zoom, self.max_zoom).export()
 
     def _log(self, message: str):
         if __name__ != "__console__":
