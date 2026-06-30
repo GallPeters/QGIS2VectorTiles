@@ -32,9 +32,6 @@ from ..utils.config import (
     _GLYPH_RANGE_SIZE,
     _MAX_UNICODE,
     _MAPLIBRE_GLYPH_BORDER,
-    _REFERENCE_EM,
-    _REFERENCE_BUFFER,
-    _REFERENCE_RADIUS,
     _SDF_COVERAGE_THRESHOLD,
     _FONT_RENDER_SIZE,
     _SDF_CUTOFF,
@@ -449,7 +446,7 @@ class _GlyphRenderer:
         width_field = max(0, bitmap_width - 2 * _MAPLIBRE_GLYPH_BORDER)
         height_field = max(0, bitmap_height - 2 * _MAPLIBRE_GLYPH_BORDER)
 
-        return sdf_bitmap.tobytes(), width_field, height_field, int(bounding_rect.left()), int(bounding_rect.top())
+        return sdf_bitmap.tobytes(), width_field, height_field, int(bounding_rect.left()), -int(bounding_rect.top())
 
 
 def main():

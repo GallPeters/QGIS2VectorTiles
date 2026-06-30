@@ -1632,7 +1632,7 @@ class QgisMapLibreStyleExporter:
 
         if self.marker_symbols:
             SpriteGenerator(
-                self.marker_symbols, style_dir, False
+                self.marker_symbols, style_dir, _SPRITE_QUALITY, False
             ).generate()
         else:
             del self.style["sprite"]
