@@ -16,21 +16,10 @@ from math import sqrt, ceil
 from os import makedirs
 from os.path import join
 from typing import Optional, TypeAlias
-from datetime import datetime
-from gc import collect
+
 
 from PIL import Image
-from qgis.core import (
-    QgsProcessingUtils,
-    QgsSymbol,
-    QgsRuleBasedRenderer,
-    QgsRuleBasedLabeling,
-    QgsProject,
-    QgsVectorLayerSimpleLabeling,
-    QgsSingleSymbolRenderer,
-    QgsCategorizedSymbolRenderer,
-    QgsGraduatedSymbolRenderer,
-)
+from qgis.core import QgsSymbol
 from qgis.PyQt.QtCore import qVersion
 
 _QT_VERSION = int(qVersion()[0])

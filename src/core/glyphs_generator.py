@@ -28,6 +28,21 @@ else:
     )
     from PyQt6.QtCore import QCoreApplication, Qt
 
+from ..utils.config import (
+    _GLYPH_RANGE_SIZE,
+    _MAX_UNICODE,
+    _MAPLIBRE_GLYPH_BORDER,
+    _REFERENCE_EM,
+    _REFERENCE_BUFFER,
+    _REFERENCE_RADIUS,
+    _SDF_COVERAGE_THRESHOLD,
+    _FONT_RENDER_SIZE,
+    _SDF_CUTOFF,
+    _SUPERSAMPLE,
+    _SDF_RADIUS,
+    _BUFFER,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,39 +64,16 @@ class GlyphGenerator:
     across one or more datasets per font (read via GDAL/OGR — works with
     Parquet, GeoPackage, or anything else OGR can open).
 
-    Fixed at high-quality settings tuned for sharp, smooth, near-vector
-    text and halos, including on high-DPI displays, while keeping
-    generation time bounded by only rendering the glyphs actually used.
+    Generation parameters are fixed (see ..utils.config) and not
+    configurable per call, to keep output predictable and avoid
+    accidentally regenerating with mismatched settings.
     """
-
-    GLYPH_RANGE_SIZE = 256
-    MAX_UNICODE = 65535
-
-    MAPLIBRE_GLYPH_BORDER = 3   # MapLibre client's fixed border, never changes
-    REFERENCE_EM = 24.0          # MapLibre's internal reference em size
-    REFERENCE_BUFFER = 3.0       # Mapbox/MapLibre reference glyph generator
-                                  # (tiny-sdf) buffer default at 24px em.
-
-    # Minimum SDF radius (in source pixels) needed for a clean antialiased
-    # text edge, independent of font_render_size. Tying radius to a large
-    # scale-proportional floor (as an earlier version did) needlessly
-    # inflates it at high render sizes and coarsens SDF quantization,
-    # producing visible softness — so this stays small and fixed.
-    REFERENCE_RADIUS = 8.0 
-
-    SDF_COVERAGE_THRESHOLD = 127  # AA coverage midpoint for mask binarization
 
     def __init__(
         self,
         fonts_datasets: Dict[str, List[str]],
         field_name: str,
         output_dir: str,
-        font_render_size: int = 24,
-        max_halo_width: float = 0,
-        sdf_cutoff: float = 0.25,
-        supersample: int = 8,
-        buffer: Optional[int] = None,
-        sdf_radius: Optional[float] = None,
     ):
         """
         fonts_datasets: dict mapping a combined "Family + Style" string
@@ -91,45 +83,27 @@ class GlyphGenerator:
             renderable in that font.
         field_name: the attribute field to scan for characters, in every
             dataset, for every font.
-        font_render_size: source rasterization point size. Defaults to a
-            high value (96 = 4x MapLibre's 24px reference) for near-vector
-            sharpness on high-DPI displays. Divide your style's text-size
-            by (font_render_size / 24) to preserve the original on-screen
-            text size.
-        max_halo_width: largest text-halo-width (style px, at a 24px em)
-            you intend to use in MapLibre. buffer/sdf_radius are sized to
-            cover this without rectangular clipping.
         """
         self.fonts_datasets = fonts_datasets
         self.field_name = field_name
         self.output_dir = Path(output_dir)
-        self.font_render_size = font_render_size
-        self.sdf_cutoff = sdf_cutoff
-        # self.supersample = min(max(1, int(supersample)), 4)
-        self.supersample = 8
 
-        scale = font_render_size / self.REFERENCE_EM
+        self.font_render_size = _FONT_RENDER_SIZE
+        self.sdf_cutoff = _SDF_CUTOFF
+        self.supersample = _SUPERSAMPLE
+        self.sdf_radius = _SDF_RADIUS
+        self.buffer = _BUFFER
 
-        computed_radius = max(self.REFERENCE_RADIUS * scale, max_halo_width * scale)
-        self.sdf_radius = sdf_radius if sdf_radius is not None else computed_radius
-
-        computed_buffer = max(
-            self.REFERENCE_BUFFER * scale,
-            self.sdf_radius + 2,
-            self.MAPLIBRE_GLYPH_BORDER,
-        )
-        self.buffer = buffer if buffer is not None else int(math.ceil(computed_buffer))
-
-        if self.buffer < self.MAPLIBRE_GLYPH_BORDER:
+        if self.buffer < _MAPLIBRE_GLYPH_BORDER:
             logger.warning(
                 "buffer=%d < MapLibre's fixed %dpx border; narrow glyphs may "
                 "get invalid (negative) width/height metadata.",
-                self.buffer, self.MAPLIBRE_GLYPH_BORDER
+                self.buffer, _MAPLIBRE_GLYPH_BORDER
             )
         if self.buffer < self.sdf_radius:
             logger.warning(
-                "buffer=%d < sdf_radius=%.2f. Halos near max_halo_width may "
-                "still show flat/clipped edges.",
+                "buffer=%d < sdf_radius=%.2f. Edges near the glyph border "
+                "may show flat/clipped artifacts.",
                 self.buffer, self.sdf_radius
             )
         if not _HAS_CV2:
@@ -258,7 +232,7 @@ class GlyphGenerator:
                 logger.warning(f"No characters found in field '{self.field_name}' for font '{font_key}'. Skipping.")
                 continue
 
-            codepoints = sorted({ord(c) for c in needed_chars if ord(c) <= self.MAX_UNICODE})
+            codepoints = sorted({ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE})
             logger.info(
                 f"Font '{font_key}': {len(codepoints)} unique codepoints required "
                 f"across {len(dataset_paths)} dataset(s)."
@@ -285,11 +259,11 @@ class GlyphGenerator:
         codepoint, containing only those codepoints (not the whole block)."""
         blocks: Dict[int, List[int]] = {}
         for cp in codepoints:
-            block_start = (cp // self.GLYPH_RANGE_SIZE) * self.GLYPH_RANGE_SIZE
+            block_start = (cp // _GLYPH_RANGE_SIZE) * _GLYPH_RANGE_SIZE
             blocks.setdefault(block_start, []).append(cp)
 
         for block_start, cps_in_block in sorted(blocks.items()):
-            block_end = block_start + self.GLYPH_RANGE_SIZE - 1
+            block_end = block_start + _GLYPH_RANGE_SIZE - 1
             pbf_data = self._create_sdf_pbf_for_codepoints(renderer, fontstack_name, cps_in_block)
             if pbf_data:
                 pbf_path = out_dir / f"{block_start}-{block_end}.pbf"
@@ -449,7 +423,7 @@ class _GlyphRenderer:
         full = np.frombuffer(ptr, dtype=np.uint8).reshape(image.height(), bytes_per_line)
         coverage = full[:hi_h, :hi_w]
 
-        inside_mask = coverage >= self.gen.SDF_COVERAGE_THRESHOLD
+        inside_mask = coverage >= _SDF_COVERAGE_THRESHOLD
 
         if not inside_mask.any():
             logger.warning("No pixels above threshold (%dx%d); blank SDF.", glyph_width, glyph_height)
@@ -472,8 +446,8 @@ class _GlyphRenderer:
         else:
             sdf_bitmap = sdf_hi.astype(np.uint8)
 
-        width_field = max(0, bitmap_width - 2 * self.gen.MAPLIBRE_GLYPH_BORDER)
-        height_field = max(0, bitmap_height - 2 * self.gen.MAPLIBRE_GLYPH_BORDER)
+        width_field = max(0, bitmap_width - 2 * _MAPLIBRE_GLYPH_BORDER)
+        height_field = max(0, bitmap_height - 2 * _MAPLIBRE_GLYPH_BORDER)
 
         return sdf_bitmap.tobytes(), width_field, height_field, int(bounding_rect.left()), int(bounding_rect.top())
 
@@ -500,16 +474,12 @@ def main():
     print("Starting glyph generation...")
     print(f"Target directory: {output_directory}")
 
-    # Fixed high-quality configuration — no presets. font_render_size=96
-    # means: divide your MapLibre style's text-size by 4 (96/24) to keep
-    # the displayed text the same size as the QGIS original.
+    # Generation parameters are fixed (see ..utils.config) — no quality
+    # presets to choose from.
     generator = GlyphGenerator(
         fonts_datasets=fonts_datasets,
         field_name=field_name,
         output_dir=output_directory,
-        font_render_size=96,
-        max_halo_width=6.0,
-        supersample=4,
     )
 
     try:

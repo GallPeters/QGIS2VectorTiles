@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <link rel="icon" type="image/png" sizes="16x16" href="icons/qgis2vectortiles.png">
 <link rel="shortcut icon" href="docs/icons/qgis2vectortiles.ico">
 <title>QGIS2VectorTiles — Styling Guide</title>
@@ -13,45 +13,36 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ════════════════════════════════════════
-   DESIGN TOKENS  (identical to changelog.html)
-   Flat dark UI — QGIS brand palette.
+   DESIGN TOKENS & RESET (Inherited from index.html)
 ════════════════════════════════════════ */
 :root {
-  /* Surfaces (opaque) */
-  --bg:            #0d0d0d;
-  --surface:       #161616;
-  --surface-2:     #1c1c1c;
-  --surface-3:     #222222;
+  --bg: #050505;
+  --bg-glow: radial-gradient(circle at 50% 0%, rgba(152, 176, 35, 0.15), transparent 60%);
+  --surface: rgba(20, 20, 22, 0.6);
+  --surface-solid: #141416;
+  --surface-hover: rgba(30, 30, 34, 0.8);
+  
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.15);
+  
+  --accent: #98B023;
+  --accent-hover: #b4d12b;
+  --accent-faint: rgba(152, 176, 35, 0.1);
+  
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
 
-  /* Borders (solid) */
-  --border:        #262626;
-  --border-2:      #333333;
-  --border-3:      #404040;
-
-
-    /* Brand accents — QGIS */
-  --accent:        #98B023;   /* olive green */
-  --accent-hover:  #A9C33A;   /* brighter hover */
-  --accent-deep:   #38410F;   /* dark olive */
-  --accent-2:      #98B023;
-
-  /* Typography */
-  --text:          #ececec;
-  --text-muted:    #a0a0a0;
-  --text-dim:      #6f6f6f;
-  --text-faint:    #4a4a4a;
-
-  --header-h:      56px;
-
-  /* Border radii — small, flat */
-  --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-
-  --t:      0.15s ease;
-  --t-slow: 0.25s ease;
-
-  --max-w: 1180px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  
+  --header-h: clamp(50px, 8vh, 64px);
+  --max-w: 1200px;
+  
+  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -59,176 +50,146 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: var(--header-h);
-  background: var(--bg);
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
+  width: 100%;
+  min-height: 100vh;
+  font-family: var(--font);
+  background-color: var(--bg);
+  background-image: var(--bg-glow);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--text);
   line-height: 1.55;
-  font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
 }
 
-a { color: inherit; text-decoration: none; }
+a { color: inherit; text-decoration: none; transition: all var(--transition); }
 img, video, svg { display: block; max-width: 100%; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
-::selection { background: var(--accent); color: var(--bg); }
+::selection { background: var(--accent); color: #000; }
 
 /* ════════════════════════════════════════
-   FIXED HEADER — solid, opaque, flat
+   HEADER (Glassmorphism)
 ════════════════════════════════════════ */
 .header {
   position: fixed;
   top: 0; left: 0; right: 0;
-  z-index: 100;
   height: var(--header-h);
-  background: var(--bg);
+  z-index: 100;
+  background: rgba(5, 5, 5, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
-
-.header-inner {
-  height: 100%;
+.header .container {
   max-width: var(--max-w);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 clamp(16px, 4vw, 40px);
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
 }
 
-.nav-left, .nav-right {
-  display: flex;
-  align-items: center;
-}
-.nav-left  { gap: 4px; }
-.nav-right { gap: 14px; }
+.nav-left, .nav-right { display: flex; align-items: center; gap: clamp(4px, 1vw, 8px); }
 
 .nav-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: clamp(4px, 0.5vw, 8px);
+  font-size: clamp(12px, 1.5vh, 14px);
   font-weight: 500;
   color: var(--text-muted);
-  padding: 7px 12px;
-  border-radius: var(--r-sm);
-  transition: color var(--t), background var(--t), border-color var(--t);
-  letter-spacing: -0.005em;
-  border: 1px solid transparent;
+  padding: clamp(6px, 1vh, 8px) clamp(10px, 1vw, 14px);
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
 }
-.nav-btn svg { opacity: 0.9; flex-shrink: 0; }
-.nav-btn:hover { color: var(--text); background: var(--surface-2); }
-
+.nav-btn:hover { color: var(--text); background: var(--surface); }
 .nav-btn.cta {
-  color: #0d0d0d;
   background: var(--accent);
-  border-color: var(--accent);
+  color: #000;
   font-weight: 600;
 }
-.nav-btn.cta:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: #0d0d0d;
-}
-.nav-btn.cta svg { opacity: 1; color: #0d0d0d; }
-
+.nav-btn.cta:hover { background: var(--text-muted); color: #000; }
 .nav-btn.active {
   color: var(--text);
-  background: var(--surface-2);
-  border-color: var(--border-2);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
 }
-.nav-btn.active svg { opacity: 1; color: var(--accent); }
-
-.nav-btn.home { color: var(--text-muted); }
-.nav-btn.home:hover { color: var(--accent); border-color: var(--border-2); background: var(--surface-2); }
-.nav-btn.home:hover svg { color: var(--accent); }
+.nav-btn.active svg { color: var(--accent); }
+.nav-btn svg { width: clamp(14px, 2vh, 16px); height: clamp(14px, 2vh, 16px); }
 
 .rate-text {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: clamp(12.5px, 1.4vh, 13px);
   color: var(--text-dim);
-  font-weight: 400;
+  font-weight: 410;
   white-space: nowrap;
+  padding-right: 8px;
 }
-.rate-text strong { color: var(--accent-2); font-weight: 600; }
-
-.header-links {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.icon-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  color: var(--text-muted);
-  border-radius: var(--r-sm);
-  transition: color var(--t), background var(--t);
-}
-.icon-link:hover { color: var(--accent); background: var(--surface-2); }
-.icon-link svg { width: 15px; height: 15px; }
 
 .divider-v {
   width: 1px;
   height: 18px;
-  background: var(--border-2);
+  background: var(--border);
   flex-shrink: 0;
+  margin-right: 4px;
 }
 
+.rate-text strong { color: var(--accent); font-weight: 600; }
+.header-links { display: flex; align-items: center; gap: 2px; }
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(28px, 4vh, 36px); 
+  height: clamp(28px, 4vh, 36px);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+.icon-link:hover { color: var(--accent); background: var(--surface); }
+.icon-link svg { width: clamp(16px, 2.5vh, 18px); height: clamp(16px, 2.5vh, 18px); }
+
 /* ════════════════════════════════════════
-   PAGE HEADER — flat, no gradients (Identical to changelog)
+   PAGE HEADER
 ════════════════════════════════════════ */
 .page-head {
   position: relative;
   text-align: center;
-  padding: calc(var(--header-h) + 64px) 28px 56px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  overflow: hidden;
+  padding: calc(var(--header-h) + clamp(40px, 8vh, 80px)) 24px clamp(30px, 5vh, 60px);
 }
-
-.page-head-bg {
-  display: none;
-}
-
 .page-head-content {
   position: relative;
   max-width: 720px;
   margin: 0 auto;
 }
-
 .page-icon {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 22px;
-  overflow: hidden;
-  border: 0px solid var(--border-2);
-  background: #000;
+  width: clamp(48px, 8vh, 64px);
+  height: clamp(48px, 8vh, 64px);
+  margin: 0 auto clamp(16px, 3vh, 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.page-icon svg { width: 100%; height: 100%; display: block; }
+.page-icon img { width: 100%; height: 100%; }
 
 .page-head h1 {
-  font-size: clamp(34px, 5vw, 50px);
-  font-weight: 600;
-  letter-spacing: -0.028em;
-  line-height: 1.08;
+  font-size: clamp(32px, 6vh + 2vw, 56px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
   color: var(--text);
 }
 .page-head h1 .accent { color: var(--accent); }
-
 .page-tagline {
-  margin-top: 16px;
-  font-size: clamp(15px, 1.2vw, 16.5px);
+  margin-top: clamp(12px, 2vh, 16px);
+  font-size: clamp(15px, 2.2vh + 0.5vw, 18px);
   color: var(--text-muted);
   line-height: 1.6;
   max-width: 580px;
@@ -237,17 +198,19 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 /* ════════════════════════════════════════
-   PAGE CONTENT WRAPPER (Widescreen layout for tables)
+   PAGE CONTENT WRAPPER
 ════════════════════════════════════════ */
 .page-content {
   max-width: var(--max-w);
   margin: 0 auto;
-  padding: 56px 24px 96px;
+  padding: 0 24px clamp(60px, 10vh, 96px);
 }
 
-/* Live Interactive Search Input Filter */
+/* ════════════════════════════════════════
+   SEARCH INPUT
+════════════════════════════════════════ */
 .search-container {
-  margin-bottom: 40px;
+  margin-bottom: clamp(24px, 4vh, 40px);
   max-width: 420px;
   position: relative;
 }
@@ -257,38 +220,39 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   left: 0; top: 0; bottom: 0;
   width: 3px;
   background: var(--accent);
-  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
   pointer-events: none;
 }
 .search-input {
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border-3);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
   border-left: none;
   color: var(--text);
-  padding: 11px 16px 11px 18px;
+  padding: clamp(10px, 1.5vh, 12px) 16px clamp(10px, 1.5vh, 12px) 18px;
   font-family: inherit;
-  font-size: 14.5px;
-  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: clamp(14px, 2vh, 15px);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   outline: none;
-  transition: border-color var(--t), background var(--t);
+  transition: var(--transition);
 }
 .search-input:focus {
   border-color: var(--accent);
-  background: var(--surface-2);
+  background: var(--surface);
+  box-shadow: 0 0 16px rgba(152, 176, 35, 0.1);
 }
 
 /* ════════════════════════════════════════
-   COMPATIBILITY MATRIX TABLES STRUCTURE
+   COMPATIBILITY MATRIX TABLES
 ════════════════════════════════════════ */
 .category-block {
-  margin-bottom: 48px;
+  margin-bottom: clamp(32px, 6vh, 48px);
 }
 .category-title {
-  font-size: 18px;
+  font-size: clamp(16px, 2.5vh, 20px);
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 16px;
+  margin-bottom: clamp(12px, 2vh, 16px);
   letter-spacing: -0.01em;
   display: flex;
   align-items: center;
@@ -304,10 +268,11 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 .table-wrapper {
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--surface);
   overflow-x: auto;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
 }
 
 table {
@@ -317,123 +282,121 @@ table {
 }
 
 th {
-  background: var(--surface-2);
+  background: var(--surface-solid);
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: clamp(11px, 1.6vh, 12px);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border-2);
+  padding: clamp(12px, 2vh, 16px) clamp(16px, 2vw, 24px);
+  border-bottom: 1px solid var(--border);
 }
-
-/* Accent bar on the left edge of the header row */
-th:first-child {
-  border-left: 3px solid var(--accent);
-}
+th:first-child { border-left: 3px solid var(--accent); }
 
 td {
-  padding: 14px 18px;
+  padding: clamp(14px, 2vh, 18px) clamp(16px, 2vw, 24px);
   border-bottom: 1px solid var(--border);
   vertical-align: top;
-  font-size: 14px;
+  font-size: clamp(13px, 2vh, 15px);
+  transition: var(--transition);
 }
 tr:last-child td { border-bottom: none; }
 
-/* Row hover: subtle surface shift + left accent bar on first cell */
-tr:hover td { background: var(--surface-2); }
-tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: 15px; }
+tr:hover td { background: var(--surface-hover); }
+tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: calc(clamp(16px, 2vw, 24px) - 3px); }
 
-.prop-name { font-weight: 500; color: var(--accent); }
+.prop-name { font-weight: 600; color: var(--text); }
 .code-inline {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-  font-size: 12.5px;
+  font-family: var(--font-mono);
+  font-size: clamp(11.5px, 1.8vh, 13px);
   color: var(--accent);
-  background: var(--accent-deep);
-  padding: 3px 6px;
-  border-radius: var(--r-sm);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--accent-faint);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(152, 176, 35, 0.2);
 }
 
 /* Action Status Indicators */
 .badge {
   display: inline-flex;
   align-items: center;
-  font-size: 10.5px;
+  font-size: clamp(10px, 1.4vh, 11px);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  border-radius: var(--r-sm);
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 100px;
 }
-.badge.yes      { background: var(--accent-deep); color: var(--accent); }
-.badge.partial  { background: #3a2f1d; color: #eec14a; }
-.badge.no       { background: #3a1d1d; color: #f46363; }
+.badge.yes { background: var(--accent-faint); color: var(--accent); border: 1px solid rgba(152, 176, 35, 0.2); }
+.badge.partial { background: rgba(238, 193, 74, 0.1); color: #eec14a; border: 1px solid rgba(238, 193, 74, 0.2); }
+.badge.no { background: rgba(244, 99, 99, 0.1); color: #f46363; border: 1px solid rgba(244, 99, 99, 0.2); }
 
-.badge.dd-yes   { border: 1px solid var(--border-3); color: var(--text-muted); background: transparent; }
-.badge.dd-no    { color: var(--text-dim); }
+.badge.dd-yes { border: 1px solid var(--border); color: var(--text-muted); background: transparent; }
+.badge.dd-no { color: var(--text-dim); }
 
 .notes-cell {
   color: var(--text-muted);
-  font-size: 13.5px;
   line-height: 1.5;
 }
 
 .error-banner {
-  background: #3a1d1d;
-  border: 1px solid #f46363;
+  background: rgba(244, 99, 99, 0.1);
+  border: 1px solid rgba(244, 99, 99, 0.3);
   color: #f46363;
-  padding: 16px;
-  border-radius: var(--r-md);
-  margin-bottom: 30px;
-  font-size: 14px;
+  padding: clamp(14px, 2vh, 16px);
+  border-radius: var(--radius-md);
+  margin-bottom: clamp(24px, 4vh, 32px);
+  font-size: clamp(13px, 2vh, 15px);
+  line-height: 1.5;
 }
 .error-banner code {
-  background: #221111;
+  background: rgba(0, 0, 0, 0.3);
   padding: 2px 6px;
-  border-radius: 3px;
-  color: #ff8888;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 .no-results {
   display: none;
   text-align: center;
-  padding: 40px;
+  padding: clamp(30px, 5vh, 40px);
   color: var(--text-dim);
-  border: 1px dashed var(--border-3);
-  border-radius: var(--r-md);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 /* ════════════════════════════════════════
    PAGE FOOTER
 ════════════════════════════════════════ */
 .page-foot {
-  margin-top: 64px;
-  padding-top: 24px;
+  margin-top: clamp(40px, 8vh, 64px);
+  padding-top: clamp(16px, 3vh, 24px);
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  font-size: 12px;
+  font-size: clamp(12px, 1.8vh, 14px);
   color: var(--text-dim);
   flex-wrap: wrap;
 }
-.page-foot a { color: var(--text-muted); transition: color var(--t); }
-.page-foot a:hover { color: var(--accent); }
+.page-foot a { color: var(--text-muted); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;}
+.page-foot a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 
 /* ════════════════════════════════════════
-   BACK TO TOP — flat, opaque
+   BACK TO TOP
 ════════════════════════════════════════ */
 .back-top {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-md);
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
+  bottom: clamp(16px, 3vh, 24px);
+  right: clamp(16px, 3vw, 24px);
+  width: clamp(36px, 5vh, 44px);
+  height: clamp(36px, 5vh, 44px);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -442,8 +405,9 @@ tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: 15
   opacity: 0;
   pointer-events: none;
   transform: translateY(8px);
-  transition: opacity var(--t-slow), transform var(--t-slow), background var(--t), border-color var(--t), color var(--t);
+  transition: var(--transition);
   z-index: 90;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .back-top.visible {
   opacity: 1;
@@ -451,65 +415,52 @@ tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: 15
   transform: translateY(0);
 }
 .back-top:hover {
-  background: var(--surface-3);
+  background: var(--surface-hover);
   border-color: var(--accent);
   color: var(--accent);
+  transform: translateY(-2px);
 }
-.back-top svg { width: 14px; height: 14px; }
+.back-top svg { width: clamp(14px, 2vh, 16px); height: clamp(14px, 2vh, 16px); }
 
 /* ════════════════════════════════════════
-   RESPONSIVE
+   RESPONSIVE OVERRIDES
 ════════════════════════════════════════ */
 @media (max-width: 768px) {
-  :root { --header-h: 52px; }
-
-  .header-inner { padding: 0 14px; gap: 8px; }
-  .nav-btn { padding: 7px 10px; font-size: 12.5px; }
   .nav-btn .label { display: none; }
   .nav-btn.cta .label { display: inline; }
   .rate-text { display: none; }
   .divider-v { display: none; }
-  .nav-right { gap: 4px; }
 
-  .page-head { padding: calc(var(--header-h) + 44px) 18px 40px; }
-  .page-icon { width: 48px; height: 48px; margin-bottom: 18px; }
-
-  .page-content { padding: 40px 18px 72px; }
+  th, td { padding: 12px 14px; }
   
-  th, td { padding: 12px 14px; font-size: 13px; }
-  .code-inline { font-size: 11.5px; }
-  .category-title { font-size: 16px; }
-
-  .page-foot { font-size: 11.5px; gap: 10px; flex-direction: column; text-align: center; }
-  .back-top { bottom: 16px; right: 16px; width: 36px; height: 36px; }
+  .page-foot { flex-direction: column; text-align: center; gap: 10px; }
 }
 
 @media (max-width: 420px) {
+  .header .container { gap: 4px; padding: 0 12px; }
   .nav-btn { padding: 6px 8px; gap: 0; }
-  .header-inner { gap: 4px; }
 }
 </style>
 </head>
 <body>
 
 <header class="header">
-  <div class="header-inner">
-
+  <div class="container">
     <nav class="nav-left">
       <a href="index.html" class="nav-btn home" aria-label="Back to home">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         <span class="label">Home</span>
       </a>
       <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span class="label">Download</span>
       </a>
       <a href="changelog.html" class="nav-btn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span class="label">Changelog</span>
       </a>
       <a href="compatibility.html" class="nav-btn active">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
         <span class="label">Styling Guide</span>
       </a>
     </nav>
@@ -519,33 +470,28 @@ tr:hover td:first-child { border-left: 3px solid var(--accent); padding-left: 15
       <span class="divider-v"></span>
       <div class="header-links">
         <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="QGIS Plugin Repository" title="QGIS Plugin Repository">
-          <svg viewBox="0 0 32 32" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></svg>
+          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></svg>
         </a>
         <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="GitHub" title="GitHub">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
         </a>
         <a href="https://mastodon.social/@JossefKanter" target="_blank" rel="me" class="icon-link" aria-label="Mastodon" title="Mastodon">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></svg>
+          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></svg>
         </a>
       </div>
     </div>
-
   </div>
 </header>
 
 <section class="page-head" id="top">
-  <div class="page-head-bg"></div>
   <div class="page-head-content">
-
     <div class="page-icon">
-    <img src="icons/icon.svg" alt="qgis2vectortiles">
+      <img src="icons/icon.svg" alt="qgis2vectortiles">
     </div>
-
     <h1><span class="accent">Styling</span>Guide</h1>
     <p class="page-tagline">
-    In development...  
+      In development
     </p>
-
   </div>
 </section>
 
@@ -582,7 +528,6 @@ document.addEventListener("DOMContentLoaded", function() {
   const noResults = document.getElementById('noResults');
   const errorCheck = document.getElementById('localErrorCheck');
 
-  // Local file scheme protocol exception alert handler
   if (window.location.protocol === 'file:') {
     errorCheck.innerHTML = `
       <div class="error-banner">
@@ -592,7 +537,6 @@ document.addEventListener("DOMContentLoaded", function() {
       </div>`;
   }
 
-  // Request translation scheme data package asset
   fetch('compatibility.yaml')
     .then(response => {
       if (!response.ok) throw new Error("Server rejected asset delivery parameters or asset missing.");
@@ -661,7 +605,6 @@ document.addEventListener("DOMContentLoaded", function() {
       let visibleRowsInBlock = 0;
 
       rows.forEach(row => {
-        // Search only the first two cells: QGIS Property and MapLibre Property
         const cells = row.querySelectorAll('td');
         const searchText = (cells[0].textContent + ' ' + cells[1].textContent).toLowerCase();
         if (searchText.includes(query)) {
@@ -680,7 +623,6 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
 
-// Back To Top behavioral pipeline tracking
 (function () {
   var btn = document.getElementById('backTop');
   if (!btn) return;

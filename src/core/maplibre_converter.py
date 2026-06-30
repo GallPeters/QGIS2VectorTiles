@@ -26,6 +26,7 @@ from qgis.core import (
 from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
 from .sprite_generator import SpriteGenerator
+from ..utils.config import _SPRITE_QUALITY
 
 
 class PropertyExtractor:
@@ -455,12 +456,12 @@ class IconPropertyExtractor:
 
     @staticmethod
     def get_icon_size(
-        symbol_layer: QgsSymbolLayer, default_size: float = 1.0, sprite_quality: int = 1
+        symbol_layer: QgsSymbolLayer, default_size: float = 1.0
     ) -> Union[float, List]:
         """Return ``icon-size`` honouring any data-defined override."""
         size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
         size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
-        return size_val / sprite_quality
+        return size_val / _SPRITE_QUALITY
 
     @staticmethod
     def get_icon_rotate(
@@ -708,7 +709,7 @@ class TextPropertyExtractor:
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
-        base_size = round((text_format.font().pointSizeF() * (96.0 / 72.0))/1.4, 2) # divide by 2 to encompaste ultra preset values in glyph generator
+        base_size = round((text_format.font().pointSizeF() * (96.0 / 72.0))/1.4, 2) # divide by 1.4 to encompaste ultra preset values in glyph generator
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
@@ -1059,7 +1060,6 @@ class QgisMapLibreStyleExporter:
         utils_dir,
         layer: Optional[QgsVectorTileLayer] = None,
         background_type: int = 0,
-        sprite_quality: int = 1,
         viewer: int = 0,
         minzoom: int = 0,
         maxzoom: int = 14
@@ -1083,7 +1083,6 @@ class QgisMapLibreStyleExporter:
         self.marker_counter = 0
         self.glyphs = {}
         self.viewer = viewer
-        self.sprite_quality = {0:1, 1:2, 2:3, 3:5}.get(sprite_quality, 1)
         self.minzoom = minzoom
         self.maxzoom = maxzoom
         self.layer = self._resolve_layer(layer)
@@ -1315,7 +1314,7 @@ class QgisMapLibreStyleExporter:
 
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
-            "icon-size": IconPropertyExtractor.get_icon_size(symbol_layer, 1.0, self.sprite_quality),
+            "icon-size": IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
             "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=symbol_layer),
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
             "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
@@ -1633,7 +1632,7 @@ class QgisMapLibreStyleExporter:
 
         if self.marker_symbols:
             SpriteGenerator(
-                self.marker_symbols, style_dir, self.sprite_quality, False
+                self.marker_symbols, style_dir, False
             ).generate()
         else:
             del self.style["sprite"]

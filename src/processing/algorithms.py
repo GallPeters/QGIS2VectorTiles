@@ -36,7 +36,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
     VIEWER = "VIEWER"
     BACKGROUND_TYPE = "BACKGROUND_TYPE"
-    SPRITE_QUALITY = "SPRITE_QUALITY"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -165,16 +164,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
         self.addParameter(
             QgsProcessingParameterEnum(
-                self.SPRITE_QUALITY,
-                self.tr("Icon Quality"),
-                options=["Standard (1×)", "High (2×)", "Very High (3×) High", "Ultra (5×)"],
-                defaultValue=2,  # Default to High
-                optional=False,
-            )
-        )
-
-        self.addParameter(
-            QgsProcessingParameterEnum(
                 self.BACKGROUND_TYPE,
                 self.tr("Background"),
                 options=["OpenStreetMap", "NASA's BlueMarble Imagery", "Project Background Color"],
@@ -242,7 +231,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
         polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
-        sprite_quality = self.parameterAsInt(parameters, self.SPRITE_QUALITY, context)
         background_type = self.parameterAsInt(parameters, self.BACKGROUND_TYPE, context)
         viewer = self.parameterAsInt(parameters, self.VIEWER, context)
         try:
@@ -255,7 +243,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
                 cent_source=polygon_labels_base,
-                sprite_quality=sprite_quality,
                 background_type=background_type,
                 viewer=viewer,
                 feedback=feedback,
