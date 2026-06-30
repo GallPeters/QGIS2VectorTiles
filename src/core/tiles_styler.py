@@ -49,10 +49,10 @@ class TilesStyler:
         2: QgsFillSymbol,
     }
 
-    def __init__(self, flattened_rules: List[FlattenedRule], output_dir: str, tiles_path: str):
+    def __init__(self, flattened_rules: List[FlattenedRule], output_dir: str):
         self.flattened_rules = flattened_rules
         self.output_dir = output_dir or QgsProcessingUtils.tempFolder()
-        self.tiles_layer = self._create_tiles_layer(tiles_path)
+        self.tiles_layer = self._create_tiles_layer()
         self.renderer_styles: List[QgsVectorTileBasicRendererStyle] = []
         self.labeling_styles: List[QgsVectorTileBasicLabelingStyle] = []
 
@@ -62,7 +62,7 @@ class TilesStyler:
         for rule in sorted_rules:
             self._create_style_from_rule(rule)
         self._apply_styles_to_layer()
-        self._save_style()
+        # self._save_style()
         return self.tiles_layer
 
     def get_label_priority(self, flat_rule: FlattenedRule):
@@ -83,11 +83,13 @@ class TilesStyler:
                 pass
         return 11 -label_settings.priority  
 
-    def _create_tiles_layer(self, tiles_path: Optional[str]) -> QgsVectorTileLayer:
+    def _create_tiles_layer(self) -> QgsVectorTileLayer:
         """Create a vector tile layer and insert it at the top of the project legend."""
+        output = join(self.output_dir, "tiles.mbtiles")
+        tiles_path = f"type=mbtiles&url={output}"
         layer = QgsVectorTileLayer(tiles_path, "Vector Tiles")
-        layer = QgsProject.instance().addMapLayer(layer, False)
-        QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
+        # layer = QgsProject.instance().addMapLayer(layer, False)
+        # QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
         return layer
 
     def _create_style_from_rule(self, flat_rule: FlattenedRule):

@@ -89,22 +89,20 @@ class QGIS2VectorTiles:
             self._log(f". Successfully exported {len(layers)} layers "
                       f"({self._elapsed_minutes(flatten_time)} minutes).")
 
-            tiles_uri = None
-            export_time = perf_counter()
-            if self._has_features(layers):
-                self._log(". Generating tiles...")
-                tiles_uri = self._generate_tiles(layers, temp_dir)
-                self._log(f". Successfully generated tiles "
-                          f"({self._elapsed_minutes(export_time)} minutes).")
-
-            self._log(". Loading and styling tiles...")
-            styled_layer = self._style_tiles(rules, temp_dir, tiles_uri)
-            self._log(". Successfully loaded and styled tiles.")
+            self._log(". Styling tiles...")
+            styled_layer = self._style_tiles(rules, temp_dir)
+            self._log(". Successfully styled tiles.")
 
             self._log(". Exporting tiles style to MapLibre style package...")
             self._export_maplibre_style(temp_dir, styled_layer)
             self._log(". Successfully exported MapLibre style package.")
 
+            export_time = perf_counter()
+            if self._has_features(layers):
+                self._log(". Generating tiles...")
+                self._generate_tiles(layers, temp_dir)
+                self._log(f". Successfully generated tiles "
+                          f"({self._elapsed_minutes(export_time)} minutes).")
             self._log(f". Process completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
             self._clear_project()
@@ -162,8 +160,8 @@ class QGIS2VectorTiles:
         self.min_zoom = min_zoom
         return tiles_uri
 
-    def _style_tiles(self, rules, temp_dir, tiles_uri) -> Optional[QgsVectorTileLayer]:
-        return TilesStyler(rules, temp_dir, tiles_uri).apply_styling()
+    def _style_tiles(self, rules, temp_dir) -> Optional[QgsVectorTileLayer]:
+        return TilesStyler(rules, temp_dir).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
         QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
@@ -178,9 +176,9 @@ class QGIS2VectorTiles:
         """Return elapsed time in minutes since start, rounded to 2 decimal places."""
         return f"{round((perf_counter() - start) / 60, 2)}"
     
-    def serve_tiles(self, temp_dir: str):
+    def serve_tiles(self, temp_dir: str, tiles_uri: str):
         """Serve the generated tiles via a local HTTP server."""
-        ServerInitializer(self.extent, self.min_zoom, self.viewer).serve_tiles(temp_dir)
+        ServerInitializer(self.extent, self.min_zoom, self.viewer, temp_dir).serve_tiles()
 
 if __name__ == "__console__":
     adapter = QGIS2VectorTiles(output_dir=QgsProcessingUtils.tempFolder())

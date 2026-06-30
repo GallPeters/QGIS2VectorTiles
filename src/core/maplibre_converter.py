@@ -1647,6 +1647,12 @@ class QgisMapLibreStyleExporter:
         with open(filepath, "w", encoding="utf8") as f:
             json.dump(rounded_style, f, indent=indent)
 
+        # Save local version for QGIS layer (.qlr)
+        local_style = rounded_style.copy()
+        local_style["sprite"] = "sprite/sprite"
+        local_filepath = filepath.replace('style.json', 'local_style.json')
+        with open(local_filepath, "w", encoding="utf8") as f:
+            json.dump(local_style, f, indent=indent)
         return filepath
     
     def round_numeric_values(self, obj):

@@ -7,39 +7,66 @@ from os.path import join, basename, exists
 from shutil import copy2, copytree
 from sys import prefix
 from typing import Optional
+from pathlib import Path
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsProject,
+    QgsLayerDefinition
 )
 from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
 
 class ServerInitializer:
     """Copy server utilities and launch the local tile server."""
 
-    def __init__(self, extent, min_zoom: int, viewer: int):
+    def __init__(self, extent, min_zoom: int, viewer: int, output_dir: str):
         self.extent = extent
         self.min_zoom = min_zoom
         self.viewer = viewer
         self.viewer_dir = join(_RESOURCES, 'ml_viewer' if viewer == 0 else 'ol_viewer')
+        self.output_dir = output_dir
         self.port = _PORT  # use different port for each viewer to allow running both simultaneously
 
-    def serve_tiles(self, output_folder: str):
+    def serve_tiles(self):
         """Copy server utilities and launch the local tile server."""
-        utils_dir = join(output_folder, "utils")
+        utils_dir = join(self.output_dir, "utils")
         makedirs(utils_dir, exist_ok=True)
         activator = _BAT if platform.system() == "Windows" else _SH
         wrapper = _VB if platform.system() == "Windows" else None
         dest_activator, dest_wrapper = self._copy_server_files(
-            output_folder, utils_dir, activator, wrapper
+            self.output_dir, utils_dir, activator, wrapper
         )
         center = self._get_center_wgs84()
         python_exe = self._get_python_exe()
         self._configure_server_placeholders(
-            output_folder, utils_dir, dest_activator, dest_wrapper, center, python_exe
+            self.output_dir, utils_dir, dest_activator, dest_wrapper, center, python_exe
         )
-        self._launch_server(output_folder, dest_activator, dest_wrapper)
+        self._save_as_local_qlr(self)
+        self._launch_server(self.output_dir, dest_activator, dest_wrapper)
+
+    def _save_as_local_qlr(self):
+        """ Save vector tiles as ocal styled QgsVectorLayer"""
+        # Create vector tiles layer
+        output = join(self.output_dir, "tiles.mbtiles")
+        uri = f"type=mbtiles&url={output}"
+        layer = QgsProject.instance().addMapLayer(uri, False)
+        QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
+
+        # Convert local style path to unc path so QGIS could read the sprite correctly and apply it on tiles layer
+        local_style = join(self.output_dir, 'style', 'local_style.json')
+        local_style_path = Path(local_style_path)
+        drive = local_style_path.drive.rstrip(":")
+        relative = str(local_style_path)[len(local_style_path.drive):].lstrip(r"\/")
+        unc_style_path = fr"\\localhost\{drive.lower()}$\{relative}"
+        map_layer.renderer
+
+        # Save layer as QLR
+        style_dir = join(self.output_dir, "style")
+        makedirs(style_dir, exist_ok=True)
+        qlr_path = join(style_dir, "tiles.qlr")
+        node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+        QgsLayerDefinition().exportLayerDefinition(qlr_path, [node])
 
     def _copy_server_files(
         self, output_folder: str, utils_dir: str, activator: str, wrapper: Optional[str]
