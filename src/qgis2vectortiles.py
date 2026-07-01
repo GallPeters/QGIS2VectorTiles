@@ -176,7 +176,7 @@ class QGIS2VectorTiles:
         """Return elapsed time in minutes since start, rounded to 2 decimal places."""
         return f"{round((perf_counter() - start) / 60, 2)}"
     
-    def serve_tiles(self, temp_dir: str, tiles_uri: str):
+    def serve_tiles(self, temp_dir: str):
         """Serve the generated tiles via a local HTTP server."""
         ServerInitializer(self.extent, self.min_zoom, self.viewer, temp_dir).serve_tiles()
 

@@ -2,6 +2,8 @@
 
 import platform
 import subprocess
+import json
+
 from os import makedirs
 from os.path import join, basename, exists
 from shutil import copy2, copytree
@@ -13,8 +15,19 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsProject,
-    QgsLayerDefinition
+    QgsLayerDefinition,
+    QgsMapBoxGlStyleConverter,
+    QgsVectorTileLayer,
+    QgsMapBoxGlStyleConversionContext
 )
+
+from qgis.PyQt.QtCore import qVersion
+
+if int(qVersion()[0]) == 5:
+    from PyQt5.QtGui import QImage
+else:
+    from PyQt6.QtGui import QImage
+
 from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
 
 class ServerInitializer:
@@ -42,7 +55,7 @@ class ServerInitializer:
         self._configure_server_placeholders(
             self.output_dir, utils_dir, dest_activator, dest_wrapper, center, python_exe
         )
-        self._save_as_local_qlr(self)
+        self._save_as_local_qlr()
         self._launch_server(self.output_dir, dest_activator, dest_wrapper)
 
     def _save_as_local_qlr(self):
@@ -50,16 +63,29 @@ class ServerInitializer:
         # Create vector tiles layer
         output = join(self.output_dir, "tiles.mbtiles")
         uri = f"type=mbtiles&url={output}"
-        layer = QgsProject.instance().addMapLayer(uri, False)
+        layer = QgsVectorTileLayer(uri, "Vector Tiles")
+        layer = QgsProject.instance().addMapLayer(layer, False)
         QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
 
         # Convert local style path to unc path so QGIS could read the sprite correctly and apply it on tiles layer
-        local_style = join(self.output_dir, 'style', 'local_style.json')
-        local_style_path = Path(local_style_path)
-        drive = local_style_path.drive.rstrip(":")
-        relative = str(local_style_path)[len(local_style_path.drive):].lstrip(r"\/")
-        unc_style_path = fr"\\localhost\{drive.lower()}$\{relative}"
-        map_layer.renderer
+        style_dir = join(self.output_dir, 'style')
+        local_style = join(style_dir, 'local_style.json')
+        sprite_img = QImage(join(style_dir, 'sprite', 'sprite@2x.png'))
+        sprite_json = join(style_dir, 'sprite', 'sprite@2x.json')
+        sprite_dict = json.load(open(sprite_json, 'r', encoding='utf-8'))
+
+        with open(local_style, 'r', encoding='utf-8') as f:
+            style_data = json.load(f)
+            json_string = json.dumps(style_data)
+            context = QgsMapBoxGlStyleConversionContext()
+            context.setSprites(sprite_img,sprite_dict)
+            converter = QgsMapBoxGlStyleConverter()
+            converter.convert(json_string, context)
+            if converter.renderer():
+                layer.setRenderer(converter.renderer())                
+            if converter.labeling():
+                layer.setLabeling(converter.labeling())
+                    
 
         # Save layer as QLR
         style_dir = join(self.output_dir, "style")
