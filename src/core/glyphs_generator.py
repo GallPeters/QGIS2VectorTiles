@@ -21,12 +21,15 @@ if int(qVersion()[0]) == 5:
         QPainterPath, QImage, QPainter, QColor
     )
     from PyQt5.QtCore import QCoreApplication, Qt
+    qfontdb = QFontDatabase()
 else:
     from PyQt6.QtGui import (
         QGuiApplication, QFontDatabase, QFont, QFontMetrics,
         QPainterPath, QImage, QPainter, QColor
     )
     from PyQt6.QtCore import QCoreApplication, Qt
+    qfontdb = QFontDatabase
+    
 
 from ..utils.config import (
     _GLYPH_RANGE_SIZE,
@@ -119,7 +122,7 @@ class GlyphGenerator:
     def _resolve_font_key(font_key: str, available_families: List[str]) -> Optional[Tuple[str, str]]:
         """
         Resolves a combined 'Family + Style' string into a (family, style)
-        tuple matching what QFontDatabase actually has installed, via
+        tuple matching what qfontdb actually has installed, via
         longest-prefix family matching validated against that family's own
         real style list (so 'Open Sans Extra Bold' isn't mis-split by a
         shorter family name like 'Open').
@@ -129,7 +132,7 @@ class GlyphGenerator:
             if not key.lower().startswith(family.lower()):
                 continue
             remainder = key[len(family):].strip()
-            styles = QFontDatabase.styles(family)
+            styles = qfontdb.styles(family)
             if remainder == "":
                 default_style = next((s for s in styles if s.lower() in ("regular", "normal")), None)
                 return family, default_style or (styles[0] if styles else "Regular")
@@ -214,7 +217,7 @@ class GlyphGenerator:
     # ------------------------------------------------------------------
     def generate(self) -> str:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        available_families = QFontDatabase.families()
+        available_families = qfontdb.families()
 
         for font_key, dataset_paths in self.fonts_datasets.items():
             resolved = self._resolve_font_key(font_key, available_families)
@@ -240,7 +243,7 @@ class GlyphGenerator:
             fontstack_dir = self.output_dir / fontstack_name
             fontstack_dir.mkdir(exist_ok=True)
 
-            qfont = QFontDatabase.font(family, style, self.font_render_size)
+            qfont = qfontdb.font(family, style, self.font_render_size)
             hi_font = QFont(qfont)
             hi_font.setPointSizeF(qfont.pointSizeF() * self.supersample)
             renderer = _GlyphRenderer(self, qfont, hi_font)

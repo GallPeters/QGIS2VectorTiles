@@ -1526,9 +1526,9 @@ class QgisMapLibreStyleExporter:
             "text-halo-color": TextPropertyExtractor.get_text_halo_color(
                 text_format, label_settings
             ),
-            "text-halo-width": TextPropertyExtractor.get_text_halo_width(
+            "text-halo-width": round(TextPropertyExtractor.get_text_halo_width(
                 text_format, label_settings
-            ),
+            )/1.4, 2),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
