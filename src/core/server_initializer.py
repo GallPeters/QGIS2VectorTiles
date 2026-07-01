@@ -11,6 +11,8 @@ from sys import prefix
 from typing import Optional
 from pathlib import Path
 
+from matplotlib import text
+
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -33,6 +35,34 @@ from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
 class ServerInitializer:
     """Copy server utilities and launch the local tile server."""
 
+    LINUX_ACTIVATOR = r'''
+#!/bin/bash
+lsof -ti :18111991 | xargs kill -9 2>/dev/null
+cd "$(dirname "$0")"
+echo "Starting MBTiles server..."
+_Q2VT_PYTHON _Q2VT_UTILS --port 18111991 &
+sleep 2
+URL="http://localhost:18111991/viewer/viewer.html?v=10031993"
+command -v xdg-open &>/dev/null && xdg-open "$URL" || command -v open &>/dev/null && open "$URL"
+'''
+    WINDOWS_ACTIVATOR = r'''
+@echo off
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :18111991 ^| findstr LISTENING') do taskkill /PID %%a /F
+cd /d %~dp0
+echo Starting MBTiles server...
+start "MBTiles Server" "_Q2VT_PYTHON" "_Q2VT_UTILS" --port 18111991
+timeout /t 2 /nobreak > nul
+start "" "http://localhost:18111991/viewer/viewer.html?v=10031993"
+pause
+'''
+
+    WINDOWS_WRAPPER = r'''
+Set WshShell = CreateObject("WScript.Shell")
+base = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
+WshShell.Run "cmd /c """ & base & "utils\activate_server.bat""", 0
+Set WshShell = Nothing
+'''
+
     def __init__(self, extent, min_zoom: int, viewer: int, output_dir: str):
         self.extent = extent
         self.min_zoom = min_zoom
@@ -47,7 +77,7 @@ class ServerInitializer:
         makedirs(utils_dir, exist_ok=True)
         activator = _BAT if platform.system() == "Windows" else _SH
         wrapper = _VB if platform.system() == "Windows" else None
-        dest_activator, dest_wrapper = self._copy_server_files(
+        dest_activator, dest_wrapper = self._write_server_files(
             self.output_dir, utils_dir, activator, wrapper
         )
         center = self._get_center_wgs84()
@@ -69,16 +99,17 @@ class ServerInitializer:
 
         # Convert local style path to unc path so QGIS could read the sprite correctly and apply it on tiles layer
         style_dir = join(self.output_dir, 'style')
-        local_style = join(style_dir, 'local_style.json')
-        sprite_img = QImage(join(style_dir, 'sprite', 'sprite@2x.png'))
-        sprite_json = join(style_dir, 'sprite', 'sprite@2x.json')
-        sprite_dict = json.load(open(sprite_json, 'r', encoding='utf-8'))
+        local_style = join(style_dir, 'style.json')
+        context = QgsMapBoxGlStyleConversionContext()
+        if exists(join(style_dir, 'sprite')):
+            sprite_img = QImage(join(style_dir, 'sprite', 'sprite@2x.png'))
+            sprite_json = join(style_dir, 'sprite', 'sprite@2x.json')
+            sprite_dict = json.load(open(sprite_json, 'r', encoding='utf-8'))
+            context.setSprites(sprite_img,sprite_dict)
 
         with open(local_style, 'r', encoding='utf-8') as f:
             style_data = json.load(f)
             json_string = json.dumps(style_data)
-            context = QgsMapBoxGlStyleConversionContext()
-            context.setSprites(sprite_img,sprite_dict)
             converter = QgsMapBoxGlStyleConverter()
             converter.convert(json_string, context)
             if converter.renderer():
@@ -94,19 +125,25 @@ class ServerInitializer:
         node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [node])
 
-    def _copy_server_files(
+    def _write_server_files(
         self, output_folder: str, utils_dir: str, activator: str, wrapper: Optional[str]
     ):
-        """Copy the server, viewer, and launcher files to the output directory."""
+        """Copy/write the server, viewer, and launcher files to the output directory."""
         if wrapper:
-            dest_activator = join(utils_dir, basename(activator).replace("_win.txt", ".bat"))
-            copy2(activator, dest_activator)
-            dest_wrapper = join(output_folder, basename(wrapper).replace("_vbs.txt", ".vbs"))
-            copy2(wrapper, dest_wrapper)
+            dest_activator = join(utils_dir, 'activate_server.bat')
+            with open(dest_activator, "w", encoding="utf-8", newline="") as activator:
+                activator.write(self.WINDOWS_ACTIVATOR)
+            del activator
+            dest_wrapper = join(output_folder, 'activate_server.vbs')
+            with open(dest_wrapper, "w", encoding="utf-8", newline="") as wrapper_file:
+                wrapper_file.write(self.WINDOWS_WRAPPER)
+            del wrapper_file
         else:
             dest_wrapper = None
-            dest_activator = join(output_folder, basename(activator).replace("_lin.txt", ".sh"))
-            copy2(activator, dest_activator)
+            dest_activator = join(output_folder, 'activate_server.sh')
+            with open(dest_activator, "w", encoding="utf-8", newline="") as activator:
+                activator.write(self.LINUX_ACTIVATOR)
+            del activator
         copy2(_SERVER, utils_dir)
         copytree(self.viewer_dir, join(utils_dir, "viewer"), dirs_exist_ok=True)
         return dest_activator, dest_wrapper

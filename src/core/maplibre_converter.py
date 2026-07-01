@@ -709,7 +709,7 @@ class TextPropertyExtractor:
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
-        base_size = round((text_format.font().pointSizeF() * (96.0 / 72.0))/1.4, 2) # divide by 1.4 to encompaste ultra preset values in glyph generator
+        base_size = text_format.font().pointSizeF() * (96.0 / 72.0)
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
@@ -1526,9 +1526,9 @@ class QgisMapLibreStyleExporter:
             "text-halo-color": TextPropertyExtractor.get_text_halo_color(
                 text_format, label_settings
             ),
-            "text-halo-width": round(TextPropertyExtractor.get_text_halo_width(
+            "text-halo-width": TextPropertyExtractor.get_text_halo_width(
                 text_format, label_settings
-            )/2.5,2),
+            ),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
@@ -1646,13 +1646,6 @@ class QgisMapLibreStyleExporter:
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
             json.dump(rounded_style, f, indent=indent)
-
-        # Save local version for QGIS layer (.qlr)
-        local_style = rounded_style.copy()
-        local_style["sprite"] = "sprite/sprite"
-        local_filepath = filepath.replace('style.json', 'local_style.json')
-        with open(local_filepath, "w", encoding="utf8") as f:
-            json.dump(local_style, f, indent=indent)
         return filepath
     
     def round_numeric_values(self, obj):

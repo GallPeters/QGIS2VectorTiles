@@ -6,8 +6,6 @@ tree and collects all active data-defined properties, returning
 (field_type, expression, field_name) triples for use as calculated fields.
 """
 
-from uuid import uuid4
-
 from qgis.core import QgsProperty, QgsPropertyDefinition, QgsExpression
 
 from ..utils.config import QVariant
@@ -42,9 +40,10 @@ class DataDefinedPropertiesFetcher:
 
     FIELD_PREFIX = "q2vt"
 
-    def __init__(self, qgis_object, min_scale):
+    def __init__(self, qgis_object, min_scale, suffix=0):
         self._root = qgis_object
         self._min_scale = str(min_scale)
+        self._suffix = f"_{suffix:02d}"
         self._results: list = []
 
     def fetch(self) -> list:
@@ -118,7 +117,7 @@ class DataDefinedPropertiesFetcher:
             data_type = prop_def.dataType() if prop_defs else None
             field_type = self._DATA_TYPE_MAP.get(data_type)
             prop_name = '_' + prop_def.description().lower().replace(" ", "_") if prop_def.description() else ''
-            field_name = f"{self.FIELD_PREFIX}{prop_name}"
+            field_name = f"{self.FIELD_PREFIX}_property_{prop_name}{self._suffix}"
 
             if data_type == QgsPropertyDefinition.DataTypeBoolean:
                 expression = self._process_boolean_prop(prop, props, key, field_name)

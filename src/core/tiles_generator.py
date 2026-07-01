@@ -13,10 +13,10 @@ import subprocess
 from os import cpu_count
 from os.path import join, basename
 from typing import List, Tuple
-
+from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
-from ..utils.config import _EPSG_CRS
+from ..utils.config import _EPSG_CRS, _FIELD_PREFIX
 
 
 class GDALTilesGenerator:
@@ -25,12 +25,14 @@ class GDALTilesGenerator:
     def __init__(
         self,
         layers: List[QgsVectorLayer],
+        style: dict,
         output_dir: str,
         extent,
         cpu_percent: int,
         feedback: QgsProcessingFeedback,
     ):
         self.layers = layers
+        self.style = style
         self.output_dir = output_dir
         self.extent = extent
         self.cpu_percent = cpu_percent
@@ -38,6 +40,7 @@ class GDALTilesGenerator:
 
     def generate(self) -> Tuple[str, int]:
         """Build VRT, run ogr2ogr, return (mbtiles URI, min_zoom)."""
+        self.remove_unused_fields()
         output, uri = self._prepare_output_paths()
         vrt_path = join(QgsProcessingUtils.tempFolder(), "layers.vrt")
 
@@ -49,7 +52,28 @@ class GDALTilesGenerator:
 
         return uri, min_zoom
 
-    # --- VRT construction ---
+    def remove_unused_fields(self):
+        """Remove fields from GeoPackages in-place."""
+        gpkg_paths = [layer.source().split("|layername=")[0] for layer in self.layers]
+        dict_string = str(self.style)
+        for gpkg in gpkg_paths:
+            ds = ogr.Open(gpkg, update=1)
+            if ds is None:
+                continue
+
+            layer = ds.GetLayer(0)
+            layer_defn = layer.GetLayerDefn()
+
+            # Iterate backwards because field indices change after deletion.
+            for i in range(layer_defn.GetFieldCount() - 1, -1, -1):
+                field_name = layer_defn.GetFieldDefn(i).GetName()
+
+                if f"{_FIELD_PREFIX}_property_" in field_name and field_name not in dict_string:
+                    layer.DeleteField(i)
+
+            ds = None  # Flush changes and close the dataset
+
+        # --- VRT construction ---
 
     def _build_vrt(self, vrt_path: str):
         """Write an OGR VRT containing one entry per layer with per-zoom configuration."""

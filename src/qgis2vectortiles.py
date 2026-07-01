@@ -93,14 +93,14 @@ class QGIS2VectorTiles:
             styled_layer = self._style_tiles(rules, temp_dir)
             self._log(". Successfully styled tiles.")
 
-            self._log(". Exporting tiles style to MapLibre style package...")
-            self._export_maplibre_style(temp_dir, styled_layer)
-            self._log(". Successfully exported MapLibre style package.")
+            self._log(". Exporting tiles style to client-side style package...")
+            style = self._export_maplibre_style(temp_dir, styled_layer)
+            self._log(". Successfully exported client-side style package.")
 
             export_time = perf_counter()
             if self._has_features(layers):
                 self._log(". Generating tiles...")
-                self._generate_tiles(layers, temp_dir)
+                self._generate_tiles(layers, temp_dir, style)
                 self._log(f". Successfully generated tiles "
                           f"({self._elapsed_minutes(export_time)} minutes).")
             self._log(f". Process completed successfully "
@@ -153,9 +153,9 @@ class QGIS2VectorTiles:
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
         return any(layer.featureCount() > 0 for layer in layers)
 
-    def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str) -> str:
+    def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str, style: dict) -> str:
         tiles_uri, min_zoom = GDALTilesGenerator(
-            layers, temp_dir, self.extent, self.cpu_percent, self.feedback
+            layers, style, temp_dir, self.extent, self.cpu_percent, self.feedback
         ).generate()
         self.min_zoom = min_zoom
         return tiles_uri
@@ -164,7 +164,7 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
+        return QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
 
     def _log(self, message: str):
         if __name__ != "__console__":

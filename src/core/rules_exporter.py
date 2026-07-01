@@ -98,7 +98,7 @@ from qgis.core import (
     QgsProject,
 )
 
-from ..utils.config import _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS
+from ..utils.config import _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX
 from ..utils.flattened_rule import FlattenedRule
 from ..utils.zoom_levels import ZoomLevels
 from .ddp_fetcher import DataDefinedPropertiesFetcher
@@ -477,7 +477,7 @@ class RulesExporter:
         orig_id = self._run_alg_safe(
             "fieldcalculator", "native",
             INPUT=reprojected,
-            FIELD_NAME=f'{self.FIELD_PREFIX}_orig_id',
+            FIELD_NAME=f'{_FIELD_PREFIX}_orig_id',
             FIELD_TYPE=0,
             FORMULA='to_int(@id)'
             )
@@ -620,7 +620,7 @@ class RulesExporter:
             dissolved = self._run_alg_safe(
                 "dissolve", "native",
                 INPUT=refactored,
-                FIELD=[f'{self.FIELD_PREFIX}_orig_id'],
+                FIELD=[f'{_FIELD_PREFIX}_orig_id'],
                 SEPARATE_DISJOINT=False
             )
             singlepart = self._run_alg_safe(
@@ -664,7 +664,7 @@ class RulesExporter:
         """Worker: assemble the FIELDS_MAPPING list for refactorfields."""
         mapping: List[Tuple[int, str, str]] = []
         mapping.append(
-            (10, grp.description, f"{self.FIELD_PREFIX}_description")
+            (10, grp.description, f"{_FIELD_PREFIX}_description")
         )
         mapping.extend(grp.expression_fields)
         if grp.include_required_fields_only != 0:
@@ -678,7 +678,7 @@ class RulesExporter:
 
        
         mapping.append(
-            (6, f'"{self.FIELD_PREFIX}_orig_id"', f"{self.FIELD_PREFIX}_orig_id")
+            (6, f'"{_FIELD_PREFIX}_orig_id"', f"{_FIELD_PREFIX}_orig_id")
         )
         return [
             {"type": m[0], "expression": m[1], "name": m[2]} for m in mapping
@@ -806,9 +806,11 @@ class RulesExporter:
         """Build calculated-field entries from data-driven properties."""
         fields: List[Tuple[int, str, str]] = []
         for flat_rule in flat_rules:
+            rule_type = flat_rule.get_attr("t")
+            suffix = flat_rule.get_attr("s") if rule_type == 0 else flat_rule.get_attr("f")
             min_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
             rule_fields = DataDefinedPropertiesFetcher(
-                flat_rule.rule, min_scale
+                flat_rule.rule, min_scale, suffix
             ).fetch()
             if rule_fields:
                 # Normalise to tuples of primitives so the snapshot is
@@ -826,7 +828,7 @@ class RulesExporter:
         label_exp = flat_rule.rule.settings().getLabelExpression().expression()
         if not label_exp:
             return fields
-        field_name = f"{self.FIELD_PREFIX}_label"
+        field_name = f"{_FIELD_PREFIX}_label"
         filter_exp = (
             f'"{label_exp}"'
             if not flat_rule.rule.settings().isExpression

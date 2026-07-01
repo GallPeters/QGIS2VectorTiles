@@ -39,7 +39,8 @@ _EPSG_CRS = 3857                          # Output projection (Web Mercator)
 _DATA_SIMPLIFICATION_TOLERANCE = 1        # Geometry simplification, in CRS units
 _REMOVE_DUPLICATES_DISTANCE = 300         # Minimum spacing between points, in points
 _TOP_SCALE = 419311712                    # Max zoomed-out map scale
-_SPRITE_QUALITY = 3                       # Sprite atlas resolution multiplier
+_SPRITE_QUALITY = 3
+_FIELD_PREFIX = 'q2vt'                       # Field name prefix
 
 
 # =====================================================================
@@ -104,6 +105,7 @@ __all__ = [
     "_REMOVE_DUPLICATES_DISTANCE",
     "_TOP_SCALE",
     "_SPRITE_QUALITY",
+    "_FIELD_PREFIX",
     # Glyph generation
     "_GLYPH_RANGE_SIZE",
     "_MAX_UNICODE",
