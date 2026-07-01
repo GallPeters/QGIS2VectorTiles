@@ -445,11 +445,41 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 <div class="page-content">
   <div class="cl-list">
 
+
     <div class="cl-entry featured latest">
+      <div class="cl-header">
+        <div class="cl-version">v3.3</div>
+        <div class="cl-date">01 Jul 2026</div>
+        <div class="cl-badge">Latest</div>
+      </div>
+      <div class="cl-body">
+        <div class="cl-item">
+          <div class="cl-item-dot"></div>
+          <span>Added server-side generation of <strong>MapLibre glyphs (.pbf)</strong>, removing dependency on client-installed fonts.</span>
+        </div>
+        <div class="cl-item">
+          <div class="cl-item-dot"></div>
+          <span>Optimized <strong>glyph generation</strong> to include only characters used in the current web map.</span>
+        </div>
+        <div class="cl-item">
+          <div class="cl-item-dot"></div>
+          <span>Improved <strong>vector tile rendering performance in QGIS</strong> using simplified client-side styling instead of complex QGIS styling.</span>
+        </div>
+        <div class="cl-item">
+          <div class="cl-item-dot"></div>
+          <span>Excluded unused <strong>calculated fields</strong> from output tiles to reduce size and improve efficiency.</span>
+        </div>
+        <div class="cl-item">
+          <div class="cl-item-dot"></div>
+          <span>Removed <strong>icon quality parameter</strong>; sprites are now exported in high resolution by default.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cl-entry">
       <div class="cl-header">
         <div class="cl-version">v3.2</div>
         <div class="cl-date">18 Jun 2026</div>
-        <div class="cl-badge">Latest</div>
       </div>
       <div class="cl-body">
         <div class="cl-item">
