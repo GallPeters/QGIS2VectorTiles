@@ -436,13 +436,13 @@ class RulesFlattener:
                 continue
             if renderer_rule.get_attr("t") == 1:
                 continue
-            if renderer_rule.output_dataset in seen_datasets:
+            filter_id = f'{renderer_rule.get_attr('r')}{renderer_rule.get_attr('d')}'
+            if filter_id in seen_datasets:
                 continue
-
             matched = self._match_label_to_renderer(label_rule, renderer_rule, renderer_idx)
             if matched:
                 split_rules.append(matched)
-                seen_datasets.add(renderer_rule.output_dataset)
+                seen_datasets.add(filter_id)
             renderer_idx += 1
 
         return split_rules if split_rules else [label_rule]

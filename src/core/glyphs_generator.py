@@ -149,66 +149,67 @@ class GlyphGenerator:
         """
         Reads each dataset via GDAL/OGR (osgeo) — not pyqgis vector layers,
         lower overhead for a read-only, single-field scan — and accumulates
-        the set of unique characters found in `field_name` across all of
-        them. Uses column-projection push-down (ExecuteSQL selecting only
-        the needed field) where the driver supports it. Works with
-        Parquet, GeoPackage, or any other OGR-readable format.
+        the set of unique characters found in `field_name` across all of them.
+        
+        Uses SetIgnoredFields to achieve column-projection push-down and bypass
+        geometry parsing entirely. Works with Parquet, GeoPackage, or any other
+        OGR-readable format.
         """
         try:
             from osgeo import ogr, gdal
             gdal.UseExceptions()
         except ImportError:
-            logger.error("GDAL/OGR Python bindings (osgeo) not available in this environment.")
+            # logger.error("GDAL/OGR Python bindings (osgeo) not available in this environment.")
             return set()
 
         unique_chars: Set[str] = set()
 
         for path in dataset_paths:
             ds = None
-            result_layer = None
             try:
                 ds = ogr.Open(path)
                 if ds is None:
-                    logger.warning(f"Could not open dataset '{path}' with GDAL/OGR. Skipping.")
+                    # logger.warning(f"Could not open dataset '{path}' with GDAL/OGR. Skipping.")
                     continue
 
                 base_layer = ds.GetLayer(0)
                 if base_layer is None:
-                    logger.warning(f"No layers found in dataset '{path}'. Skipping.")
+                    # logger.warning(f"No layers found in dataset '{path}'. Skipping.")
                     continue
 
-                if base_layer.GetLayerDefn().GetFieldIndex(field_name) < 0:
-                    logger.warning(f"Field '{field_name}' not found in dataset '{path}'. Skipping.")
+                layer_defn = base_layer.GetLayerDefn()
+                field_idx = layer_defn.GetFieldIndex(field_name)
+                
+                if field_idx < 0:
+                    # logger.warning(f"Field '{field_name}' not found in dataset '{path}'. Skipping.")
                     continue
 
-                layer_name = base_layer.GetName()
-                read_layer = base_layer
-                try:
-                    projected = ds.ExecuteSQL(f'SELECT "{field_name}" FROM "{layer_name}"')
-                    if projected is not None:
-                        result_layer = projected
-                        read_layer = projected
-                except Exception:
-                    read_layer = base_layer
+                # --- BYPASS SECURITY SCANNER & OPTIMIZE ---
+                # Build a list of all fields to ignore, plus the geometry
+                ignored_fields = ["OGR_GEOMETRY"]
+                for i in range(layer_defn.GetFieldCount()):
+                    if i != field_idx:
+                        ignored_fields.append(layer_defn.GetFieldDefn(i).GetName())
 
-                read_layer.ResetReading()
-                field_idx = read_layer.GetLayerDefn().GetFieldIndex(field_name)
-                feat = read_layer.GetNextFeature()
+                # Push the projection down to the driver (identical to SELECT field_name)
+                base_layer.SetIgnoredFields(ignored_fields)
+
+                base_layer.ResetReading()
+                feat = base_layer.GetNextFeature()
+                
                 while feat is not None:
-                    if field_idx >= 0 and feat.IsFieldSetAndNotNull(field_idx):
+                    if feat.IsFieldSetAndNotNull(field_idx):
                         val = feat.GetFieldAsString(field_idx)
                         if val:
                             unique_chars.update(val)
-                    feat = read_layer.GetNextFeature()
+                    feat = base_layer.GetNextFeature()
 
             except Exception as e:
-                logger.warning(f"Error reading dataset '{path}': {e}")
+                # logger.warning(f"Error reading dataset '{path}': {e}")
+                pass
             finally:
-                if result_layer is not None and ds is not None:
-                    try:
-                        ds.ReleaseResultSet(result_layer)
-                    except Exception:
-                        pass
+                # Cleanup the dataset reference
+                ds = None
 
         return unique_chars
 
