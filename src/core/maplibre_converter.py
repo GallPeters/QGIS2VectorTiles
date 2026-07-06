@@ -26,7 +26,7 @@ from qgis.core import (
 from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
 from .sprite_generator import SpriteGenerator
-from ..utils.config import _SPRITE_QUALITY
+from ..utils.config import _SPRITE_QUALITY, _MAPLIBRE_LABELS_FACTOR
 
 
 class PropertyExtractor:
@@ -516,9 +516,9 @@ class IconPropertyExtractor:
         return "center"
 
     @staticmethod
-    def get_icon_allow_overlap() -> bool:
+    def get_icon_allow_overlap(allow_overlap: bool = False) -> bool:
         """Return ``icon-allow-overlap`` (MapLibre default: ``False``)."""
-        return False
+        return allow_overlap
 
     @staticmethod
     def get_icon_ignore_placement() -> bool:
@@ -706,10 +706,16 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_size(
-        text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
+        text_format: QgsTextFormat, label_settings: QgsPalLayerSettings, viewer: int
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
         base_size = text_format.font().pointSizeF() * (96.0 / 72.0)
+        if base_size and viewer == 0:
+            # In MapLibe viewer texts are being displayed bigger then QGIS
+            # original project although when being read in QGIS canvas as vector tiles style
+            # they being displayed correctly. Because of that they being divided in this module
+            # and being increased later in server_initializer so the output qlr exts size will be valid.
+            base_size = base_size/_MAPLIBRE_LABELS_FACTOR
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
@@ -778,6 +784,7 @@ class TextPropertyExtractor:
     def get_text_halo_width(
         text_format: QgsTextFormat,
         label_settings: QgsPalLayerSettings = None,
+        viewer: int = 0
     ) -> Union[float, List]:
         """Return ``text-halo-width`` in pixels from the buffer size.
 
@@ -796,7 +803,8 @@ class TextPropertyExtractor:
             )
         except (AttributeError, RuntimeError):
             base_width = buffer.size()
-
+        if base_width and viewer == 0:
+            base_width = base_width/(_MAPLIBRE_LABELS_FACTOR*2)
         if label_settings is None:
             return base_width
         try:
@@ -1320,7 +1328,7 @@ class QgisMapLibreStyleExporter:
             "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
             "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
             "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
-            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(),
+            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(True),
             "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
             "icon-optional": IconPropertyExtractor.get_icon_optional(),
             "icon-keep-upright": IconPropertyExtractor.get_icon_keep_upright(),
@@ -1486,7 +1494,7 @@ class QgisMapLibreStyleExporter:
             self.glyphs[font] = [dataset]
         layer_def["layout"].update({
             "text-font": [font],
-            "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
+            "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings, self.viewer),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
             "text-offset": TextPropertyExtractor.get_text_offset(label_settings),
@@ -1526,9 +1534,7 @@ class QgisMapLibreStyleExporter:
             "text-halo-color": TextPropertyExtractor.get_text_halo_color(
                 text_format, label_settings
             ),
-            "text-halo-width": round(TextPropertyExtractor.get_text_halo_width(
-                text_format, label_settings
-            )/1.4, 2),
+            "text-halo-width": TextPropertyExtractor.get_text_halo_width(text_format, label_settings, self.viewer),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })

@@ -19,10 +19,6 @@ from qgis.core import QgsApplication
 _PLUGIN_DIR = join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "QGIS2VectorTiles")
 _RESOURCES = join(_PLUGIN_DIR, "resources")
 _SERVER = join(_RESOURCES, "tiles_server.py")
-_BAT = join(_RESOURCES, "activate_server_win.txt")
-_SH = join(_RESOURCES, "activate_server_lin.txt")
-_VB = join(_RESOURCES, "activate_server_vbs.txt")
-
 
 # =====================================================================
 # SERVER / NETWORK SETTINGS
@@ -72,8 +68,7 @@ _SUPERSAMPLE = 4               # Internal antialiasing supersample factor
 _SDF_RADIUS = 8.0              # = _REFERENCE_RADIUS * (_FONT_RENDER_SIZE / _REFERENCE_EM)
 _BUFFER = 10                   # = ceil(max(_REFERENCE_BUFFER * scale, _SDF_RADIUS + 2, _MAPLIBRE_GLYPH_BORDER))
 _SDF_COVERAGE_THRESHOLD = 127  # AA coverage midpoint used to binarize the glyph mask
-                                # before the distance transform (0-255 scale)
-
+_MAPLIBRE_LABELS_FACTOR = 1.4   # Factor to decrease label size to match MapLibre GL JS's rendering to the original QGIS project.
 
 # =====================================================================
 # PyQt VERSION GUARD
@@ -94,9 +89,6 @@ __all__ = [
     "_PLUGIN_DIR",
     "_RESOURCES",
     "_SERVER",
-    "_BAT",
-    "_SH",
-    "_VB",
     # Server / network
     "_PORT",
     # Data processing
@@ -119,6 +111,7 @@ __all__ = [
     "_SDF_RADIUS",
     "_BUFFER",
     "_SDF_COVERAGE_THRESHOLD",
+    "_MAPLIBRE_LABELS_FACTOR",
     # PyQt re-exports
     "Qt",
     "QDomDocument",

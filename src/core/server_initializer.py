@@ -9,9 +9,7 @@ from os.path import join, basename, exists
 from shutil import copy2, copytree
 from sys import prefix
 from typing import Optional
-from pathlib import Path
 
-from matplotlib import text
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -30,7 +28,7 @@ if int(qVersion()[0]) == 5:
 else:
     from PyQt6.QtGui import QImage
 
-from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _BAT, _SH, _VB
+from ..utils.config import _RESOURCES, _PORT, _EPSG_CRS, _SERVER, _MAPLIBRE_LABELS_FACTOR
 
 class ServerInitializer:
     """Copy server utilities and launch the local tile server."""
@@ -75,10 +73,8 @@ Set WshShell = Nothing
         """Copy server utilities and launch the local tile server."""
         utils_dir = join(self.output_dir, "utils")
         makedirs(utils_dir, exist_ok=True)
-        activator = _BAT if platform.system() == "Windows" else _SH
-        wrapper = _VB if platform.system() == "Windows" else None
         dest_activator, dest_wrapper = self._write_server_files(
-            self.output_dir, utils_dir, activator, wrapper
+            self.output_dir, utils_dir
         )
         center = self._get_center_wgs84()
         python_exe = self._get_python_exe()
@@ -109,6 +105,20 @@ Set WshShell = Nothing
 
         with open(local_style, 'r', encoding='utf-8') as f:
             style_data = json.load(f)
+
+            # Fix style due to mismatch between maplibre and qgis glyphs rendering method
+            for style_layer in style_data['layers']:
+                paint = style_layer.get('paint')
+                layout = style_layer.get('layout')                
+                if paint:
+                    halo = paint.get('text-halo-width')
+                    if halo:
+                        paint['text-halo-width'] = paint['text-halo-width']*_MAPLIBRE_LABELS_FACTOR
+                if layout:
+                    size = layout.get('text-size')
+                    if size:
+                        layout['text-size'] = size*_MAPLIBRE_LABELS_FACTOR
+                        
             json_string = json.dumps(style_data)
             converter = QgsMapBoxGlStyleConverter()
             converter.convert(json_string, context)
@@ -116,8 +126,7 @@ Set WshShell = Nothing
                 layer.setRenderer(converter.renderer())                
             if converter.labeling():
                 layer.setLabeling(converter.labeling())
-                    
-
+    
         # Save layer as QLR
         style_dir = join(self.output_dir, "style")
         makedirs(style_dir, exist_ok=True)
@@ -125,11 +134,9 @@ Set WshShell = Nothing
         node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
         QgsLayerDefinition().exportLayerDefinition(qlr_path, [node])
 
-    def _write_server_files(
-        self, output_folder: str, utils_dir: str, activator: str, wrapper: Optional[str]
-    ):
+    def _write_server_files(self, output_folder: str, utils_dir: str):
         """Copy/write the server, viewer, and launcher files to the output directory."""
-        if wrapper:
+        if platform.system() == "Windows":
             dest_activator = join(utils_dir, 'activate_server.bat')
             with open(dest_activator, "w", encoding="utf-8", newline="") as activator:
                 activator.write(self.WINDOWS_ACTIVATOR)
