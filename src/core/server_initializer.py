@@ -105,19 +105,19 @@ Set WshShell = Nothing
 
         with open(local_style, 'r', encoding='utf-8') as f:
             style_data = json.load(f)
-
-            # Fix style due to mismatch between maplibre and qgis glyphs rendering method
-            for style_layer in style_data['layers']:
-                paint = style_layer.get('paint')
-                layout = style_layer.get('layout')                
-                if paint:
-                    halo = paint.get('text-halo-width')
-                    if halo:
-                        paint['text-halo-width'] = paint['text-halo-width']*_MAPLIBRE_LABELS_FACTOR
-                if layout:
-                    size = layout.get('text-size')
-                    if size:
-                        layout['text-size'] = size*_MAPLIBRE_LABELS_FACTOR
+            if self.viewer == 0:
+                # Fix style due to mismatch between maplibre and qgis glyphs rendering method
+                for style_layer in style_data['layers']:
+                    paint = style_layer.get('paint')
+                    layout = style_layer.get('layout')                
+                    if paint:
+                        halo = paint.get('text-halo-width')
+                        if halo:
+                            paint['text-halo-width'] = paint['text-halo-width']*_MAPLIBRE_LABELS_FACTOR
+                    if layout:
+                        size = layout.get('text-size')
+                        if size:
+                            layout['text-size'] = size*_MAPLIBRE_LABELS_FACTOR
                         
             json_string = json.dumps(style_data)
             converter = QgsMapBoxGlStyleConverter()

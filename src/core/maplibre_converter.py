@@ -803,8 +803,7 @@ class TextPropertyExtractor:
             )
         except (AttributeError, RuntimeError):
             base_width = buffer.size()
-        if base_width and viewer == 0:
-            base_width = base_width/(_MAPLIBRE_LABELS_FACTOR*2)
+        base_width = base_width/(_MAPLIBRE_LABELS_FACTOR*2)
         if label_settings is None:
             return base_width
         try:
@@ -1534,7 +1533,7 @@ class QgisMapLibreStyleExporter:
             "text-halo-color": TextPropertyExtractor.get_text_halo_color(
                 text_format, label_settings
             ),
-            "text-halo-width": TextPropertyExtractor.get_text_halo_width(text_format, label_settings, self.viewer),
+            "text-halo-width": TextPropertyExtractor.get_text_halo_width(text_format, label_settings),
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
