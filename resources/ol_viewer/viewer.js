@@ -134,7 +134,7 @@ document.getElementById('popup-toggle').addEventListener('click', () => {
     popupsEnabled = !popupsEnabled;
 
     const btn = document.getElementById('popup-toggle');
-    btn.textContent = popupsEnabled ? 'Popups: ON' : 'Popups: ON';
+    btn.textContent = popupsEnabled ? 'Popups: ON' : 'Popups: OFF';
 
     if (!popupsEnabled) {
         hidePopup();

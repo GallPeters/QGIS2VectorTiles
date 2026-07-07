@@ -23,8 +23,13 @@ from qgis.core import (
     QgsCategorizedSymbolRenderer,
     QgsReadWriteContext,
     QgsExpression,
-)
+    QgsSimpleLineSymbolLayer,
+    QgsFillSymbol,
+    QgsSymbolLayer,
+    QgsSimpleFillSymbolLayer
+    )
 
+from ..utils.config import Qt
 from ..utils.config import QDomDocument
 from ..utils.flattened_rule import FlattenedRule
 from ..utils.zoom_levels import ZoomLevels
@@ -404,10 +409,11 @@ class RulesFlattener:
                 continue
             geom_generator = None
             sub_symbol = symbol_layer.subSymbol()
-            if symbol_layer.layerType() == "GeometryGenerator":
+            layer_type = symbol_layer.layerType() if symbol_layer else None
+            if layer_type == "GeometryGenerator":
                 symbol_type = sub_symbol.type()
                 geom_generator = True
-            elif symbol_layer.layerType() == "CentroidFill":
+            elif layer_type == "CentroidFill":
                 symbol_type = 0
             else:
                 symbol_type = symbol_layer.type()
@@ -423,7 +429,61 @@ class RulesFlattener:
 
             split_rules.append(rule_clone)
 
+            clone_symbol_layer = clone_symbol.symbolLayers()[0]
+            if layer_type == "SimpleFill" and clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
+                outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
+                outline_rule.set_attr("c", 1)
+                fill_symbol = outline_rule.rule.symbol()
+                outline_symbol = self._convert_fill_outline_to_line_symbol(fill_symbol)
+                if outline_symbol:
+                    outline_rule.rule.setSymbol(outline_symbol)
+                    split_rules.append(outline_rule)
+                    clone_symbol_layer.setStrokeStyle(Qt.PenStyle.NoPen)
+
         return split_rules
+
+    @staticmethod
+    def _convert_fill_outline_to_line_symbol(fill_symbol: QgsFillSymbol) -> QgsFillSymbol | None:
+        """ Convert a QgsFillSymbol containing a single QgsSimpleFillSymbolLayer into 
+        a cloned QgsFillSymbol containing a single QgsSimpleLineSymbolLayer representing
+        the original outline.
+        """
+        if not isinstance(fill_symbol, QgsFillSymbol):
+            return None
+
+        layers = fill_symbol.symbolLayers()
+        if len(layers) != 1:
+            return None
+
+        fill_layer = layers[0]
+        if not isinstance(fill_layer, QgsSimpleFillSymbolLayer):
+            return None
+
+        new_symbol = fill_symbol.clone()
+        line_layer = QgsSimpleLineSymbolLayer()
+
+        line_layer.setColor(fill_layer.strokeColor())
+        line_layer.setWidth(fill_layer.strokeWidth())
+        line_layer.setWidthUnit(fill_layer.strokeWidthUnit())
+        line_layer.setPenStyle(fill_layer.strokeStyle())
+        line_layer.setPenJoinStyle(fill_layer.penJoinStyle())
+
+        property_keys = [
+            QgsSymbolLayer.PropertyStrokeColor,
+            QgsSymbolLayer.PropertyStrokeWidth,
+            QgsSymbolLayer.PropertyStrokeStyle,
+            QgsSymbolLayer.PropertyJoinStyle
+        ]
+
+        for key in property_keys:
+            prop = fill_layer.dataDefinedProperties().property(key.value)
+            if prop is not None and prop.isActive():
+                line_layer.setDataDefinedProperty(key.value, prop.clone())
+
+        new_symbol.changeSymbolLayer(0, line_layer)
+
+        return new_symbol
+
 
     def _split_by_matching_renderers(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split a label rule by matching renderer rules with overlapping scale ranges."""

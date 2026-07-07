@@ -88,7 +88,7 @@ class TilesStyler:
         output = join(self.output_dir, "tiles.mbtiles")
         tiles_path = f"type=mbtiles&url={output}"
         layer = QgsVectorTileLayer(tiles_path, "Vector Tiles")
-        # layer = QgsProject.instance().addMapLayer(layer, False)
+        # QgsProject.instance().addMapLayer(layer, True)
         # QgsProject.instance().layerTreeRoot().insertLayer(0, layer)
         return layer
 

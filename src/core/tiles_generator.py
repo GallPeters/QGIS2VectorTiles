@@ -16,7 +16,7 @@ from typing import List, Tuple
 from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
-from ..utils.config import _EPSG_CRS, _FIELD_PREFIX
+from ..utils.config import _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM
 
 
 class GDALTilesGenerator:
@@ -114,6 +114,9 @@ class GDALTilesGenerator:
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", "MAX_SIZE=5000000",
             "-dsco", "MAX_FEATURES=2000000",
+            "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
+            "-dsco", f"SIMPLIFICATION_MAX_ZOOM={_SIMPLIFICATION_MAX_ZOOM}"
+            
         ]
 
         startupinfo = None

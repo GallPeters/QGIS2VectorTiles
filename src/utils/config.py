@@ -36,7 +36,9 @@ _DATA_SIMPLIFICATION_TOLERANCE = 1        # Geometry simplification, in CRS unit
 _REMOVE_DUPLICATES_DISTANCE = 300         # Minimum spacing between points, in points
 _TOP_SCALE = 419311712                    # Max zoomed-out map scale
 _SPRITE_QUALITY = 3
-_FIELD_PREFIX = 'q2vt'                       # Field name prefix
+_FIELD_PREFIX = 'q2vt'    
+_SIMPLIFICATION=2
+_SIMPLIFICATION_MAX_ZOOM=14                   # Field name prefix
 
 
 # =====================================================================
@@ -98,6 +100,8 @@ __all__ = [
     "_TOP_SCALE",
     "_SPRITE_QUALITY",
     "_FIELD_PREFIX",
+    "_SIMPLIFICATION",
+    "_SIMPLIFICATION_MAX_ZOOM",
     # Glyph generation
     "_GLYPH_RANGE_SIZE",
     "_MAX_UNICODE",
