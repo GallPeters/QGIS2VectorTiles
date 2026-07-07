@@ -37,8 +37,8 @@ _REMOVE_DUPLICATES_DISTANCE = 300         # Minimum spacing between points, in p
 _TOP_SCALE = 419311712                    # Max zoomed-out map scale
 _SPRITE_QUALITY = 3
 _FIELD_PREFIX = 'q2vt'    
-_SIMPLIFICATION=2
-_SIMPLIFICATION_MAX_ZOOM=14                   # Field name prefix
+_SIMPLIFICATION=1
+_SIMPLIFICATION_MAX_ZOOM=0                   # Field name prefix
 
 
 # =====================================================================

@@ -193,13 +193,13 @@ class LinePropertyExtractor:
     def get_line_cap(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
         """Return ``line-cap`` mapped from the Qt pen-cap style."""
         cap_map = {0: "butt", 16: "square", 32: "round"}
-        return cap_map.get(symbol_layer.penCapStyle(), "butt")
+        return cap_map.get(symbol_layer.penCapStyle(), "round")
 
     @staticmethod
     def get_line_join(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
         """Return ``line-join`` mapped from the Qt pen-join style."""
         join_map = {0: "miter", 64: "bevel", 128: "round"}
-        return join_map.get(symbol_layer.penJoinStyle(), "miter")
+        return join_map.get(symbol_layer.penJoinStyle(), "round")
 
     @staticmethod
     def get_line_miter_limit() -> float:
@@ -1404,8 +1404,8 @@ class QgisMapLibreStyleExporter:
                 "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(),
             })
             layer_def["layout"].update({
-                "line-cap": "butt",
-                "line-join": "miter",
+                "line-cap": "round",
+                "line-join": "round",
                 "line-miter-limit": LinePropertyExtractor.get_line_miter_limit(),
                 "line-round-limit": LinePropertyExtractor.get_line_round_limit(),
                 "visibility": "visible",

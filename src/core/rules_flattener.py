@@ -427,10 +427,9 @@ class RulesFlattener:
                 if remove_idx != layer_idx:
                     clone_symbol.deleteSymbolLayer(remove_idx)
 
-            split_rules.append(rule_clone)
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]
-            if layer_type == "SimpleFill" and clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
+            if rule_clone and layer_type == "SimpleFill" and clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
                 outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
                 outline_rule.set_attr("c", 1)
                 fill_symbol = outline_rule.rule.symbol()
@@ -439,6 +438,9 @@ class RulesFlattener:
                     outline_rule.rule.setSymbol(outline_symbol)
                     split_rules.append(outline_rule)
                     clone_symbol_layer.setStrokeStyle(Qt.PenStyle.NoPen)
+
+            if rule_clone:
+                split_rules.append(rule_clone)
 
         return split_rules
 
