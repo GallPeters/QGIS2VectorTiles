@@ -4,17 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-<!-- Favicons can remain relative -->
 <link rel="icon" type="image/png" sizes="16x16" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 
 <title>QGIS2VectorTiles - From QGIS projects to web maps in a single run</title>
 
-<!-- Standard Meta Tags -->
 <meta name="title" content="QGIS2VectorTiles - From QGIS projects to web maps in a single run">
 <meta name="description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
 
-<!-- Open Graph / Facebook / WhatsApp / Mastodon -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QGIS2VectorTiles">
 <meta property="og:locale" content="en_US">
@@ -22,21 +19,17 @@
 <meta property="og:description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
 <meta property="og:url" content="https://gallpeters.github.io/QGIS2VectorTiles/">
 
-<!-- ABSOLUTE URLs are required for the image to show in messages -->
 <meta property="og:image" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
 <meta property="og:image:secure_url" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
 <meta property="og:image:type" content="image/png">
-<!-- Ensure icon.png is actually 1200x630 (landscape) so Mastodon uses the large card layout -->
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="QGIS2VectorTiles website preview">
 
-<!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="QGIS2VectorTiles - From QGIS projects to web maps in a single run">
 <meta name="twitter:description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
   
-<!-- ABSOLUTE URL required here too -->
 <meta name="twitter:image" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
 
 <meta name="theme-color" content="#98B023">
@@ -111,7 +104,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
 }
 
 @media (max-width: 768px) {
@@ -121,10 +114,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 
 .text-gradient {
-  background: linear-gradient(135deg, #fff 0%, var(--text-muted) 100%);
-  background-clip: border-box;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  margin-top: clamp(12px, 2vh, 16px);
+  font-size: clamp(15px, 2.2vh + 0.5vw, 18px);
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 580px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .badge {
   display: inline-flex;
@@ -233,6 +229,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   gap: clamp(4px, 0.5vw, 8px);
   font-size: clamp(12px, 1.5vh, 14px);
   font-weight: 500;
+  line-height: 1.5;
   color: var(--text-muted);
   padding: clamp(6px, 1vh, 8px) clamp(10px, 1vw, 14px);
   border-radius: var(--radius-sm);
@@ -284,7 +281,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: clamp(24px, 4vw, 60px);
-  align-items: center;
+  align-items: center; /* Balancing left and right column height */
   height: 100%;
 }
 
@@ -294,7 +291,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   justify-content: center;
   text-align: center;
   align-items: center;
+  height: 100%;
 }
+.page-icon {
+  width: clamp(48px, 24vh, 64px);
+  height: clamp(48px, 24vh, 64px);
+  margin: 0 auto clamp(16px, 3vh, 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.page-icon img { width: 100%; height: 100%; }
 .hero-text .title {
   font-size: clamp(32px, 6vh + 2vw, 64px);
   font-weight: 700;
@@ -359,7 +366,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--accent);
   z-index: 5;
   animation: moveLine 8s infinite alternate ease-in-out;
-  box-shadow: 0 0 15px var(--accent);
 }
 .hero-slider-line::after {
   content: '◂▸';
@@ -604,7 +610,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--surface-hover);
   border-color: var(--border-hover);
   transform: translateY(-4px);
-  box-shadow: 0 12px 30px rgba(0,0,0,0.5);
 }
 .demo-card:hover .play-btn { background: var(--accent); color: #000; transform: translate(-50%, -50%) scale(1.1); }
 .demo-thumb {
@@ -693,20 +698,22 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   -webkit-box-orient: vertical; 
 }
 
-/* Premium Enlarged Platform Grid */
-.uc-platforms { 
-  display: grid; 
-  grid-template-columns: repeat(2, 1fr);
+.uc-platforms {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  justify-content: center;
   gap: clamp(8px, 1.5vh, 12px);
-  flex-shrink: 0;
-  margin-top: auto; /* Push platforms to bottom naturally */
+  align-items: center;
+  align-content: center;
 }
+
 .uc-footnote {
   flex-shrink: 0;
-  margin-top: clamp(8px, 1.4vh, 12px);
+  margin-top: auto; /* Aligns all footnotes identically at the bottom */
   font-size: clamp(11px, 1.5vh, 12px);
   line-height: 1.5;
   color: var(--text-dim);
+  min-height: 18px;
 }
 .uc-footnote a {
   color: var(--text-muted);
@@ -740,26 +747,26 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   border-radius: 10px; 
   padding: 5px; 
   flex-shrink: 0;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
 }
-.plat-icon.dark { background: transparent; color: var(--accent); padding: 0; box-shadow: none; }
+.plat-icon.dark { background: transparent; color: var(--accent); padding: 0; }
 .plat-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 
-.footer {
-  flex-shrink: 0;
+/* Page Footer styling borrowed directly from changelog.html */
+.page-foot {
+  margin-top: clamp(20px, 4vh, 32px);
+  padding-top: clamp(16px, 3vh, 24px);
   border-top: 1px solid var(--border);
-  padding-top: 12px; /* gap between line and text */
-  padding-top: clamp(8px, 1.5vh, 16px);
-  text-align: center;
-  margin-top: clamp(16px, 3vh, 32px);
-}
-
-.footer-links {
-  display: flex; align-items: center; justify-content: center; gap: clamp(12px, 2vw, 24px);
-  font-size: clamp(12px, 1.8vh, 15px); color: var(--text-muted); font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: clamp(12px, 1.8vh, 14px);
+  color: var(--text-dim);
   flex-wrap: wrap;
+  width: 100%;
 }
-.footer-links a:hover { color: var(--accent); }
+.page-foot a { color: var(--text-muted); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;}
+.page-foot a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 
 /* ════════════════════════════════════════
    MODALS
@@ -807,6 +814,14 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   .hero-text { text-align: center; align-items: center; }
   .hero-features { justify-content: center; }
   .hero-visual { max-width: 80%; margin: 0 auto; max-height: 35vh; }
+}
+
+@media (max-width: 768px) {
+  .hero-text .page-icon,
+  .hero-text .title {
+    position: relative;
+    top: 25px; /* Increase or decrease this number to match the changelog perfectly */
+  }
 }
 
 @media (max-width: 768px) {
@@ -863,7 +878,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
   /* ── Mobile Use Cases: each application is its own full screen ── */
   .uc-mobile-content {display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .uc-mobile-section .footer {margin-top: clamp(10px, 1.6vh, 18px); padding: clamp(10px, 1.6vh, 16px) 0; }
+  
+  .page-foot { flex-direction: column; text-align: center; gap: 10px; }
 
   .mobile-showcase {
     flex: none;
@@ -885,10 +901,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     line-height: 1.55;
     max-width: 460px;
   }
-  .mobile-showcase .uc-platforms { margin-top: 0; width: 100%; }
+  .mobile-showcase .uc-platforms { grid-template-columns: repeat(2, max-content); margin-top: 0; width: 100%; }
   .mobile-showcase .plat-icon { width: clamp(32px, 5.2vh, 48px); height: clamp(32px, 5.2vh, 48px); }
   .mobile-showcase .plat-btn { padding: clamp(14px, 2.2vh, 20px) clamp(10px, 3vw, 16px); font-size: clamp(13px, 1.9vh, 15px); }
-  .mobile-showcase .uc-footnote { text-align: center; }
+  .mobile-showcase .uc-footnote { text-align: center; margin-top: auto; }
 }
 </style>
 </head>
@@ -936,11 +952,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     <div class="container">
       <div class="hero-content">
         <div class="hero-text">
-          <div style="margin-bottom: clamp(12px, 2vh, 24px);">
-            <div class="badge">
-              <img src="icons/icon.svg" alt="Icon" style="width: clamp(12px, 1.8vh, 16px); height: clamp(12px, 1.8vh, 16px);">
-              QGIS Plugin
-            </div>
+          <div class="page-icon">
+            <img src="icons/icon.svg" alt="qgis2vectortiles">
           </div>
           <h1 class="title"><span>QGIS2</span>VectorTiles</h1>
           <p class="desc text-gradient">
@@ -1342,22 +1355,25 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
           <div class="uc-card">
             <div class="uc-num">01</div>
             <h3 class="uc-title">Client-Side Rendering</h3>
-            <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization—just fast, sharp, fully styled vector tiles rendered natively.</p>
+            <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
             <div class="uc-platforms">
+              <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
+              <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
               <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
               <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
             </div>
+            <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
           </div>
 
           <div class="uc-card">
             <div class="uc-num">02</div>
-            <h3 class="uc-title">Maps Services</h3>
+            <h3 class="uc-title">Web Map Services</h3>
             <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
-            <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
             <div class="uc-platforms">
               <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
               <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
             </div>
+            <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
           </div>
 
           <div class="uc-card">
@@ -1372,17 +1388,15 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
                 <img class="plat-icon" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
               </a>
             </div>
+            <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
           </div>
         </div>
       </div>
 
-      <footer class="footer">
-        <div class="footer-links">
-          <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2 License</a>
-          <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub Repository</a>
-          <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Page</a>
-        </div>
-      </footer>
+      <div class="page-foot">
+        <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
+        <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+      </div>
     </div>
   </section>
 
@@ -1394,11 +1408,14 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
           <h2 class="h2">Client-Side Rendering</h2>
         </div>
         <div class="uc-card mobile-showcase">
-          <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization—just fast, sharp, fully styled vector tiles rendered natively.</p>
+          <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
           <div class="uc-platforms">
+            <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
+            <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
             <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
             <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
           </div>
+          <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
         </div>
       </div>
     </div>
@@ -1409,7 +1426,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
       <div class="uc-mobile-content">
         <div class="section-header">
           <div class="badge">Applications · 2 of 3</div>
-          <h2 class="h2">WMS / WMTS Serving</h2>
+          <h2 class="h2">Web Map Services</h2>
         </div>
         <div class="uc-card mobile-showcase">
           <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
@@ -1440,16 +1457,14 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
               <img class="plat-icon" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
             </a>
           </div>
+          <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
         </div>
       </div>
 
-      <footer class="footer">
-        <div class="footer-links">
-          <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2 License</a>
-          <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub Repository</a>
-          <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Page</a>
-        </div>
-      </footer>
+      <div class="page-foot">
+        <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
+        <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
+      </div>
     </div>
   </section>
 
