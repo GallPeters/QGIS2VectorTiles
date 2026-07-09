@@ -1525,7 +1525,7 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": IconPropertyExtractor.get_icon_size(marker_sub_layer, 1.0),
-            "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=marker_sub_layer),
+            # "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=marker_sub_layer),
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
             # Following the line's bearing ("map") reproduces rotateSymbols()
             # == True; "viewport" keeps markers upright regardless of the
@@ -1544,7 +1544,7 @@ class QgisMapLibreStyleExporter:
             # collision-based hiding, matching QGIS's "always show" look.
             "icon-ignore-placement": True,
             "icon-optional": IconPropertyExtractor.get_icon_optional(),
-            "icon-keep-upright": IconPropertyExtractor.get_icon_keep_upright(),
+            "icon-keep-upright": False,
             "symbol-placement": LinePropertyExtractor.get_marker_line_symbol_placement(symbol_layer),
             "symbol-spacing": LinePropertyExtractor.get_marker_line_spacing(symbol_layer),
             "symbol-avoid-edges": IconPropertyExtractor.get_symbol_avoid_edges(),
@@ -1557,15 +1557,6 @@ class QgisMapLibreStyleExporter:
             # rotates together with icon-rotate/icon-rotation-alignment, so
             # when the icon follows the line bearing this reproduces QGIS's
             # perpendicular marker-to-line offset.
-            #
-            # IMPORTANT: MapLibre multiplies each icon-offset component by
-            # icon-size before applying it ("Each component is multiplied by
-            # the value of icon-size to obtain the final offset in pixels").
-            # Sprites here are rendered oversized by _SPRITE_QUALITY and
-            # icon-size is shrunk back down (~1/_SPRITE_QUALITY) to
-            # compensate, so a raw pixel offset would be shrunk by that same
-            # factor. Pre-divide by the emitted icon-size so the two cancel
-            # out and the on-screen offset matches QGIS's pixel offset.
             icon_size_value = layer_def["layout"]["icon-size"]
             if isinstance(icon_size_value, (int, float)) and icon_size_value:
                 compensated_offset = offset_px / icon_size_value
