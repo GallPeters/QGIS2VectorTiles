@@ -42,35 +42,46 @@
 ════════════════════════════════════════ */
 :root {
   --bg: #050505;
-  --bg-glow: radial-gradient(circle at 50% 0%, rgba(152, 176, 35, 0.15), transparent 60%);
-  --surface: rgba(20, 20, 22, 0.6);
+  --bg-glow: radial-gradient(circle at 50% 0%, rgba(152, 176, 35, 0.13), transparent 60%);
+  --surface: rgba(22, 22, 25, 0.6);
   --surface-solid: #141416;
-  --surface-hover: rgba(30, 30, 34, 0.8);
-  
+  --surface-hover: rgba(32, 32, 37, 0.85);
+
   --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.15);
-  
+  --border-hover: rgba(255, 255, 255, 0.16);
+
   --accent: #98B023;
   --accent-hover: #b4d12b;
   --accent-faint: rgba(152, 176, 35, 0.1);
-  
+  --accent-rgb: 152, 176, 35;
+
   --text: #f3f4f6;
   --text-muted: #9ca3af;
-  --text-dim: #6b7280;
+  --text-dim: #838b96;
 
   --font: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-  
+
   --header-h: clamp(50px, 8vh, 64px);
   --max-w: 1200px;
-  
+
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 20px;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 30px 60px rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
 
 html, body {
   width: 100%;
@@ -132,7 +143,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   text-transform: uppercase;
   color: var(--accent);
   background: var(--accent-faint);
-  border: 1px solid rgba(152, 176, 35, 0.2);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   padding: clamp(4px, 0.8vh, 6px) clamp(10px, 1.2vw, 14px);
   border-radius: 100px;
 }
@@ -210,10 +221,11 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   top: 0; left: 0; right: 0;
   height: var(--header-h);
   z-index: 100;
-  background: rgba(5, 5, 5, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(5, 5, 5, 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 .header .container {
   flex-direction: row;
@@ -240,8 +252,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--accent);
   color: #000;
   font-weight: 600;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 4px 14px rgba(var(--accent-rgb), 0.25);
 }
-.nav-btn.cta:hover { background: var(--text-muted); color: #000; }
+.nav-btn.cta:hover { background: var(--accent-hover); color: #000; box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 6px 18px rgba(var(--accent-rgb), 0.35); transform: translateY(-1px); }
 .nav-btn.active {
   color: var(--text);
   background: var(--surface-hover);
@@ -334,7 +347,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   border: 1px solid var(--border);
   padding: clamp(6px, 1vh, 8px) clamp(12px, 1.5vw, 16px);
   border-radius: 100px;
+  transition: var(--transition);
 }
+.feature-chip:hover { border-color: var(--border-hover); background: var(--surface-hover); transform: translateY(-1px); }
 .feature-chip svg { width: clamp(14px, 2vh, 16px); height: clamp(14px, 2vh, 16px); color: var(--accent); }
 
 .hero-visual {
@@ -344,7 +359,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   max-height: 55vh;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   background: var(--surface-solid);
 }
@@ -518,8 +533,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--surface-hover);
   border-color: var(--border-hover);
   transform: translateX(4px);
+  box-shadow: var(--shadow-sm);
 }
-.wf-node.master { border-color: var(--accent); background: rgba(152, 176, 35, 0.05); }
+.wf-node.master { border-color: rgba(var(--accent-rgb), 0.4); background: var(--accent-faint); }
 .wf-node.master:hover { border-color: var(--accent-hover); }
 
 .wf-badge {
@@ -555,6 +571,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   border-radius: var(--radius-md);
   overflow: hidden;
   min-height: 0;
+  box-shadow: var(--shadow-sm);
 }
 .out-row {
   flex: 1; /* Distribute rows equally vertically */
@@ -610,6 +627,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   background: var(--surface-hover);
   border-color: var(--border-hover);
   transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
 }
 .demo-card:hover .play-btn { background: var(--accent); color: #000; transform: translate(-50%, -50%) scale(1.1); }
 .demo-thumb {
@@ -681,7 +699,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   transition: var(--transition);
   min-height: 0;
 }
-.uc-card:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+.uc-card:hover { border-color: var(--border-hover); background: var(--surface-hover); transform: translateY(-3px); box-shadow: var(--shadow-md); }
 .uc-num { font-size: clamp(12px, 2vh, 14px); font-weight: 700; color: var(--accent); font-family: var(--font-mono); flex-shrink: 0;}
 .uc-title { font-size: clamp(18px, 2.5vh, 24px); font-weight: 600; flex-shrink: 0;}
 .uc-desc { 
@@ -739,7 +757,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 100%;
   text-align: center;
 }
-.plat-btn:hover { border-color: var(--accent); color: #fff; background: rgba(255,255,255,0.05); }
+.plat-btn:hover { border-color: var(--accent); color: #fff; background: rgba(255,255,255,0.05); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(var(--accent-rgb), 0.15); }
 .plat-icon { 
   width: clamp(32px, 5.2vh, 48px); 
   height: clamp(32px, 5.2vh, 48px); 
@@ -785,6 +803,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   width: 100%; max-width: 600px; max-height: 90vh;
   transform: translateY(20px); transition: var(--transition);
   display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg);
 }
 .modal-overlay.open .modal-content { transform: translateY(0); }
 .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
