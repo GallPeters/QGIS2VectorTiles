@@ -14,6 +14,7 @@ from qgis.core import (
     QgsSymbol,
     QgsPalLayerSettings,
     QgsSimpleLineSymbolLayer,
+    QgsMarkerLineSymbolLayer,
     QgsSimpleFillSymbolLayer,
     QgsProcessingUtils,
     QgsExpression,
@@ -353,6 +354,101 @@ class LinePropertyExtractor:
         if isinstance(path, str) and path:
             return path
         return None
+
+    @staticmethod
+    def is_marker_line(symbol_layer: QgsSymbolLayer) -> bool:
+        """Return ``True`` if this line symbol layer decorates the line with markers.
+
+        Detected by class-name inspection (matching the ``is_pattern_line``
+        convention above) so QGIS versions lacking the symbol-layer class
+        remain compatible.
+        """
+        return type(symbol_layer).__name__ == "QgsMarkerLineSymbolLayer"
+
+    @staticmethod
+    def get_marker_line_symbol_placement(symbol_layer: QgsSymbolLayer) -> str:
+        """Map QGIS marker-line placement to MapLibre ``symbol-placement``.
+
+        QGIS ``QgsMarkerLineSymbolLayer.Placement`` values: ``Interval=0``,
+        ``Vertex=1``, ``LastVertex=2``, ``FirstVertex=3``,
+        ``CentralPoint=4``, ``CurvePoint=5``, ``SegmentCenter=6``. MapLibre
+        only supports evenly-spaced (``"line"``) or once-per-line
+        (``"line-center"``) symbol placement, so the richer QGIS enum is
+        folded into the closest MapLibre equivalent.
+        """
+        placement = None
+        try:
+            placement = int(symbol_layer.placement())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+        # CentralPoint / SegmentCenter -> a single marker centred on the line.
+        if placement in (4, 6):
+            return "line-center"
+        # Interval / Vertex / First / Last / Curve point -> repeat along line.
+        return "line"
+
+    @staticmethod
+    def get_marker_line_spacing(symbol_layer: QgsSymbolLayer) -> float:
+        """Return ``symbol-spacing`` in pixels from the marker-line interval.
+
+        Uses the QGIS ``interval()`` (converted to pixels via
+        ``intervalUnit()``) whenever it is set. Vertex-based placements
+        without an explicit interval fall back to a tight spacing so that
+        MapLibre's evenly-spaced rendering approximates "one marker per
+        vertex"; all other cases fall back to the MapLibre default (250px).
+        """
+        try:
+            placement = int(symbol_layer.placement())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            placement = 0
+
+        try:
+            interval = float(symbol_layer.interval())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            interval = 0.0
+
+        if interval > 0:
+            unit = PropertyExtractor.get_attribute(
+                symbol_layer, "intervalUnit", "intervalUnits"
+            )
+            return PropertyExtractor.convert_length_to_pixels(interval, unit)
+
+        # Vertex / FirstVertex / LastVertex / CurvePoint without an explicit
+        # interval: MapLibre has no vertex-placement equivalent, so a small
+        # fixed spacing approximates dense per-vertex markers.
+        if placement in (1, 2, 3, 5):
+            return 1.0
+
+        return 250.0
+
+    @staticmethod
+    def get_marker_line_rotate_symbols(symbol_layer: QgsSymbolLayer) -> bool:
+        """Return whether markers should rotate to follow the line bearing.
+
+        Mirrors QGIS ``rotateSymbols()``; defaults to ``True`` (QGIS's own
+        default) if the property cannot be read.
+        """
+        try:
+            return bool(symbol_layer.rotateSymbols())
+        except (AttributeError, RuntimeError):
+            return True
+
+    @staticmethod
+    def get_marker_line_offset(symbol_layer: QgsSymbolLayer) -> float:
+        """Return the marker-line's perpendicular offset from the line, in pixels.
+
+        Positive QGIS offsets shift markers to the left of the line
+        direction; ``0`` is returned (and the caller should omit
+        ``icon-offset``) when no offset is configured.
+        """
+        try:
+            offset = float(symbol_layer.offset())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return 0.0
+        if offset == 0:
+            return 0.0
+        unit = PropertyExtractor.get_attribute(symbol_layer, "offsetUnit", "offsetUnits")
+        return PropertyExtractor.convert_length_to_pixels(offset, unit)
 
 
 class FillPropertyExtractor:
@@ -1254,7 +1350,7 @@ class QgisMapLibreStyleExporter:
             )
         elif symbol_type == QgsSymbol.Line:
             self._convert_line_symbol(
-                symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
+                symbol, style_name, source_layer_name, source_name, min_zoom, max_zoom
             )
         elif symbol_type == QgsSymbol.Fill:
             self._convert_fill_symbol(
@@ -1351,6 +1447,43 @@ class QgisMapLibreStyleExporter:
 
     def _convert_line_symbol(
         self,
+        symbol: QgsSymbol,
+        style_name: str,
+        source_layer_name: str,
+        source_name: str,
+        min_zoom: int = -1,
+        max_zoom: int = -1,
+    ):
+        """Convert every symbol layer of a QGIS line symbol into MapLibre layer(s).
+
+        A QGIS line symbol can stack multiple symbol layers - typically a
+        base ``QgsSimpleLineSymbolLayer`` stroke plus one or more
+        ``QgsMarkerLineSymbolLayer`` marker decorations. Each sub-layer is
+        converted independently and appended to ``self.style["layers"]`` in
+        the same bottom-to-top order QGIS uses for its symbol layers, so
+        marker decorations correctly render above or below the base stroke
+        exactly as they do in QGIS.
+        """
+        for index in range(symbol.symbolLayerCount()):
+            symbol_layer = symbol.symbolLayer(index)
+            # The first sub-layer keeps the original style name (so existing
+            # look-ups by id keep working); subsequent sub-layers get a
+            # unique suffixed id since MapLibre layer ids must be unique.
+            layer_id = style_name if index == 0 else f"{style_name}_layer{index}"
+
+            if LinePropertyExtractor.is_marker_line(symbol_layer):
+                self._convert_marker_line_symbol_layer(
+                    symbol_layer, layer_id, source_layer_name, source_name,
+                    min_zoom, max_zoom,
+                )
+            else:
+                self._convert_simple_or_pattern_line_symbol_layer(
+                    symbol_layer, layer_id, source_layer_name, source_name,
+                    min_zoom, max_zoom,
+                )
+
+    def _convert_marker_line_symbol_layer(
+        self,
         symbol_layer: QgsSymbolLayer,
         style_name: str,
         source_layer_name: str,
@@ -1358,7 +1491,87 @@ class QgisMapLibreStyleExporter:
         min_zoom: int = -1,
         max_zoom: int = -1,
     ):
-        """Convert a QGIS line symbol into a MapLibre ``line`` layer."""
+        """Convert a QGIS ``QgsMarkerLineSymbolLayer`` into a MapLibre ``symbol`` layer.
+
+        The marker line's sub-symbol is rendered to a sprite (registered via
+        ``self.marker_symbols`` exactly like a standalone marker symbol) and
+        referenced through ``icon-image``. QGIS's interval/vertex placement
+        is mapped to ``symbol-placement``/``symbol-spacing``,
+        ``rotateSymbols()`` controls ``icon-rotation-alignment``, and the
+        marker line's perpendicular ``offset()`` is reproduced via
+        ``icon-offset`` so markers displaced from the line stay displaced
+        the same way in MapLibre.
+        """
+        sub_symbol = None
+        try:
+            sub_symbol = symbol_layer.subSymbol()
+        except (AttributeError, RuntimeError):
+            pass
+        if sub_symbol is None or sub_symbol.symbolLayerCount() == 0:
+            return
+
+        layer_def = self._base_layer_def(
+            "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
+        )
+
+        marker_name = f"marker_{self.marker_counter}"
+        self.marker_counter += 1
+        self.marker_symbols[marker_name] = sub_symbol.clone()
+
+        marker_sub_layer = sub_symbol.symbolLayer(0)
+        rotate_with_line = LinePropertyExtractor.get_marker_line_rotate_symbols(symbol_layer)
+        offset_px = LinePropertyExtractor.get_marker_line_offset(symbol_layer)
+
+        layer_def["layout"].update({
+            "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
+            "icon-size": IconPropertyExtractor.get_icon_size(marker_sub_layer, 1.0),
+            "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=marker_sub_layer),
+            "icon-padding": IconPropertyExtractor.get_icon_padding(),
+            # Following the line's bearing ("map") reproduces rotateSymbols()
+            # == True; "viewport" keeps markers upright regardless of the
+            # line's direction, matching rotateSymbols() == False.
+            "icon-rotation-alignment": "map" if rotate_with_line else "viewport",
+            "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
+            "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
+            "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(True),
+            "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
+            "icon-optional": IconPropertyExtractor.get_icon_optional(),
+            "icon-keep-upright": IconPropertyExtractor.get_icon_keep_upright(),
+            "symbol-placement": LinePropertyExtractor.get_marker_line_symbol_placement(symbol_layer),
+            "symbol-spacing": LinePropertyExtractor.get_marker_line_spacing(symbol_layer),
+            "symbol-avoid-edges": IconPropertyExtractor.get_symbol_avoid_edges(),
+            "symbol-sort-key": IconPropertyExtractor.get_symbol_sort_key(),
+            "symbol-z-order": IconPropertyExtractor.get_symbol_z_order(),
+            "visibility": "visible",
+        })
+        if offset_px:
+            # icon-offset is applied in the icon's own pixel space and
+            # rotates together with icon-rotate/icon-rotation-alignment, so
+            # when the icon follows the line bearing this reproduces QGIS's
+            # perpendicular marker-to-line offset.
+            layer_def["layout"]["icon-offset"] = [0, offset_px]
+
+        layer_def["paint"].update({
+            "icon-opacity": IconPropertyExtractor.get_icon_opacity(),
+            "icon-halo-color": IconPropertyExtractor.get_icon_halo_color(),
+            "icon-halo-width": IconPropertyExtractor.get_icon_halo_width(),
+            "icon-halo-blur": IconPropertyExtractor.get_icon_halo_blur(),
+            "icon-translate": IconPropertyExtractor.get_icon_translate(),
+            "icon-translate-anchor": IconPropertyExtractor.get_icon_translate_anchor(),
+        })
+
+        self.style["layers"].append(layer_def)
+
+    def _convert_simple_or_pattern_line_symbol_layer(
+        self,
+        symbol_layer: QgsSymbolLayer,
+        style_name: str,
+        source_layer_name: str,
+        source_name: str,
+        min_zoom: int = -1,
+        max_zoom: int = -1,
+    ):
+        """Convert a plain-stroke or raster-pattern line symbol layer to MapLibre ``line``."""
         layer_def = self._base_layer_def(
             "line", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
