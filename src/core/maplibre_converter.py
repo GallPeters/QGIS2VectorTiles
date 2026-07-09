@@ -1534,7 +1534,15 @@ class QgisMapLibreStyleExporter:
             "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
             "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
             "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(True),
-            "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
+            # QGIS marker lines stamp every marker unconditionally - there is
+            # no collision system in QGIS to reproduce. icon-allow-overlap
+            # alone only stops a marker from being hidden by collisions;
+            # each repeat along the line is still registered in MapLibre's
+            # collision index and will suppress its own later siblings (and
+            # be suppressed by them) unless icon-ignore-placement is also
+            # true. Both flags together are required to fully disable
+            # collision-based hiding, matching QGIS's "always show" look.
+            "icon-ignore-placement": True,
             "icon-optional": IconPropertyExtractor.get_icon_optional(),
             "icon-keep-upright": IconPropertyExtractor.get_icon_keep_upright(),
             "symbol-placement": LinePropertyExtractor.get_marker_line_symbol_placement(symbol_layer),
@@ -1549,7 +1557,26 @@ class QgisMapLibreStyleExporter:
             # rotates together with icon-rotate/icon-rotation-alignment, so
             # when the icon follows the line bearing this reproduces QGIS's
             # perpendicular marker-to-line offset.
-            layer_def["layout"]["icon-offset"] = [0, offset_px]
+            #
+            # IMPORTANT: MapLibre multiplies each icon-offset component by
+            # icon-size before applying it ("Each component is multiplied by
+            # the value of icon-size to obtain the final offset in pixels").
+            # Sprites here are rendered oversized by _SPRITE_QUALITY and
+            # icon-size is shrunk back down (~1/_SPRITE_QUALITY) to
+            # compensate, so a raw pixel offset would be shrunk by that same
+            # factor. Pre-divide by the emitted icon-size so the two cancel
+            # out and the on-screen offset matches QGIS's pixel offset.
+            icon_size_value = layer_def["layout"]["icon-size"]
+            if isinstance(icon_size_value, (int, float)) and icon_size_value:
+                compensated_offset = offset_px / icon_size_value
+            else:
+                # icon-size is data-defined (rare: only when the QGIS marker
+                # sub-symbol itself has a per-feature size override). There is
+                # no way to build a dynamic two-element icon-offset array in
+                # the MapLibre expression language, so fall back to the
+                # sprite-quality constant used for the non-data-defined case.
+                compensated_offset = offset_px * _SPRITE_QUALITY
+            layer_def["layout"]["icon-offset"] = [0, compensated_offset]
 
         layer_def["paint"].update({
             "icon-opacity": IconPropertyExtractor.get_icon_opacity(),
