@@ -457,7 +457,7 @@ class LinePropertyExtractor:
         if offset == 0:
             return 0.0
         unit = PropertyExtractor.get_attribute(symbol_layer, "offsetUnit", "offsetUnits")
-        return PropertyExtractor.convert_length_to_pixels(offset, unit)
+        return PropertyExtractor.convert_length_to_pixels(offset, unit) * -1
 
 
 class FillPropertyExtractor:

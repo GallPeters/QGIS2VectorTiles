@@ -108,6 +108,7 @@ class TilesStyler:
         self._setup_base_style_properties(style, flat_rule)
 
         symbol = flat_rule.rule.symbol()
+        new_symbol = symbol
         if not symbol:
             return
 
@@ -122,18 +123,21 @@ class TilesStyler:
             if sub_symbol and symbol_layer.layerType() in ("GeometryGenerator", "CentroidFill"):
                 self._copy_data_driven_properties(symbol, sub_symbol)
                 self._copy_data_driven_properties(symbol_layer, sub_symbol_layer)
-                symbol = sub_symbol
+                new_symbol = sub_symbol
             else:
-                symbol = self._create_transformed_symbol(target_geom, symbol_layer)
+                new_symbol = self._create_transformed_symbol(target_geom, symbol_layer, symbol)
 
-        style.setSymbol(symbol.clone())
+        style.setSymbol(new_symbol.clone())
 
-    def _create_transformed_symbol(self, target_geom: int, symbol_layer):
+    def _create_transformed_symbol(self, target_geom: int, symbol_layer, orig_symbol):
         """Create a new symbol of the target geometry type from the given symbol layer."""
         symbol_class = self._SYMBOL_CLASS_MAP.get(target_geom, QgsMarkerSymbol)
         symbol = symbol_class()
         symbol.appendSymbolLayer(symbol_layer.clone())
         symbol.deleteSymbolLayer(0)
+        self._copy_data_driven_properties(orig_symbol, symbol)
+        if hasattr(symbol, "setOpacity") and hasattr(orig_symbol, "opacity"):
+            symbol.setOpacity(orig_symbol.opacity())
         return symbol
 
     def _setup_labeling_style(
