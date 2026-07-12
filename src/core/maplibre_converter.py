@@ -175,13 +175,22 @@ class LinePropertyExtractor:
         return PropertyExtractor.get_value_or_expression(width_px, width_prop)
 
     @staticmethod
-    def get_line_opacity(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[float, List]:
-        """Return ``line-opacity`` from the colour alpha channel.
+    def get_line_opacity(
+        symbol_layer: QgsSimpleLineSymbolLayer, symbol: "QgsSymbol" = None
+    ) -> Union[float, List]:
+        """Return ``line-opacity`` from the symbol's general Opacity setting.
 
-        Honours a data-defined ``PropertyOpacity`` override when active, so
-        per-feature opacity attributes are emitted as MapLibre expressions.
+        Independent of the stroke colour's alpha channel: that alpha is already
+        embedded in the ``line-color`` rgba() string, and MapLibre multiplies
+        ``line-opacity`` against it at render time. ``symbol.opacity()`` is
+        QGIS's own general "Opacity" slider (top of the Symbol panel) - a
+        separate multiplier from colour alpha. Honours a data-defined
+        ``PropertyOpacity`` override when active.
         """
-        base_opacity = symbol_layer.color().alphaF()
+        try:
+            base_opacity = symbol.opacity() if symbol is not None else 1.0
+        except (AttributeError, RuntimeError):
+            base_opacity = 1.0
         try:
             opacity_prop = symbol_layer.dataDefinedProperties().property(
                 QgsSymbolLayer.PropertyOpacity
@@ -254,15 +263,15 @@ class LinePropertyExtractor:
                 for d in dash_vector
             ]
 
+        # Ratios are [dash_length, gap_length] as multiples of the line-width.
         fixed_presets = {
-            2: [4 * width_px, 2 * width_px],
-            3: [1 * width_px, 1 * width_px],
-            4: [4 * width_px, 2 * width_px, 1 * width_px, 2 * width_px],
-            5: [4 * width_px, 2 * width_px, 1 * width_px, 2 * width_px, 1 * width_px, 2 * width_px],
+            2: [3, 2],             # Dash: 3x width dash, 2x width gap
+            3: [1, 2],             # Dot: 1x width dash (looks like a square dot), 2x gap
+            4: [3, 2, 1, 2],       # Dash-Dot: Dash, gap, dot, gap
+            5: [3, 2, 1, 2, 1, 2], # Dash-Dot-Dot: Dash, gap, dot, gap, dot, gap
         }
-        if pen_style in fixed_presets:
-            return fixed_presets[pen_style]
-
+        if pen_style and  hasattr(pen_style, "value") and pen_style.value in fixed_presets:
+            return fixed_presets[pen_style.value] 
         return None
 
     @staticmethod
@@ -462,13 +471,20 @@ class FillPropertyExtractor:
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
-    def get_fill_opacity(symbol_layer: QgsSimpleFillSymbolLayer) -> Union[float, List]:
-        """Return ``fill-opacity`` from the fill colour alpha channel.
+    def get_fill_opacity(
+        symbol_layer: QgsSimpleFillSymbolLayer, symbol: "QgsSymbol" = None
+    ) -> Union[float, List]:
+        """Return ``fill-opacity`` from the symbol's general Opacity setting.
 
-        Honours a data-defined ``PropertyOpacity`` override when active, so
-        per-feature opacity attributes are emitted as MapLibre expressions.
+        Independent of the fill colour's alpha channel, for the same reason as
+        ``get_line_opacity``: colour alpha lives in ``fill-color``, and
+        ``symbol.opacity()`` is QGIS's separate general "Opacity" slider.
+        Honours a data-defined ``PropertyOpacity`` override when active.
         """
-        base_opacity = symbol_layer.color().alphaF()
+        try:
+            base_opacity = symbol.opacity() if symbol is not None else 1.0
+        except (AttributeError, RuntimeError):
+            base_opacity = 1.0
         try:
             opacity_prop = symbol_layer.dataDefinedProperties().property(
                 QgsSymbolLayer.PropertyOpacity
@@ -829,14 +845,18 @@ class TextPropertyExtractor:
         text_format: QgsTextFormat,
         label_settings: QgsPalLayerSettings = None,
     ) -> Union[float, List]:
-        """Return ``text-opacity`` from the text-colour alpha channel.
+        """Return ``text-opacity`` from the text format's general Opacity setting.
 
-        Honours a data-defined ``FontOpacity`` override on ``label_settings``
-        when active, so per-feature opacity attributes are emitted as
-        MapLibre expressions. When the property does not exist on the
-        running QGIS build, the static alpha value is returned.
+        Independent of the font colour's alpha channel, same reasoning as the
+        fill/line variants. ``text_format.opacity()`` is QGIS's own general
+        text "Opacity" slider. Honours a data-defined ``FontOpacity`` override
+        on ``label_settings`` when active. When the property does not exist on
+        the running QGIS build, the static opacity value is returned.
         """
-        base_opacity = text_format.color().alphaF()
+        try:
+            base_opacity = text_format.opacity()
+        except (AttributeError, RuntimeError):
+            base_opacity = 1.0
         if label_settings is None:
             return base_opacity
         try:
@@ -1354,7 +1374,7 @@ class QgisMapLibreStyleExporter:
             )
         elif symbol_type == QgsSymbol.Fill:
             self._convert_fill_symbol(
-                symbol_layer, style_name, source_layer_name, source_name, min_zoom, max_zoom
+                symbol_layer, symbol, style_name, source_layer_name, source_name, min_zoom, max_zoom
             )
 
     def _base_layer_def(
@@ -1478,7 +1498,7 @@ class QgisMapLibreStyleExporter:
                 )
             else:
                 self._convert_simple_or_pattern_line_symbol_layer(
-                    symbol_layer, layer_id, source_layer_name, source_name,
+                    symbol_layer, symbol, layer_id, source_layer_name, source_name,
                     min_zoom, max_zoom,
                 )
 
@@ -1525,7 +1545,7 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": IconPropertyExtractor.get_icon_size(marker_sub_layer, 1.0),
-            # "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=marker_sub_layer),
+            "icon-rotate": 0,
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
             # Following the line's bearing ("map") reproduces rotateSymbols()
             # == True; "viewport" keeps markers upright regardless of the
@@ -1583,6 +1603,7 @@ class QgisMapLibreStyleExporter:
     def _convert_simple_or_pattern_line_symbol_layer(
         self,
         symbol_layer: QgsSymbolLayer,
+        symbol: QgsSymbol,          # add this
         style_name: str,
         source_layer_name: str,
         source_name: str,
@@ -1598,7 +1619,7 @@ class QgisMapLibreStyleExporter:
             layer_def["paint"].update({
                 "line-color": LinePropertyExtractor.get_line_color(symbol_layer),
                 "line-width": LinePropertyExtractor.get_line_width(symbol_layer),
-                "line-opacity": LinePropertyExtractor.get_line_opacity(symbol_layer),
+                "line-opacity": LinePropertyExtractor.get_line_opacity(symbol_layer, symbol),
                 "line-blur": LinePropertyExtractor.get_line_blur(),
                 "line-gap-width": LinePropertyExtractor.get_line_gap_width(),
                 "line-translate": LinePropertyExtractor.get_line_translate(),
@@ -1647,6 +1668,7 @@ class QgisMapLibreStyleExporter:
     def _convert_fill_symbol(
         self,
         symbol_layer: QgsSymbolLayer,
+        symbol: QgsSymbol,          # add this
         style_name: str,
         source_layer_name: str,
         source_name: str,
@@ -1662,7 +1684,7 @@ class QgisMapLibreStyleExporter:
             if symbol_layer.brushStyle() != Qt.BrushStyle.NoBrush:
                 layer_def["paint"].update({
                     "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
-                    "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer),
+                    "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
                     "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
                     "fill-translate": FillPropertyExtractor.get_fill_translate(),
                     "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
