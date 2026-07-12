@@ -457,7 +457,7 @@ class LinePropertyExtractor:
         if offset == 0:
             return 0.0
         unit = PropertyExtractor.get_attribute(symbol_layer, "offsetUnit", "offsetUnits")
-        return PropertyExtractor.convert_length_to_pixels(offset, unit) * -1
+        return PropertyExtractor.convert_length_to_pixels(offset, unit)
 
 
 class FillPropertyExtractor:
@@ -1545,7 +1545,7 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": IconPropertyExtractor.get_icon_size(marker_sub_layer, 1.0),
-            "icon-rotate": 0,
+            "icon-rotate": 180,
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
             # Following the line's bearing ("map") reproduces rotateSymbols()
             # == True; "viewport" keeps markers upright regardless of the
