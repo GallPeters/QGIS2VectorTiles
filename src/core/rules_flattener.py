@@ -471,10 +471,10 @@ class RulesFlattener:
         line_layer.setPenJoinStyle(fill_layer.penJoinStyle())
 
         property_keys = [
-            QgsSymbolLayer.PropertyStrokeColor,
-            QgsSymbolLayer.PropertyStrokeWidth,
-            QgsSymbolLayer.PropertyStrokeStyle,
-            QgsSymbolLayer.PropertyJoinStyle
+            QgsSymbolLayer.Property.PropertyStrokeColor,
+            QgsSymbolLayer.Property.PropertyStrokeWidth,
+            QgsSymbolLayer.Property.PropertyStrokeStyle,
+            QgsSymbolLayer.Property.PropertyJoinStyle
         ]
 
         for key in property_keys:

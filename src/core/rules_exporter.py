@@ -733,7 +733,7 @@ class RulesExporter:
         self._check_cancel()
         context = QgsProcessingContext()
         context.setExpressionContext(QgsProject.instance().createExpressionContext())
-        context.setInvalidGeometryCheck(QgsFeatureRequest.GeometryNoCheck)
+        context.setInvalidGeometryCheck(QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck)
         feedback = QgsProcessingFeedback()
 
         if params.get("OUTPUT") in (None, "TEMPORARY_OUTPUT"):

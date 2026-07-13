@@ -76,14 +76,11 @@ _MAPLIBRE_LABELS_FACTOR = 1.4   # Factor to decrease label size to match MapLibr
 # PyQt VERSION GUARD
 # Imports the right Qt5 / Qt6 symbols once, re-exported below.
 # =====================================================================
-if int(qVersion()[0]) == 5:
-    from PyQt5.QtXml import QDomDocument
-    from PyQt5.QtCore import QVariant, Qt
-    from PyQt5 import sip
-else:
-    from PyQt6.QtXml import QDomDocument
-    from PyQt6.QtCore import QVariant, Qt
-    from PyQt6 import sip
+
+from qgis.PyQt.QtXml import QDomDocument
+from qgis.PyQt.QtCore import QVariant, Qt
+from qgis.PyQt import sip
+
 
 
 __all__ = [

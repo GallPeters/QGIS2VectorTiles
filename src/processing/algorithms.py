@@ -103,7 +103,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.MIN_ZOOM,
                 self.tr("Minimum Zoom (Inclusive)"),
-                type=QgsProcessingParameterNumber.Integer,
+                type=QgsProcessingParameterNumber.Type.Integer,
                 defaultValue=0,
                 minValue=0,
                 maxValue=22,
@@ -115,7 +115,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.MAX_ZOOM,
                 self.tr("Maximum Zoom (Inclusive)"),
-                type=QgsProcessingParameterNumber.Integer,
+                type=QgsProcessingParameterNumber.Type.Integer,
                 defaultValue=10,
                 minValue=0,
                 maxValue=22,
@@ -136,7 +136,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.CPU_PERCENT,
                 self.tr("CPU Usage Limit (%)"),
-                type=QgsProcessingParameterNumber.Integer,
+                type=QgsProcessingParameterNumber.Type.Integer,
                 defaultValue=100,
                 minValue=0,
                 maxValue=100,

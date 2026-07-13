@@ -33,9 +33,9 @@ class DataDefinedPropertiesFetcher:
     })
 
     _DATA_TYPE_MAP: dict = {
-        QgsPropertyDefinition.DataTypeString: QVariant.String,
-        QgsPropertyDefinition.DataTypeNumeric: QVariant.Double,
-        QgsPropertyDefinition.DataTypeBoolean: QVariant.Bool,
+        QgsPropertyDefinition.DataType.DataTypeString: QVariant.String,
+        QgsPropertyDefinition.DataType.DataTypeNumeric: QVariant.Double,
+        QgsPropertyDefinition.DataType.DataTypeBoolean: QVariant.Bool,
     }
 
     FIELD_PREFIX = "q2vt"
@@ -119,7 +119,7 @@ class DataDefinedPropertiesFetcher:
             prop_name = '_' + prop_def.description().lower().replace(" ", "_") if prop_def.description() else ''
             field_name = f"{self.FIELD_PREFIX}_property_{prop_name}{self._suffix}"
 
-            if data_type == QgsPropertyDefinition.DataTypeBoolean:
+            if data_type == QgsPropertyDefinition.DataType.DataTypeBoolean:
                 expression = self._process_boolean_prop(prop, props, key, field_name)
             else:
                 expression = self._process_expression_prop(

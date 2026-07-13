@@ -159,7 +159,7 @@ class LinePropertyExtractor:
     def get_line_color(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[str, List]:
         """Return ``line-color`` resolving any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
-        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertyFillColor)
+        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyFillColor)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
@@ -170,7 +170,7 @@ class LinePropertyExtractor:
         )
         width_px = PropertyExtractor.convert_length_to_pixels(symbol_layer.width(), width_unit)
         width_prop = symbol_layer.dataDefinedProperties().property(
-            QgsSymbolLayer.PropertyStrokeWidth
+            QgsSymbolLayer.Property.PropertyStrokeWidth
         )
         return PropertyExtractor.get_value_or_expression(width_px, width_prop)
 
@@ -185,7 +185,7 @@ class LinePropertyExtractor:
         ``line-opacity`` against it at render time. ``symbol.opacity()`` is
         QGIS's own general "Opacity" slider (top of the Symbol panel) - a
         separate multiplier from colour alpha. Honours a data-defined
-        ``PropertyOpacity`` override when active.
+        ``Property.PropertyOpacity`` override when active.
         """
         try:
             base_opacity = symbol.opacity() if symbol is not None else 1.0
@@ -193,7 +193,7 @@ class LinePropertyExtractor:
             base_opacity = 1.0
         try:
             opacity_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyOpacity
+                QgsSymbolLayer.Property.Property.PropertyOpacity
             )
             return PropertyExtractor.get_value_or_expression(base_opacity, opacity_prop)
         except (AttributeError, RuntimeError):
@@ -296,7 +296,7 @@ class LinePropertyExtractor:
 
         try:
             offset_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyOffset
+                QgsSymbolLayer.Property.PropertyOffset
             )
             return PropertyExtractor.get_value_or_expression(base_offset, offset_prop)
         except (AttributeError, RuntimeError):
@@ -333,7 +333,7 @@ class LinePropertyExtractor:
         order_prop = None
         try:
             order_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyLayerEnabled
+                QgsSymbolLayer.Property.PropertyLayerEnabled
             )
         except (AttributeError, RuntimeError):
             pass
@@ -467,7 +467,7 @@ class FillPropertyExtractor:
     def get_fill_color(symbol_layer: QgsSimpleFillSymbolLayer) -> Union[str, List]:
         """Return ``fill-color`` resolving any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
-        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertyFillColor)
+        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyFillColor)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
@@ -479,7 +479,7 @@ class FillPropertyExtractor:
         Independent of the fill colour's alpha channel, for the same reason as
         ``get_line_opacity``: colour alpha lives in ``fill-color``, and
         ``symbol.opacity()`` is QGIS's separate general "Opacity" slider.
-        Honours a data-defined ``PropertyOpacity`` override when active.
+        Honours a data-defined ``Property.PropertyOpacity`` override when active.
         """
         try:
             base_opacity = symbol.opacity() if symbol is not None else 1.0
@@ -487,7 +487,7 @@ class FillPropertyExtractor:
             base_opacity = 1.0
         try:
             opacity_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyOpacity
+                QgsSymbolLayer.Property.PropertyOpacity
             )
             return PropertyExtractor.get_value_or_expression(base_opacity, opacity_prop)
         except (AttributeError, RuntimeError):
@@ -505,7 +505,7 @@ class FillPropertyExtractor:
         if stroke_visible:
             base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.strokeColor())
             color_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyStrokeColor
+                QgsSymbolLayer.Property.PropertyStrokeColor
             )
             return PropertyExtractor.get_value_or_expression(base_color, color_prop)
         return None
@@ -531,7 +531,7 @@ class FillPropertyExtractor:
         order_prop = None
         try:
             order_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.PropertyLayerEnabled
+                QgsSymbolLayer.Property.PropertyLayerEnabled
             )
         except (AttributeError, RuntimeError):
             pass
@@ -571,7 +571,7 @@ class IconPropertyExtractor:
         symbol_layer: QgsSymbolLayer, default_size: float = 1.0
     ) -> Union[float, List]:
         """Return ``icon-size`` honouring any data-defined override."""
-        size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
+        size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertySize)
         size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
         return size_val / _SPRITE_QUALITY
 
@@ -595,7 +595,7 @@ class IconPropertyExtractor:
                 pass
             try:
                 angle_prop = symbol_layer.dataDefinedProperties().property(
-                    QgsSymbolLayer.PropertyAngle
+                    QgsSymbolLayer.Property.PropertyAngle
                 )
                 return PropertyExtractor.get_value_or_expression(base_angle, angle_prop)
             except (AttributeError, RuntimeError):
@@ -828,7 +828,7 @@ class TextPropertyExtractor:
             # they being displayed correctly. Because of that they being divided in this module
             # and being increased later in server_initializer so the output qlr exts size will be valid.
             base_size = base_size/_MAPLIBRE_LABELS_FACTOR
-        size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Size)
+        size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
 
     @staticmethod
@@ -837,7 +837,7 @@ class TextPropertyExtractor:
     ) -> Union[str, List]:
         """Return ``text-color`` honouring any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(text_format.color())
-        color_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Color)
+        color_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Color)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod
@@ -890,7 +890,7 @@ class TextPropertyExtractor:
             return base_color
         try:
             color_prop = label_settings.dataDefinedProperties().property(
-                QgsPalLayerSettings.BufferColor
+                QgsPalLayerSettings.Property.BufferColor
             )
             return PropertyExtractor.get_value_or_expression(base_color, color_prop)
         except (AttributeError, RuntimeError):
@@ -924,7 +924,7 @@ class TextPropertyExtractor:
             return base_width
         try:
             size_prop = label_settings.dataDefinedProperties().property(
-                QgsPalLayerSettings.BufferSize
+                QgsPalLayerSettings.Property.BufferSize
             )
             return PropertyExtractor.get_value_or_expression(base_width, size_prop)
         except (AttributeError, RuntimeError):
@@ -999,7 +999,7 @@ class TextPropertyExtractor:
         base_justify = justify_map.get(justification, "left")
         try:
             justify_prop = label_settings.dataDefinedProperties().property(
-                QgsPalLayerSettings.MultiLineAlignment
+                QgsPalLayerSettings.Property.MultiLineAlignment
             )
             return PropertyExtractor.get_value_or_expression(base_justify, justify_prop)
         except (AttributeError, RuntimeError):
@@ -1141,7 +1141,7 @@ class TextPropertyExtractor:
         """Return ``text-rotate`` in degrees, honouring data-defined overrides."""
         base_rotation = label_settings.angleOffset if label_settings.angleOffset != 0 else 0
         rotation_prop = label_settings.dataDefinedProperties().property(
-            QgsPalLayerSettings.LabelRotation
+            QgsPalLayerSettings.Property.LabelRotation
         )
         return PropertyExtractor.get_value_or_expression(base_rotation, rotation_prop)
 
@@ -1363,16 +1363,16 @@ class QgisMapLibreStyleExporter:
         symbol_layer = symbol.symbolLayer(0)
         symbol_type = symbol.type()
 
-        if symbol_type == QgsSymbol.Marker:
+        if symbol_type == QgsSymbol.SymbolType.Marker:
             self._convert_marker_symbol(
                 symbol_layer, symbol, style_name, source_layer_name,
                 source_name, min_zoom, max_zoom,
             )
-        elif symbol_type == QgsSymbol.Line:
+        elif symbol_type == QgsSymbol.SymbolType.Line:
             self._convert_line_symbol(
                 symbol, style_name, source_layer_name, source_name, min_zoom, max_zoom
             )
-        elif symbol_type == QgsSymbol.Fill:
+        elif symbol_type == QgsSymbol.SymbolType.Fill:
             self._convert_fill_symbol(
                 symbol_layer, symbol, style_name, source_layer_name, source_name, min_zoom, max_zoom
             )
@@ -1811,7 +1811,7 @@ class QgisMapLibreStyleExporter:
         """Configure icon layout/paint from a label background marker symbol."""
         try:
             marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
-            if marker and marker.type() == QgsSymbol.Marker:
+            if marker and marker.type() == QgsSymbol.SymbolType.Marker:
                 marker_name = f"marker_{self.marker_counter}"
                 self.marker_counter += 1
                 self.marker_symbols[marker_name] = marker.clone()
