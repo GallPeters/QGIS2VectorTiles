@@ -14,7 +14,6 @@ from qgis.core import (
     QgsSymbol,
     QgsPalLayerSettings,
     QgsSimpleLineSymbolLayer,
-    QgsMarkerLineSymbolLayer,
     QgsSimpleFillSymbolLayer,
     QgsProcessingUtils,
     QgsExpression,
@@ -69,7 +68,7 @@ class PropertyExtractor:
             expression = prop.expressionString()
             qexpr = QgsExpression(expression)
             evaluation = qexpr.evaluate()
-            if evaluation is not None and not qexpr.needsGeometry():
+            if evaluation:
                 return evaluation
             field_name = expression.replace('"', "")
             idx = field_name.find("q2vt")
@@ -159,7 +158,7 @@ class LinePropertyExtractor:
     def get_line_color(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[str, List]:
         """Return ``line-color`` resolving any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
-        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyFillColor)
+        color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyStrokeColor)
         return PropertyExtractor.get_value_or_expression(base_color, color_prop)
 
     @staticmethod

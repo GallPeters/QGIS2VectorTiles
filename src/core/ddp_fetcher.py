@@ -153,7 +153,7 @@ class DataDefinedPropertiesFetcher:
 
         qexpr = QgsExpression(expression)
         static_value = qexpr.evaluate()
-        if static_value is not None and not qexpr.needsGeometry():
+        if static_value:
             prop.setExpressionString(f"'{str(static_value)}'")
             return None
 

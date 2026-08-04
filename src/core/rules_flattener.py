@@ -26,7 +26,8 @@ from qgis.core import (
     QgsSimpleLineSymbolLayer,
     QgsFillSymbol,
     QgsSymbolLayer,
-    QgsSimpleFillSymbolLayer
+    QgsSimpleFillSymbolLayer,
+    QgsProperty
     )
 
 from ..utils.config import Qt
@@ -480,7 +481,7 @@ class RulesFlattener:
         for key in property_keys:
             prop = fill_layer.dataDefinedProperties().property(key.value)
             if prop is not None and prop.isActive():
-                line_layer.setDataDefinedProperty(key.value, prop.clone())
+                line_layer.setDataDefinedProperty(key, QgsProperty(prop))
 
         new_symbol.changeSymbolLayer(0, line_layer)
 
