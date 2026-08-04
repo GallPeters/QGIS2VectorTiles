@@ -266,7 +266,7 @@ class RulesFlattener:
         # symbols) BEFORE applying NOT-children — descendants must not see the
         # output-only exclusion (otherwise C inherits "... AND NOT C" from B*).
         inheritance_source = inherited_rule.clone()
-        self._exclude_children_from_filter(inherited_rule, rule)
+        # self._exclude_children_from_filter(inherited_rule, rule)
 
         flat_rule = FlattenedRule(inherited_rule, layer)
         flat_rule.rule.setDescription("")
@@ -297,8 +297,8 @@ class RulesFlattener:
         self._inherit_min_scale(clone, rule, inherited_parent)
         self._inherit_max_scale(clone, rule, inherited_parent)
         self._inherit_filter_expression(clone, rule, inherited_parent)
-        if rule_type == 0:
-            self._inherit_symbol_layers(clone, rule, inherited_parent)
+        # if rule_type == 0:
+        #     self._inherit_symbol_layers(clone, rule, inherited_parent)
         return clone
 
     def _inherit_min_scale(self, clone, rule, inherited_parent):
@@ -430,16 +430,18 @@ class RulesFlattener:
 
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]
-            if rule_clone and layer_type == "SimpleFill" and clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
-                outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
-                outline_rule.set_attr("c", 1)
-                fill_symbol = outline_rule.rule.symbol()
-                outline_symbol = self._convert_fill_outline_to_line_symbol(fill_symbol)
-                if outline_symbol:
-                    outline_rule.rule.setSymbol(outline_symbol)
-                    split_rules.append(outline_rule)
-                    clone_symbol_layer.setStrokeStyle(Qt.PenStyle.NoPen)
-
+            if rule_clone and layer_type == "SimpleFill":
+                if clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
+                    outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
+                    outline_rule.set_attr("c", 1)
+                    fill_symbol = outline_rule.rule.symbol()
+                    outline_symbol = self._convert_fill_outline_to_line_symbol(fill_symbol)
+                    if outline_symbol:
+                        outline_rule.rule.setSymbol(outline_symbol)
+                        split_rules.append(outline_rule)
+                        clone_symbol_layer.setStrokeStyle(Qt.PenStyle.NoPen)
+                if clone_symbol_layer.brushStyle() == Qt.BrushStyle.NoBrush:
+                    continue
             if rule_clone:
                 split_rules.append(rule_clone)
 
