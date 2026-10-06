@@ -13,6 +13,7 @@ import subprocess
 from os import cpu_count
 from os.path import join, basename
 from typing import List, Tuple
+from xml.sax.saxutils import escape, quoteattr
 from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
@@ -40,7 +41,6 @@ class GDALTilesGenerator:
 
     def generate(self) -> Tuple[str, int]:
         """Build VRT, run ogr2ogr, return (mbtiles URI, min_zoom)."""
-        self.remove_unused_fields()
         output, uri = self._prepare_output_paths()
         vrt_path = join(QgsProcessingUtils.tempFolder(), "layers.vrt")
 
@@ -52,52 +52,71 @@ class GDALTilesGenerator:
 
         return uri, min_zoom
 
-    def remove_unused_fields(self):
-        """Remove fields from GeoPackages in-place."""
-        gpkg_paths = [layer.source().split("|layername=")[0] for layer in self.layers]
-        dict_string = str(self.style)
-        for gpkg in gpkg_paths:
-            ds = ogr.Open(gpkg, update=1)
-            if ds is None:
-                continue
-
-            layer = ds.GetLayer(0)
-            layer_defn = layer.GetLayerDefn()
-
-            # Iterate backwards because field indices change after deletion.
-            for i in range(layer_defn.GetFieldCount() - 1, -1, -1):
-                field_name = layer_defn.GetFieldDefn(i).GetName()
-
-                if f"{_FIELD_PREFIX}_property_" in field_name and field_name not in dict_string:
-                    layer.DeleteField(i)
-
-            ds = None  # Flush changes and close the dataset
-
-        # --- VRT construction ---
+    # --- VRT construction ---
 
     def _build_vrt(self, vrt_path: str):
         """Write an OGR VRT containing one entry per layer with per-zoom configuration."""
+        style_text = str(self.style)
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in self.layers:
-                f.write(self._vrt_layer_block(layer))
+                f.write(self._vrt_layer_block(layer, style_text))
             f.write("</OGRVRTDataSource>\n")
 
-    def _vrt_layer_block(self, layer: QgsVectorLayer) -> str:
+    def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str) -> str:
         """Return the VRT XML block for a single layer."""
         name = basename(layer.source()).split(".")[0]
         min_zoom = self._parse_layer_zoom(layer, "o")
         max_zoom = self._parse_layer_zoom(layer, "i")
         source = layer.source().split("|layername=")[0]
         return (
-            f'    <OGRVRTLayer name="{name}">\n'
-            f'        <SrcDataSource>{source}</SrcDataSource>\n'
+            f'    <OGRVRTLayer name={quoteattr(name)}>\n'
+            f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
             f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
             f'        <GeometryType>wkbUnknown</GeometryType>\n'
+            f'{self._vrt_fields(source, style_text)}'
             f'        <LayerCreationOption name="MINZOOM" value="{min_zoom}"/>\n'
             f'        <LayerCreationOption name="MAXZOOM" value="{min(max_zoom, 16)}"/>\n'
             f'    </OGRVRTLayer>\n'
         )
+
+    @staticmethod
+    def _is_tiled_field(field_name: str, style_text: str) -> bool:
+        """Whether a dataset field belongs in the tiles.
+
+        q2vt_orig_id only serves the rules export, and data-defined property
+        fields matter only if the style references them.
+        """
+        if field_name == f"{_FIELD_PREFIX}_orig_id":
+            return False
+        if f"{_FIELD_PREFIX}_property_" in field_name:
+            return field_name in style_text
+        return True
+
+    def _vrt_fields(self, source: str, style_text: str) -> str:
+        """<Field> elements selecting the tiled fields of ``source``.
+
+        Selecting fields in the VRT keeps the others out of the tiles without
+        rewriting the dataset. Returns "" (all fields) if it can't be read.
+        """
+        ds = ogr.Open(source)
+        if ds is None:
+            return ""
+        defn = ds.GetLayer(0).GetLayerDefn()
+        elements = []
+        for i in range(defn.GetFieldCount()):
+            field = defn.GetFieldDefn(i)
+            if not self._is_tiled_field(field.GetName(), style_text):
+                continue
+            subtype = ""
+            if field.GetSubType() != ogr.OFSTNone:
+                subtype = f" subtype={quoteattr(ogr.GetFieldSubTypeName(field.GetSubType()))}"
+            elements.append(
+                f'        <Field name={quoteattr(field.GetName())} '
+                f'type={quoteattr(ogr.GetFieldTypeName(field.GetType()))}{subtype}/>\n'
+            )
+        ds = None
+        return "".join(elements)
 
     # --- ogr2ogr execution ---
 
