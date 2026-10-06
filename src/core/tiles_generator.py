@@ -8,6 +8,7 @@ in MBTiles format.
 Depends on: config (for constants only — no custom class dependencies)
 """
 
+import json
 import os
 import subprocess
 from os import cpu_count
@@ -43,19 +44,39 @@ class GDALTilesGenerator:
         """Build VRT, run ogr2ogr, return (mbtiles URI, min_zoom)."""
         output, uri = self._prepare_output_paths()
         vrt_path = join(QgsProcessingUtils.tempFolder(), "layers.vrt")
+        conf_path = join(QgsProcessingUtils.tempFolder(), "layers_conf.json")
 
         min_zoom = self._get_global_min_zoom()
         max_zoom = self._get_global_max_zoom()
 
         self._build_vrt(vrt_path)
-        self._run_ogr2ogr(vrt_path, output, min_zoom, max_zoom)
+        self._build_layer_conf(conf_path)
+        self._run_ogr2ogr(vrt_path, conf_path, output, min_zoom, max_zoom)
 
         return uri, min_zoom
+
+    # --- Per-layer zoom configuration ---
+
+    def _build_layer_conf(self, conf_path: str):
+        """Write the MVT driver's CONF file: each layer's own zoom range.
+
+        Without it every layer is written to every zoom level of the
+        dataset, although each style only shows it within its own range.
+        """
+        conf = {
+            self._layer_name(layer): {
+                "minzoom": self._parse_layer_zoom(layer, "o"),
+                "maxzoom": min(self._parse_layer_zoom(layer, "i"), 16),
+            }
+            for layer in self.layers
+        }
+        with open(conf_path, "w", encoding="utf-8") as f:
+            json.dump(conf, f)
 
     # --- VRT construction ---
 
     def _build_vrt(self, vrt_path: str):
-        """Write an OGR VRT containing one entry per layer with per-zoom configuration."""
+        """Write an OGR VRT containing one entry per layer."""
         style_text = str(self.style)
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
@@ -65,18 +86,13 @@ class GDALTilesGenerator:
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str) -> str:
         """Return the VRT XML block for a single layer."""
-        name = basename(layer.source()).split(".")[0]
-        min_zoom = self._parse_layer_zoom(layer, "o")
-        max_zoom = self._parse_layer_zoom(layer, "i")
         source = layer.source().split("|layername=")[0]
         return (
-            f'    <OGRVRTLayer name={quoteattr(name)}>\n'
+            f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
             f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
             f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
             f'        <GeometryType>wkbUnknown</GeometryType>\n'
             f'{self._vrt_fields(source, style_text)}'
-            f'        <LayerCreationOption name="MINZOOM" value="{min_zoom}"/>\n'
-            f'        <LayerCreationOption name="MAXZOOM" value="{min(max_zoom, 16)}"/>\n'
             f'    </OGRVRTLayer>\n'
         )
 
@@ -120,7 +136,9 @@ class GDALTilesGenerator:
 
     # --- ogr2ogr execution ---
 
-    def _run_ogr2ogr(self, vrt_path: str, output: str, min_zoom: int, max_zoom: int):
+    def _run_ogr2ogr(
+        self, vrt_path: str, conf_path: str, output: str, min_zoom: int, max_zoom: int
+    ):
         """Execute ogr2ogr to convert the VRT to MBTiles."""
         cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
         env = os.environ.copy()
@@ -130,6 +148,7 @@ class GDALTilesGenerator:
             "ogr2ogr", "-f", "MBTiles", output, vrt_path,
             "-dsco", f"MINZOOM={min_zoom}",
             "-dsco", f"MAXZOOM={max_zoom}",
+            "-dsco", f"CONF={conf_path}",
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", "MAX_SIZE=5000000",
             "-dsco", "MAX_FEATURES=2000000",
@@ -163,10 +182,14 @@ class GDALTilesGenerator:
         output = join(self.output_dir, "tiles.mbtiles")
         return output, f"type=mbtiles&url={output}"
 
+    @staticmethod
+    def _layer_name(layer: QgsVectorLayer) -> str:
+        """Tile layer name: the dataset's file name without extension."""
+        return basename(layer.source()).split(".")[0]
+
     def _parse_layer_zoom(self, layer: QgsVectorLayer, marker: str) -> int:
         """Extract a zoom level from the layer filename using the given marker character."""
-        name = basename(layer.source()).split(".")[0]
-        return int(name.split(marker)[1][:2])
+        return int(self._layer_name(layer).split(marker)[1][:2])
 
     def _get_global_min_zoom(self) -> int:
         zooms = (self._parse_layer_zoom(layer, "o") for layer in self.layers)
