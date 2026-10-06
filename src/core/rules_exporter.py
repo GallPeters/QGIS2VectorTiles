@@ -210,6 +210,13 @@ class _RuleGroupSnapshot:
     # Export only the largest part of each original feature (labels without
     # "label every part", centroid fills without "point on all parts").
     keep_biggest_part: bool = False
+    # Source layer name, for user-facing messages.
+    layer_name: str = ""
+
+    @property
+    def label(self) -> str:
+        rule_type = 'labeling' if self.rule_type == 1 else 'symbology'
+        return f'{rule_type} of the "{self.layer_name or self.layer_id}" layer'
 
 
 class _Cancelled(Exception):
@@ -369,6 +376,7 @@ class RulesExporter:
                 include_required_fields_only=self.include_required_fields_only,
                 flat_rules=flat_rules,
                 keep_biggest_part=self._keeps_biggest_part(primary),
+                layer_name=primary.layer.name(),
             ))
 
         # Snapshot unique sources — only those feeding an exportable group.
@@ -566,8 +574,9 @@ class RulesExporter:
                 except _Cancelled:
                     self.feedback.pushInfo("Base-layer build cancelled.")
                     return target_paths
-                except Exception:  # noqa: BLE001  (we want to swallow per-source)
-                    self.feedback.reportError(
+                except Exception as e:  # noqa: BLE001  (we want to swallow per-source)
+                    self.feedback.pushWarning(f'The "{src.name}" layer was skipped: {e}')
+                    self.feedback.pushDebugInfo(
                         f"Failed to export source '{src.name}':\n"
                         f"{traceback.format_exc()}"
                     )
@@ -584,8 +593,9 @@ class RulesExporter:
                 except _Cancelled:
                     self.feedback.pushInfo("Base-layer build cancelled.")
                     return target_paths
-                except Exception:  # noqa: BLE001
-                    self.feedback.reportError(
+                except Exception as e:  # noqa: BLE001
+                    self.feedback.pushWarning(f'The "{sources[lid].name}" layer was skipped: {e}')
+                    self.feedback.pushDebugInfo(
                         f"Base-layer build failed for layer_id={lid}:\n"
                         f"{traceback.format_exc()}"
                     )
@@ -664,8 +674,11 @@ class RulesExporter:
                     for pending_fut, pending_grp in futures.items():
                         outputs.setdefault(pending_grp.output_dataset, None)
                     return outputs
-                except Exception:  # noqa: BLE001
-                    self.feedback.reportError(
+                except Exception as e:  # noqa: BLE001
+                    self.feedback.pushWarning(
+                        f"A rule in the {grp.label} was skipped: {e}"
+                    )
+                    self.feedback.pushDebugInfo(
                         f"Rule export failed for '{grp.output_dataset}':\n"
                         f"{traceback.format_exc()}"
                     )
@@ -673,9 +686,7 @@ class RulesExporter:
         return outputs
 
     def validate_expression(self, grp, expr_str: str):
-        layer_name = grp.flat_rules[0].layer.name() or grp.layer_id
-        rule_type = 'labeling' if grp.rule_type == 1 else 'symbology'
-        warning_msg = f'The expression "{expr_str}" within the {rule_type} of the "{layer_name}" layer'
+        warning_msg = f'The expression "{expr_str}" within the {grp.label}'
 
         if not isinstance(expr_str, str):
             self.feedback.pushWarning(f"{warning_msg} must be a string.")
@@ -730,6 +741,14 @@ class RulesExporter:
         distance_area = QgsDistanceArea()
         distance_area.setSourceCrs(layer.crs(), self._transform_context)
 
+        # Problems that don't stop the export, reported once per group as
+        # {what: [occurrences, first error]}.
+        problems: Dict[str, List[Any]] = {}
+
+        def note(what: str, error: str) -> None:
+            entry = problems.setdefault(what, [0, error])
+            entry[0] += 1
+
         # Per output field: how to compute its value, cheapest kind first —
         # a constant, a straight copy of a source attribute, or an expression.
         out_fields = QgsFields()
@@ -738,7 +757,12 @@ class RulesExporter:
             field = QgsField(m["name"], QMetaType.Type(m["type"]))
             if not out_fields.append(field):
                 continue  # Duplicate name: first definition wins.
-            field_plan.append(self._plan_field(field, m["expression"], src_fields, context, distance_area))
+            try:
+                plan = self._plan_field(field, m["expression"], src_fields, context, distance_area)
+            except RuntimeError as e:
+                note(f'field "{field.name()}" (exported as NULL)', str(e))
+                plan = (_FIELD_CONSTANT, field, None, False)
+            field_plan.append(plan)
         geom_expr = self._prepare_expression(grp.geometry_expression, context, distance_area)
 
         request = QgsFeatureRequest()
@@ -769,13 +793,14 @@ class RulesExporter:
 
                 geometry = geom_expr.evaluate(context)
                 if geom_expr.hasEvalError():
-                    raise RuntimeError(
-                        f"Evaluation error in geometry expression: {geom_expr.evalErrorString()}"
-                    )
+                    note("features (skipped: geometry could not be computed)", geom_expr.evalErrorString())
+                    continue
                 if geometry is None:
                     continue
                 if not isinstance(geometry, QgsGeometry):
-                    raise RuntimeError(f"{geometry!r} is not a geometry")
+                    note("features (skipped: geometry expression did not return a geometry)",
+                         f"got {geometry!r}")
+                    continue
                 if geometry.isNull() or geometry.isEmpty():
                     continue
 
@@ -790,11 +815,16 @@ class RulesExporter:
                     else:
                         value = source.evaluate(context)
                         if source.hasEvalError():
-                            raise RuntimeError(
-                                f"Evaluation error in expression \"{source.expression()}\": "
-                                f"{source.evalErrorString()}"
-                            )
-                    attributes.append(self._convert_value(field, value) if convert else value)
+                            note(f'values of field "{field.name()}" (exported as NULL)', source.evalErrorString())
+                            attributes.append(None)
+                            continue
+                    if convert:
+                        try:
+                            value = self._convert_value(field, value)
+                        except RuntimeError as e:
+                            note(f'values of field "{field.name()}" (exported as NULL)', str(e))
+                            value = None
+                    attributes.append(value)
 
                 parts = geometry.asGeometryCollection() if geometry.isMultipart() else [geometry]
                 for part in parts:
@@ -810,6 +840,11 @@ class RulesExporter:
             del writer  # Closes the file.
             if not completed or written == 0:
                 self._remove_file(output_path)
+
+        for what, (count, error) in problems.items():
+            self.feedback.pushWarning(
+                f"In the {grp.label}: {count} {what}. First error: {error.strip()}"
+            )
         return output_path if written else None
 
     def _biggest_part_ids(
@@ -867,6 +902,10 @@ class RulesExporter:
         source field are copied by index (and only converted when the types
         differ); anything else is evaluated per feature.
         """
+        if not isinstance(expr_str, str) or not expr_str.strip():
+            # As in refactorfields, an empty expression yields NULL. The DDP
+            # fetcher emits these for field-based properties.
+            return (_FIELD_CONSTANT, field, None, False)
         expr = self._prepare_expression(expr_str, context, distance_area)
         root = expr.rootNode()
         if root is not None and root.hasCachedStaticValue():

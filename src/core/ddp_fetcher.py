@@ -146,7 +146,9 @@ class DataDefinedPropertiesFetcher:
         Build the calculated-field expression for string/numeric DDPs.
         Returns None if the expression evaluates to a static value (no field needed).
         """
-        raw = prop.expressionString().replace("@map_scale", self._min_scale)
+        # asExpression() also covers field-based properties, whose
+        # expressionString() is empty.
+        raw = prop.asExpression().replace("@map_scale", self._min_scale)
         is_color = prop_def and "color" in prop_def.name().lower() and field_type == 10
 
         expression = _to_color_hex_expr(raw) if is_color else raw
