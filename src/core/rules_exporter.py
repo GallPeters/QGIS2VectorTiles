@@ -49,8 +49,8 @@ The redesign separates the export pipeline into clearly typed phases:
    │     handed to Phase 2 immediately, so reads overlap with processing. │
    ├──────────────────────────────────────────────────────────────────────┤
    │ Phase 2 — Base-layer pipeline (PARALLEL, file → file)                │
-   │   * For each materialised source: fixgeometries → reproject →        │
-   │     orig_id → singleparts → simplify.                                │
+   │   * For each materialised source, ONE streaming pass: fix geometry → │
+   │     reproject → orig_id → explode multiparts → simplify.             │
    │   * All inputs and outputs are file paths; no live layers cross      │
    │     threads.                                                         │
    ├──────────────────────────────────────────────────────────────────────┤
@@ -113,6 +113,7 @@ from qgis.core import (
     QgsVectorFileWriter,
     QgsVectorLayer,
     QgsProject,
+    QgsWkbTypes,
 )
 
 from ..utils.config import _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX
@@ -602,37 +603,108 @@ class RulesExporter:
         return target_paths
 
     def _build_one_base_layer(self, src_path: str, dst_path: str) -> None:
-        """Worker: run the cleanup chain on a materialised local file."""
+        """Worker: build the base layer from a materialised local file.
+
+        One streaming pass equivalent to the processing chain
+        fixgeometries(METHOD=0) → reprojectlayer → fieldcalculator
+        (q2vt_orig_id) → multiparttosingleparts → simplifygeometries(METHOD=0),
+        but every feature is read once and only the result is written.
+        """
         self._check_cancel()
-        # Single geometry-fix pass, on in-extent features only.
-        fixed = self._run_alg_safe(
-            "fixgeometries", "native", INPUT=src_path, METHOD=0
+        layer = QgsVectorLayer(src_path, "materialized", "ogr")
+        if not layer.isValid():
+            raise RuntimeError(f"Cannot open materialised source '{src_path}'")
+
+        # Output schema: source fields + q2vt_orig_id, typed as fieldcalculator's
+        # FIELD_TYPE=0 (decimal, length 10, precision 3).
+        out_fields = QgsFields(layer.fields())
+        orig_name = f"{_FIELD_PREFIX}_orig_id"
+        orig_idx = out_fields.lookupField(orig_name)
+        if orig_idx < 0:
+            out_fields.append(QgsField(orig_name, QMetaType.Type.Double, "", 10, 3))
+            orig_idx = out_fields.count() - 1
+
+        dest_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
+        transform = QgsCoordinateTransform(layer.crs(), dest_crs, self._transform_context)
+        out_wkb = QgsWkbTypes.singleType(layer.wkbType())
+
+        request = QgsFeatureRequest()
+        request.setInvalidGeometryCheck(
+            QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
         )
-        self._check_cancel()
-        reprojected = self._run_alg_safe(
-            "reprojectlayer", "native",
-            INPUT=fixed,
-            TARGET_CRS=QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
-        )
-        orig_id = self._run_alg_safe(
-            "fieldcalculator", "native",
-            INPUT=reprojected,
-            FIELD_NAME=f'{_FIELD_PREFIX}_orig_id',
-            FIELD_TYPE=0,
-            FORMULA='to_int(@id)'
+
+        dropped = 0
+        orig_id = 0
+        completed = False
+        writer = self._create_writer(dst_path, out_fields, out_wkb, dest_crs)
+        try:
+            batch: List[QgsFeature] = []
+            for n, feature in enumerate(layer.getFeatures(request)):
+                if n % _WRITE_BATCH_SIZE == 0:
+                    self._check_cancel()
+                geometry = feature.geometry()
+                if not geometry.isNull():
+                    geometry = self._fix_geometry(geometry)
+                    if not geometry.isNull():
+                        try:
+                            geometry.transform(transform)
+                        except QgsCsException:
+                            dropped += 1  # reprojectlayer drops these too
+                            continue
+
+                # @id of the reprojected layer: 1-based position of the feature.
+                orig_id += 1
+                attributes = feature.attributes()
+                attributes += [None] * (out_fields.count() - len(attributes))
+                attributes[orig_idx] = float(orig_id)
+
+                parts = (
+                    geometry.asGeometryCollection()
+                    if not geometry.isNull() and geometry.isMultipart()
+                    else [geometry]
+                )
+                for part in parts:
+                    out = QgsFeature(out_fields)
+                    out.setAttributes(attributes)
+                    out.setGeometry(
+                        part if part.isNull() else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
+                    )
+                    batch.append(out)
+                if len(batch) >= _WRITE_BATCH_SIZE:
+                    self._write_batch(writer, batch)
+            self._write_batch(writer, batch)
+            completed = True
+        finally:
+            del writer  # Closes the file.
+            if not completed:
+                self._remove_file(dst_path)
+
+        if dropped:
+            self.feedback.pushWarning(
+                f"{dropped} features of '{layer.name()}' could not be reprojected "
+                f"to EPSG:{_EPSG_CRS} and were skipped."
             )
-        self._check_cancel()
-        singleparted = self._run_alg_safe(
-            "multiparttosingleparts", "native", INPUT=orig_id
-        )
-        self._check_cancel()
-        self._run_alg_safe(
-            "simplifygeometries", "native",
-            INPUT=singleparted,
-            METHOD=0,
-            TOLERANCE=_DATA_SIMPLIFICATION_TOLERANCE,
-            OUTPUT=dst_path,
-        )
+
+    @staticmethod
+    def _fix_geometry(geometry: QgsGeometry) -> QgsGeometry:
+        """fixgeometries(METHOD=0) for one geometry.
+
+        Keeps only parts of the original geometry type; a result of another
+        type (e.g. a polygon collapsed to a line) becomes a null geometry, as
+        the algorithm leaves it.
+        """
+        geometry_type = geometry.type()
+        fixed = geometry.makeValid(Qgis.MakeValidMethod.Linework, False)
+        if fixed.isNull():
+            return QgsGeometry()
+        if (fixed.wkbType() == Qgis.WkbType.Unknown
+                or QgsWkbTypes.flatType(fixed.wkbType()) == Qgis.WkbType.GeometryCollection):
+            fixed = QgsGeometry.collectGeometry(
+                [part for part in fixed.asGeometryCollection() if part.type() == geometry_type]
+            )
+        if fixed.type() != geometry_type:
+            return QgsGeometry()
+        return fixed
 
     # -------------------------------------------------------------------
     # Phase 3 — parallel rule export (file → file)
