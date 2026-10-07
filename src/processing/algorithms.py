@@ -40,6 +40,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     def __init__(self):
         """Initialize the algorithm"""
         super().__init__()
+        self._runner = None
 
     def tr(self, string):
         """
@@ -205,6 +206,11 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
         return super().checkParameterValues(parameters, context)
 
+    def prepareAlgorithm(self, parameters, context, feedback):
+        """Runs on QGIS's main thread before processAlgorithm."""
+        QGIS2VectorTiles.clear_project()
+        return super().prepareAlgorithm(parameters, context, feedback)
+
     def processAlgorithm(self, parameters, context, feedback):
         """
         Main processing method. This is where your existing vector tiles generation logic
@@ -248,7 +254,9 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 feedback=feedback,
             )
 
-            # Run the generation process
+            # Run the generation process (in the processing thread; the
+            # project is changed afterwards, in postProcessAlgorithm).
+            self._runner = tiles_generator
             tiles_generator.convert_project_to_vector_tiles()
             feedback.pushInfo(". Vector tiles package generation completed successfully")
 
@@ -257,4 +265,15 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             return {}
 
         # Return empty results dictionary (modify as needed for your use case)
+        return {}
+
+    def postProcessAlgorithm(self, context, feedback):
+        """Runs on QGIS's main thread after processAlgorithm.
+
+        Adding the tiles layer here, not in the processing thread, keeps the
+        project's layer tree owned by the main thread.
+        """
+        if self._runner is not None:
+            self._runner.finish_in_main_thread()
+            self._runner = None
         return {}

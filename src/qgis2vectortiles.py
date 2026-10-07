@@ -66,11 +66,18 @@ class QGIS2VectorTiles:
         self.background_type = background_type
         self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
+        # Set when a run completes; finish_in_main_thread() then adds the
+        # tiles layer to the project.
+        self.temp_dir: Optional[str] = None
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
-        """Run the full conversion pipeline; return the styled tiles layer or None."""
+        """Run the full conversion pipeline; return the styled tiles layer or None.
+
+        Safe to run in a background thread: it never changes the project.
+        Project changes are done by clear_project() before the run and
+        finish_in_main_thread() after it, both on QGIS's main thread.
+        """
         try:
-            self._clear_project()
             temp_dir = self._create_temp_directory()
             self._log(". Starting conversion process...")
             start_time = perf_counter()
@@ -105,16 +112,31 @@ class QGIS2VectorTiles:
                           f"({self._elapsed_minutes(export_time)} minutes).")
             self._log(f". Process completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
-            self._clear_project()
+            self.temp_dir = temp_dir
             self.serve_tiles(temp_dir)
 
         except QgsProcessingException as e:
             self._log(f". Processing failed: {str(e)}")
-            self._clear_project()
             return None
 
-    def _clear_project(self):
-        """Remove all map layers not visible in the project legend."""
+    def finish_in_main_thread(self):
+        """Project changes after a run. Call on QGIS's main thread only.
+
+        The project and its layer tree belong to the main thread; changing
+        them from the processing thread can crash QGIS later (e.g. on exit).
+        """
+        self.clear_project()
+        if self.temp_dir:
+            ServerInitializer(
+                self.extent, self.min_zoom, self.viewer, self.temp_dir
+            ).add_tiles_layer()
+
+    @staticmethod
+    def clear_project():
+        """Remove all map layers not visible in the project legend.
+
+        Call on QGIS's main thread only.
+        """
         legend_ids = {
             node.layer().id()
             for node in QgsProject.instance().layerTreeRoot().findLayers()
@@ -177,9 +199,11 @@ class QGIS2VectorTiles:
         return f"{round((perf_counter() - start) / 60, 2)}"
     
     def serve_tiles(self, temp_dir: str):
-        """Serve the generated tiles via a local HTTP server."""
+        """Serve the generated tiles via a local HTTP server (no project changes)."""
         ServerInitializer(self.extent, self.min_zoom, self.viewer, temp_dir).serve_tiles()
 
 if __name__ == "__console__":
+    QGIS2VectorTiles.clear_project()
     adapter = QGIS2VectorTiles(output_dir=QgsProcessingUtils.tempFolder())
     adapter.convert_project_to_vector_tiles()
+    adapter.finish_in_main_thread()

@@ -119,7 +119,11 @@ class RulesFlattener:
             rule_system = self._get_or_convert_rule_system(layer, rule_type)
             if not rule_system:
                 continue
-            getattr(layer, f"set{type_name.capitalize()}")(rule_system)
+            # rule_system is a converted clone; it is NOT set on the layer.
+            # Doing so changed the user's project styling and, from the
+            # processing thread, flooded the GUI with legend refreshes.
+            # Flattened rules are clones, so rule_system only needs to live
+            # for this pass.
             root_rule = self._prepare_root_rule(rule_system, layer)
             if root_rule:
                 # Reset per (layer, rule_type) pass; values must stay < 100

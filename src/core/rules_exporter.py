@@ -90,6 +90,7 @@ from dataclasses import dataclass
 from os.path import exists, join, splitext
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QMetaType, QVariant
 from processing import run as run_processing
 from qgis.core import (
@@ -479,6 +480,15 @@ class RulesExporter:
         # reference may have main-thread affinity; here we deliberately don't
         # reuse it. The newly constructed layer is owned by this thread.
         layer = QgsVectorLayer(src.source_uri, src.name, src.provider)
+        try:
+            return self._materialize_layer(src, layer, out_path)
+        finally:
+            self._dispose_layer(layer)
+
+    def _materialize_layer(
+        self, src: _SourceSnapshot, layer: QgsVectorLayer, out_path: str
+    ) -> Optional[str]:
+        """_materialize_source, once the source layer is open."""
         if not layer.isValid():
             self.feedback.pushWarning(
                 f"Cannot open source '{src.name}' "
@@ -612,6 +622,15 @@ class RulesExporter:
         """
         self._check_cancel()
         layer = QgsVectorLayer(src_path, "materialized", "ogr")
+        try:
+            self._build_base_layer_from(layer, src_path, dst_path)
+        finally:
+            self._dispose_layer(layer)
+
+    def _build_base_layer_from(
+        self, layer: QgsVectorLayer, src_path: str, dst_path: str
+    ) -> None:
+        """_build_one_base_layer, once the materialised layer is open."""
         if not layer.isValid():
             raise RuntimeError(f"Cannot open materialised source '{src_path}'")
 
@@ -802,6 +821,15 @@ class RulesExporter:
             return None
 
         layer = QgsVectorLayer(source_path, "base", "ogr")
+        try:
+            return self._export_rule_group_from(grp, layer, output_path, out_wkb)
+        finally:
+            self._dispose_layer(layer)
+
+    def _export_rule_group_from(
+        self, grp: _RuleGroupSnapshot, layer: QgsVectorLayer, output_path: str, out_wkb
+    ) -> Optional[str]:
+        """_export_one_rule_group, once the base layer is open."""
         if not layer.isValid():
             return None
         src_fields = layer.fields()
@@ -1324,6 +1352,18 @@ class RulesExporter:
                 os.remove(path)
         except OSError:
             pass
+
+    @staticmethod
+    def _dispose_layer(layer: QgsVectorLayer) -> None:
+        """Delete a worker-created layer now, in the thread that owns it.
+
+        Left to Python's garbage collector, the wrapper may be released from
+        another thread; sip then defers the deletion to this (pool) thread,
+        and Qt runs it while the thread exits, which corrupts the heap and
+        crashes QGIS.
+        """
+        if not sip.isdeleted(layer):
+            sip.delete(layer)
 
     # -------------------------------------------------------------------
     # Direct file writing (worker-safe: every object is thread-local)

@@ -81,11 +81,13 @@ Set WshShell = Nothing
         self._configure_server_placeholders(
             self.output_dir, utils_dir, dest_activator, dest_wrapper, center, python_exe
         )
-        self._save_as_local_qlr()
         self._launch_server(self.output_dir, dest_activator, dest_wrapper)
 
-    def _save_as_local_qlr(self):
-        """ Save vector tiles as ocal styled QgsVectorLayer"""
+    def add_tiles_layer(self):
+        """Add the styled vector tiles layer to the project and save it as a QLR.
+
+        Changes the project, so call it on QGIS's main thread only.
+        """
         # Create vector tiles layer
         output = join(self.output_dir, "tiles.mbtiles")
         uri = f"type=mbtiles&url={output}"
