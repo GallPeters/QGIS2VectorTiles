@@ -449,9 +449,46 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
   <div class="cl-entry featured latest">
     <div class="cl-header">
+      <div class="cl-version">v3.7</div>
+      <div class="cl-date">07 Oct 2026</div>
+      <div class="cl-badge">Latest</div>
+    </div>
+    <div class="cl-body">
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Much <strong>faster conversion</strong>: sources are clipped to the <strong>export extent</strong> and each rule is exported in a <strong>single pass</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>The conversion runs in a <strong>separate background process</strong>, so <strong>QGIS stays responsive</strong> while it runs.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Prepared layers are <strong>cached between runs</strong>, so re-running an unchanged project is faster.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Each layer is written only to its own <strong>zoom range</strong>, making tiles much <strong>smaller</strong> and faster to <strong>generate and render</strong>.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>The tool <strong>no longer changes the project's styling</strong> (categorized and graduated layers stay as they are).</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed missing labels and values for <strong>field-based data-defined properties</strong>; invalid values are exported as <strong>NULL</strong> with a single warning instead of dropping the rule.</span>
+      </div>
+      <div class="cl-item">
+        <div class="cl-item-dot"></div>
+        <span>Fixed <strong>QGIS freezes and crashes</strong> during the conversion.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cl-entry">
+    <div class="cl-header">
       <div class="cl-version">v3.6</div>
       <div class="cl-date">06 Aug 2026</div>
-      <div class="cl-badge">Latest</div>
     </div>
     <div class="cl-body">
       <div class="cl-item">
