@@ -147,7 +147,11 @@ _SERIAL_READ_PROVIDERS = frozenset(
 )
 
 # Temp files prefered to be parquet but in linux which not support parquet they are became gpkg.
-_TEMP_LAYER_FORMAT = 'sqlite'
+# FlatGeobuf, not SQLite/SpatiaLite: many threads create and read these files
+# at once, and SpatiaLite's per-connection setup isn't thread-safe (it calls
+# setlocale), which corrupted the heap. Written without a spatial index, so
+# features keep their order.
+_TEMP_LAYER_FORMAT = 'fgb'
 _TEMP_RULE_FORMAT = 'gpkg'
 
 # Features buffered per writer.addFeatures() call, and how often streaming
@@ -1423,6 +1427,9 @@ class RulesExporter:
         options.fileEncoding = "UTF-8"
         options.datasourceOptions = QgsVectorFileWriter.defaultDatasetOptions(driver)
         options.layerOptions = QgsVectorFileWriter.defaultLayerOptions(driver)
+        if driver == "FlatGeobuf":
+            # GDAL's default index reorders features; keep them in order.
+            options.layerOptions = options.layerOptions + ["SPATIAL_INDEX=NO"]
         writer = QgsVectorFileWriter.create(
             path, fields, wkb_type, crs, self._transform_context, options,
             # Exploded parts share source attributes, including any "fid".
