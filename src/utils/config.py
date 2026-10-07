@@ -40,6 +40,15 @@ _FIELD_PREFIX = 'q2vt'
 _SIMPLIFICATION=1
 _SIMPLIFICATION_MAX_ZOOM=0                   # Field name prefix
 
+# =====================================================================
+# BASE-LAYER CACHE
+# =====================================================================
+# Prepared source layers are reused between runs while their source files,
+# extent and required fields are unchanged. Set _CACHE_MAX_MB = 0 to disable.
+_CACHE_DIR_NAME = "q2vt_cache"            # Folder inside the system temp folder
+_CACHE_MAX_MB = 2048                      # Oldest entries are removed beyond this
+_CACHE_MAX_AGE_DAYS = 30                  # Entries unused for longer are removed
+
 
 # =====================================================================
 # MAPLIBRE GLYPH (SDF) GENERATION
@@ -99,6 +108,10 @@ __all__ = [
     "_FIELD_PREFIX",
     "_SIMPLIFICATION",
     "_SIMPLIFICATION_MAX_ZOOM",
+    # Base-layer cache
+    "_CACHE_DIR_NAME",
+    "_CACHE_MAX_MB",
+    "_CACHE_MAX_AGE_DAYS",
     # Glyph generation
     "_GLYPH_RANGE_SIZE",
     "_MAX_UNICODE",

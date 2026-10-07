@@ -120,6 +120,7 @@ from qgis.core import (
 from ..utils.config import _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX
 from ..utils.flattened_rule import FlattenedRule
 from ..utils.zoom_levels import ZoomLevels
+from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import DataDefinedPropertiesFetcher
 
 
@@ -167,6 +168,23 @@ _FIELD_CONSTANT, _FIELD_COPY, _FIELD_EXPRESSION = range(3)
 # Expression fragments that read attributes dynamically, so their field
 # usage can't be determined statically by referencedColumns().
 _DYNAMIC_ATTRIBUTE_TOKENS = ("@feature", "$currentfeature")
+
+
+def _lower_thread_priority() -> None:
+    """Pool-thread initializer: below-normal priority, so that when the CPU is
+    saturated QGIS's interface threads are scheduled first (Windows only)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentThread.restype = wintypes.HANDLE
+        kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+        kernel32.SetThreadPriority(kernel32.GetCurrentThread(), -1)  # BELOW_NORMAL
+    except (OSError, AttributeError):
+        pass
 
 # ============================================================================
 # Snapshots — pure-Python data, no QObject references
@@ -555,15 +573,34 @@ class RulesExporter:
         opening project sources from worker threads can deadlock — and each
         is submitted to the pool as soon as it is on disk, so the caller
         reads the next source while workers process the previous ones.
+
+        Base layers of unchanged local sources come from BaseLayerCache;
+        new ones are built under a temporary name and then committed to it.
         """
-        target_paths: Dict[str, str] = {
-            lid: join(self.utils_dir, f"map_layer_{lid}.{_TEMP_LAYER_FORMAT}")
-            for lid in sources
-        }
-        # Idempotent skip.
+        cache = BaseLayerCache(_TEMP_LAYER_FORMAT)
+        cache.prune()
+        target_paths: Dict[str, str] = {}
+        cached: Dict[str, bool] = {}
+        for lid, src in sources.items():
+            cache_path = cache.path_for(src)
+            cached[lid] = cache_path is not None
+            target_paths[lid] = cache_path or join(
+                self.utils_dir, f"map_layer_{lid}.{_TEMP_LAYER_FORMAT}"
+            )
+        # Idempotent skip; cache hits skip reading and preparing the source.
         todo = {
             lid: src for lid, src in sources.items()
-            if not exists(target_paths[lid])
+            if not (cache.hit(target_paths[lid]) if cached[lid] else exists(target_paths[lid]))
+        }
+        reused = sum(1 for lid in sources if cached[lid] and lid not in todo)
+        if reused:
+            self.feedback.pushInfo(
+                f". Reused {reused} of {len(sources)} prepared layers from the cache."
+            )
+        # Cached entries are built under a temporary name, committed when done.
+        build_paths = {
+            lid: cache.temp_path_for(target_paths[lid]) if cached[lid] else target_paths[lid]
+            for lid in todo
         }
 
         if not todo:
@@ -572,7 +609,8 @@ class RulesExporter:
         max_workers = self._compute_pool_size(len(todo))
 
         with ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="rules-base"
+            max_workers=max_workers, thread_name_prefix="rules-base",
+            initializer=_lower_thread_priority,
         ) as pool:
             futures: Dict[Future, str] = {}
             for lid, src in todo.items():
@@ -594,13 +632,15 @@ class RulesExporter:
                     continue
                 if src_path is not None:
                     futures[pool.submit(
-                        self._build_one_base_layer, src_path, target_paths[lid]
+                        self._build_one_base_layer, src_path, build_paths[lid]
                     )] = lid
 
             for fut in self._iter_completed(futures):
                 lid = futures[fut]
                 try:
                     fut.result(timeout=_PER_ALG_TIMEOUT_S)
+                    if cached[lid]:
+                        target_paths[lid] = cache.commit(build_paths[lid], target_paths[lid])
                 except _Cancelled:
                     self.feedback.pushInfo("Base-layer build cancelled.")
                     return target_paths
@@ -741,7 +781,8 @@ class RulesExporter:
         max_workers = self._compute_pool_size(len(rule_groups))
 
         with ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="rules-export"
+            max_workers=max_workers, thread_name_prefix="rules-export",
+            initializer=_lower_thread_priority,
         ) as pool:
             futures: Dict[Future, _RuleGroupSnapshot] = {}
             for grp in rule_groups:

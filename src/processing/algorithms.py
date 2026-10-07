@@ -1,6 +1,9 @@
 """QGIS Processing Algorithms for QGIS2VectorTiles plugin."""
 
-from os.path import join
+import os
+from os.path import dirname, join
+from typing import Optional
+from uuid import uuid4
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
@@ -10,10 +13,19 @@ from qgis.core import (
     QgsProcessingParameterFolderDestination,
     QgsCoordinateReferenceSystem,
     QgsProcessingParameterEnum,
+    QgsProcessingUtils,
+    QgsProject,
 )
 from qgis.utils import iface
 from ..qgis2vectortiles import QGIS2VectorTiles
+from ..core.server_initializer import ServerInitializer
 from ..utils.config import _PLUGIN_DIR, _EPSG_CRS
+from .subprocess_runner import python_executable, run_in_subprocess
+
+# The plugin package folder (…/QGIS2VectorTiles), for the worker process.
+_PACKAGE_DIR = dirname(dirname(dirname(__file__)))
+# Providers a separate process can't read (their data lives in QGIS's memory).
+_IN_PROCESS_ONLY_PROVIDERS = frozenset({"memory"})
 
 _ICON = QIcon(join(_PLUGIN_DIR, "icon.png"))
 
@@ -40,7 +52,10 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     def __init__(self):
         """Initialize the algorithm"""
         super().__init__()
-        self._runner = None
+        self._runner = None          # In-process run, finished in postProcessAlgorithm.
+        self._finish_args = None     # Separate-process run, likewise.
+        self._project_path = None    # Saved project the worker process reads.
+        self._project_is_copy = False
 
     def tr(self, string):
         """
@@ -209,7 +224,38 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     def prepareAlgorithm(self, parameters, context, feedback):
         """Runs on QGIS's main thread before processAlgorithm."""
         QGIS2VectorTiles.clear_project()
+        self._project_path = self._project_for_worker(feedback)
         return super().prepareAlgorithm(parameters, context, feedback)
+
+    def _project_for_worker(self, feedback) -> Optional[str]:
+        """A saved project the worker process can read, or None to run the
+        conversion inside QGIS (main thread only: it may save a copy)."""
+        if python_executable() is None:
+            return None
+        project = QgsProject.instance()
+        root = project.layerTreeRoot()
+        for layer in project.mapLayers().values():
+            node = root.findLayer(layer.id())
+            if (node is not None and node.isVisible()
+                    and layer.providerType() in _IN_PROCESS_ONLY_PROVIDERS):
+                feedback.pushInfo(
+                    f'. The "{layer.name()}" layer is a temporary (memory) layer; '
+                    "running inside QGIS."
+                )
+                return None
+        if project.fileName() and not project.isDirty():
+            self._project_is_copy = False
+            return project.fileName()
+        # Save the current state to a copy without changing the open project.
+        path = join(QgsProcessingUtils.tempFolder(), f"q2vt_project_{uuid4().hex}.qgz")
+        file_name, dirty = project.fileName(), project.isDirty()
+        try:
+            saved = project.write(path)
+        finally:
+            project.setFileName(file_name)
+            project.setDirty(dirty)
+        self._project_is_copy = saved
+        return path if saved else None
 
     def processAlgorithm(self, parameters, context, feedback):
         """
@@ -239,6 +285,24 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
         background_type = self.parameterAsInt(parameters, self.BACKGROUND_TYPE, context)
         viewer = self.parameterAsInt(parameters, self.VIEWER, context)
+
+        if self._project_path:
+            return self._process_in_worker(
+                feedback, extent, viewer,
+                {
+                    "min_zoom": min_zoom,
+                    "max_zoom": max_zoom,
+                    "extent": [extent.xMinimum(), extent.yMinimum(),
+                               extent.xMaximum(), extent.yMaximum()],
+                    "cpu_percent": cpu_percent,
+                    "output_dir": output_dir,
+                    "include_required_fields_only": include_required_fields_only,
+                    "cent_source": polygon_labels_base,
+                    "background_type": background_type,
+                    "viewer": viewer,
+                },
+            )
+
         try:
             # Your existing vector tile generator class would be called here
             tiles_generator = QGIS2VectorTiles(
@@ -267,13 +331,35 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         # Return empty results dictionary (modify as needed for your use case)
         return {}
 
+    def _process_in_worker(self, feedback, extent, viewer, params: dict) -> dict:
+        """Run the conversion in a separate process (see subprocess_runner)."""
+        feedback.pushInfo(". Running the conversion in a separate process...")
+        try:
+            result = run_in_subprocess(self._project_path, _PACKAGE_DIR, params, feedback)
+        finally:
+            if self._project_is_copy:
+                try:
+                    os.remove(self._project_path)
+                except OSError:
+                    pass
+        if result.get("canceled") or not result.get("temp_dir"):
+            return {}
+        # The tile server touches no project state, so it starts here.
+        ServerInitializer(extent, result["min_zoom"], viewer, result["temp_dir"]).serve_tiles()
+        self._finish_args = (extent, result["min_zoom"], viewer, result["temp_dir"])
+        feedback.pushInfo(". Vector tiles package generation completed successfully")
+        return {}
+
     def postProcessAlgorithm(self, context, feedback):
         """Runs on QGIS's main thread after processAlgorithm.
 
         Adding the tiles layer here, not in the processing thread, keeps the
         project's layer tree owned by the main thread.
         """
-        if self._runner is not None:
+        if self._finish_args is not None:
+            QGIS2VectorTiles.finish(*self._finish_args)
+            self._finish_args = None
+        elif self._runner is not None:
             self._runner.finish_in_main_thread()
             self._runner = None
         return {}

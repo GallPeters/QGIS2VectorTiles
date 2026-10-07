@@ -120,16 +120,19 @@ class QGIS2VectorTiles:
             return None
 
     def finish_in_main_thread(self):
+        """Project changes after a run. Call on QGIS's main thread only."""
+        self.finish(self.extent, self.min_zoom, self.viewer, self.temp_dir)
+
+    @classmethod
+    def finish(cls, extent, min_zoom: int, viewer: int, temp_dir: Optional[str]):
         """Project changes after a run. Call on QGIS's main thread only.
 
         The project and its layer tree belong to the main thread; changing
         them from the processing thread can crash QGIS later (e.g. on exit).
         """
-        self.clear_project()
-        if self.temp_dir:
-            ServerInitializer(
-                self.extent, self.min_zoom, self.viewer, self.temp_dir
-            ).add_tiles_layer()
+        cls.clear_project()
+        if temp_dir:
+            ServerInitializer(extent, min_zoom, viewer, temp_dir).add_tiles_layer()
 
     @staticmethod
     def clear_project():
