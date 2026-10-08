@@ -680,7 +680,9 @@ class RulesExporter:
                 build.path, out_fields, QgsWkbTypes.singleType(layer.wkbType()),
                 QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
             )
-            source_crs = layer.crs()
+            # As WKT, not the CRS object: workers must build their own (see
+            # _prepare_base_batch).
+            source_crs = layer.crs().toWkt(Qgis.CrsWktVariant.Preferred)
             batch: List[Tuple[List[Any], QgsGeometry]] = []
             for feature in layer.getFeatures(request):
                 attributes = (
@@ -712,7 +714,7 @@ class RulesExporter:
     def _prepare_base_batch(
         self,
         batch: List[Tuple[List[Any], QgsGeometry]],
-        source_crs: QgsCoordinateReferenceSystem,
+        source_crs: str,
         out_fields: QgsFields,
         orig_idx: int,
     ) -> List[Optional[List[QgsFeature]]]:
@@ -720,10 +722,17 @@ class RulesExporter:
 
         Returns, per feature that survives, its output parts; q2vt_orig_id
         is filled in by the writer, which knows the feature's position.
+
+        The CRS is rebuilt here from WKT, as each worker did when it read the
+        CRS from a materialised file: a CRS object from another thread may
+        keep this thread's PROJ objects after the thread exits, where a later
+        thread can pick them up (heap corruption). Built from WKT it comes
+        from QGIS's CRS cache, which frees them when the thread ends.
         """
         self._check_cancel()
         transform = QgsCoordinateTransform(
-            source_crs, QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
+            QgsCoordinateReferenceSystem.fromWkt(source_crs),
+            QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
             self._transform_context,
         )
         size = out_fields.count()
