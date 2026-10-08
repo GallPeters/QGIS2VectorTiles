@@ -1,1841 +1,464 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-<link rel="icon" type="image/png" sizes="16x16" href="icons/icon.png">
-<link rel="shortcut icon" href="icons/icon.ico">
-
-<title>QGIS2VectorTiles - From QGIS projects to web maps in a single run</title>
-
-<meta name="title" content="QGIS2VectorTiles - From QGIS projects to web maps in a single run">
-<meta name="description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QGIS2VectorTiles: QGIS projects to web maps in a single run</title>
+<meta name="description" content="A free QGIS plugin that turns styled QGIS projects into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer, with no server and no internet connection.">
+<link rel="canonical" href="https://gallpeters.github.io/QGIS2VectorTiles/">
+<meta name="theme-color" content="#07080a">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QGIS2VectorTiles">
-<meta property="og:locale" content="en_US">
-<meta property="og:title" content="QGIS2VectorTiles - From QGIS projects to web maps in a single run">
-<meta property="og:description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
+<meta property="og:title" content="QGIS2VectorTiles: QGIS projects to web maps in a single run">
+<meta property="og:description" content="Turn styled QGIS projects into vector tiles, a matching MapLibre style and a ready-to-use web viewer.">
 <meta property="og:url" content="https://gallpeters.github.io/QGIS2VectorTiles/">
-
-<meta property="og:image" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
-<meta property="og:image:secure_url" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
-<meta property="og:image:type" content="image/png">
+<meta property="og:image" content="https://gallpeters.github.io/QGIS2VectorTiles/og-image.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="QGIS2VectorTiles website preview">
-
+<meta property="og:image:alt" content="QGIS2VectorTiles: QGIS projects to web maps in a single run">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="QGIS2VectorTiles - From QGIS projects to web maps in a single run">
-<meta name="twitter:description" content="Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.">
-  
-<meta name="twitter:image" content="https://gallpeters.github.io/QGIS2VectorTiles/icons/icon.png">
 
-<meta name="theme-color" content="#98B023">
-
+<link rel="icon" type="image/png" href="icons/icon.png">
+<link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-
-<style>
-/* Inter (SIL Open Font License, fonts/OFL.txt), self-hosted: one variable
-   file per character set covers every weight. */
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 300 700;
-  font-display: swap;
-  src: url('fonts/inter-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 300 700;
-  font-display: swap;
-  src: url('fonts/inter-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
-/* ════════════════════════════════════════
-   DESIGN TOKENS & RESET
-════════════════════════════════════════ */
-:root {
-  --bg: #050505;
-  --bg-glow: radial-gradient(circle at 50% 0%, rgba(152, 176, 35, 0.13), transparent 60%);
-  --surface: rgba(22, 22, 25, 0.6);
-  --surface-solid: #141416;
-  --surface-hover: rgba(32, 32, 37, 0.85);
-
-  --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.16);
-
-  --accent: #98B023;
-  --accent-hover: #b4d12b;
-  --accent-faint: rgba(152, 176, 35, 0.1);
-  --accent-rgb: 152, 176, 35;
-
-  --text: #f3f4f6;
-  --text-muted: #9ca3af;
-  --text-dim: #838b96;
-
-  --font: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-
-  --header-h: clamp(50px, 8vh, 64px);
-  --max-w: 1200px;
-
-  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
-
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 30px 60px rgba(0, 0, 0, 0.55);
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden; /* Strict Fullpage Enforcement */
-  overscroll-behavior-y: none;
-  font-family: var(--font);
-  background-color: var(--bg);
-  color: var(--text);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  background-image: var(--bg-glow);
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-}
-
-a { color: inherit; text-decoration: none; transition: all var(--transition); }
-img, video, svg { display: block; max-width: 100%; }
-button { font-family: inherit; cursor: pointer; border: none; background: none; }
-::selection { background: var(--accent); color: #000; }
-
-/* Utility */
-.container {
-  width: 100%;
-  max-width: var(--max-w);
-  margin: 0 auto;
-  padding: 0 clamp(16px, 4vw, 40px);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-@media (max-width: 768px) {
-  .container {
-    width: 95%;
-  }
-}
-
-.text-gradient {
-  margin-top: clamp(12px, 2vh, 16px);
-  font-size: clamp(15px, 2.2vh + 0.5vw, 18px);
-  color: var(--text-muted);
-  line-height: 1.5;
-  max-width: 580px;
-  margin-left: auto;
-  margin-right: auto;
-}
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: clamp(11px, 1.6vh, 13px);
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: var(--accent-faint);
-  border: 1px solid rgba(var(--accent-rgb), 0.22);
-  padding: clamp(4px, 0.8vh, 6px) clamp(10px, 1.2vw, 14px);
-  border-radius: 100px;
-}
-
-/* ════════════════════════════════════════
-   FULLPAGE CONTROLLER
-════════════════════════════════════════ */
-#fullpage-wrapper {
-  width: 100%;
-  height: 100%;
-  transition: transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); /* = SNAP_MS in the script */
-  will-change: transform;
-}
-
-/* While a section slides, skip the blur effects (they are recomputed every
-   frame) and pause the hero animation whenever the hero is off screen. */
-.fp-snapping .header {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: rgba(5, 5, 5, 0.92);
-}
-.fp-snapping .hero-anim-labels,
-.fp-snapping .play-btn {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.fp-away-hero .hero-anim-img.top-img,
-.fp-away-hero .hero-slider-line,
-.fp-away-hero .web-status,
-.fp-away-hero .qgis-status { animation-play-state: paused; }
-
-.section {
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
-  position: relative;
-  overflow: hidden; /* Strict containment */
-  /* Added significant vertical breathing room symmetrically */
-  padding-top: calc(var(--header-h) + clamp(38px, 6.5vh, 76px));
-  padding-bottom: clamp(38px, 6.5vh, 76px);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Hero section shouldn't use the massive padding to stay perfectly centered */
-#top.section {
-  padding-top: var(--header-h);
-  padding-bottom: 0;
-}
-
-/* Desktop vs. Mobile dedicated section sets.
-   Mobile-only sections are removed from flow on desktop, and vice-versa,
-   so the snap-scroller only ever counts the sections relevant to the
-   current breakpoint. Flipped definitively inside the 768px media query. */
-.mobile-only-section { display: none; }
-
-/* Vertical Side Nav */
-.fp-nav {
-  position: fixed;
-  right: clamp(10px, 2vw, 24px);
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  z-index: 90;
-}
-.fp-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--border-hover);
-  cursor: pointer;
-  transition: var(--transition);
-}
-.fp-dot:hover { background: var(--text-muted); transform: scale(1.2); }
-.fp-dot.active { background: var(--accent); transform: scale(1.3); }
-
-@media (max-width: 600px) {
-  .fp-dot {
-    width: 8px;
-    height: 8px;
-  }
-}
-
-/* ════════════════════════════════════════
-   HEADER (Glassmorphism)
-════════════════════════════════════════ */
-.header {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: var(--header-h);
-  z-index: 100;
-  background: rgba(5, 5, 5, 0.72);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-.header .container {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.nav-left, .nav-right { display: flex; align-items: center; gap: clamp(4px, 1vw, 8px); }
-
-.nav-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: clamp(4px, 0.5vw, 8px);
-  font-size: clamp(12px, 1.5vh, 14px);
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--text-muted);
-  padding: clamp(6px, 1vh, 8px) clamp(10px, 1vw, 14px);
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-}
-.nav-btn:hover { color: var(--text); background: var(--surface); }
-.nav-btn.cta {
-  background: var(--accent);
-  color: #000;
-  font-weight: 600;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 4px 14px rgba(var(--accent-rgb), 0.25);
-}
-.nav-btn.cta:hover { background: var(--accent-hover); color: #000; box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 6px 18px rgba(var(--accent-rgb), 0.35); transform: translateY(-1px); }
-.nav-btn.active {
-  color: var(--text);
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-}
-.nav-btn.active svg { color: var(--accent); }
-.nav-btn svg { width: clamp(14px, 2vh, 16px); height: clamp(14px, 2vh, 16px); }
-
-.rate-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: clamp(12.5px, 1.4vh, 13px);
-  color: var(--text-dim);
-  font-weight: 400;
-  white-space: nowrap;
-  padding-right: 8px;
-}
-.rate-text strong { color: var(--accent); font-weight: 600; }
-.header-links { display: flex; align-items: center; gap: 2px; }
-.icon-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: clamp(28px, 4vh, 36px); 
-  height: clamp(28px, 4vh, 36px);
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-}
-.icon-link:hover { color: var(--accent); background: var(--surface); }
-.icon-link svg { width: clamp(16px, 2.5vh, 18px); height: clamp(16px, 2.5vh, 18px); }
-
-/* ════════════════════════════════════════
-   SECTION 1: HERO
-════════════════════════════════════════ */
-.hero-content {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: clamp(24px, 4vw, 60px);
-  align-items: center; /* Balancing left and right column height */
-  height: 100%;
-}
-
-.hero-text {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-  align-items: center;
-  height: 100%;
-}
-.page-icon {
-  width: clamp(48px, 24vh, 64px);
-  height: clamp(48px, 24vh, 64px);
-  margin: 0 auto clamp(16px, 3vh, 24px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.page-icon img { width: 100%; height: 100%; }
-.hero-text .title {
-  font-size: clamp(32px, 6vh + 2vw, 64px);
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-  margin-bottom: clamp(12px, 2.5vh, 24px);
-}
-.hero-text .title span { color: var(--accent); }
-.hero-text .desc {
-  font-size: clamp(15px, 2.2vh + 0.5vw, 20px);
-  color: var(--text-muted);
-  max-width: 600px;
-  line-height: 1.5;
-  margin-bottom: clamp(16px, 4vh, 32px);
-}
-.hero-features {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: clamp(8px, 1.5vh, 12px);
-}
-.feature-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: clamp(6px, 1vw, 8px);
-  font-size: clamp(12px, 1.8vh, 14px);
-  font-weight: 500;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: clamp(6px, 1vh, 8px) clamp(12px, 1.5vw, 16px);
-  border-radius: 100px;
-  transition: var(--transition);
-}
-.feature-chip:hover { border-color: var(--border-hover); background: var(--surface-hover); transform: translateY(-1px); }
-.feature-chip svg { width: clamp(14px, 2vh, 16px); height: clamp(14px, 2vh, 16px); color: var(--accent); }
-
-.hero-visual {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16/10;
-  max-height: 55vh;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  background: var(--surface-solid);
-}
-
-.hero-anim-img {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  object-fit: cover;
-}
-.hero-anim-img.top-img {
-  z-index: 2;
-  clip-path: inset(0 100% 0 0);
-  animation: revealWeb 8s infinite alternate ease-in-out;
-}
-.hero-slider-line {
-  position: absolute;
-  top: 0; bottom: 0; width: 2px;
-  background: var(--accent);
-  z-index: 5;
-  animation: moveLine 8s infinite alternate ease-in-out;
-}
-.hero-slider-line::after {
-  content: '◂▸';
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  background: #000;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 4px 8px;
-  font-size: clamp(9px, 1.5vh, 11px);
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-.hero-anim-labels {
-  position: absolute;
-  bottom: clamp(10px, 2vh, 20px); left: 50%;
-  transform: translateX(-50%);
-  display: flex; gap: 8px;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
-  padding: clamp(4px, 1vh, 8px);
-  border-radius: 100px;
-  border: 1px solid var(--border);
-  z-index: 10;
-
-}
-.anim-status-label {
-  padding: clamp(4px, 1vh, 6px) clamp(10px, 1.5vw, 14px);
-  white-space: nowrap;
-  border-radius: 100px;
-  font-size: clamp(9px, 1.5vh, 11px);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
-.web-status { animation: highlightWeb 8s infinite alternate ease-in-out; }
-.qgis-status { animation: highlightQgis 8s infinite alternate ease-in-out; }
-
-@keyframes revealWeb { 0%, 15% { clip-path: inset(0 100% 0 0); } 85%, 100% { clip-path: inset(0 0% 0 0); } }
-@keyframes moveLine { 0%, 15% { left: 0%; opacity: 0; } 10%, 90% { opacity: 1; } 85%, 100% { left: 100%; opacity: 0; } }
-@keyframes highlightQgis { 0%, 35% { background: var(--surface); color: #fff; border-color: var(--border); } 65%, 100% { background: transparent; color: var(--text-dim); border-color: transparent; } }
-@keyframes highlightWeb { 0%, 35% { background: transparent; color: var(--text-dim); border-color: transparent; } 65%, 100% { background: var(--accent); color: #000; border-color: var(--accent); } }
-
-/* ════════════════════════════════════════
-   SECTION 2: PIPELINE (STRICT CONTAINMENT)
-════════════════════════════════════════ */
-.pipeline-section {
-  background: linear-gradient(180deg, transparent, rgba(20,20,22,0.3) 100%);
-}
-.section-header {
-  margin-bottom: clamp(16px, 3vh, 32px);
-  flex-shrink: 0; /* Never shrink the header */
-  text-align: center;
-}
-.section-header .h2 { 
-  font-size: clamp(26px, 4.5vh, 40px); 
-  font-weight: 600; 
-  margin: clamp(8px, 1.5vh, 12px) 0; 
-}
-.section-header p { 
-  color: var(--text-muted); 
-  font-size: clamp(15px, 2.2vh, 18px); 
-  max-width: 700px;
-  margin: 0 auto;
-  line-height: 1.5;
-}
-
-/* Priority Layout for Workflow & Output */
-.pipeline-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr; /* Strict Left and Right */
-  gap: clamp(16px, 3vw, 40px);
-  width: 100%;
-  flex: 1; /* Consume exact remaining height */
-  min-height: 0; /* Prevent flex blowout */
-  align-items: stretch; /* Force equal vertical height */
-}
-.pipeline-col {
-  display: flex;
-  flex-direction: column;
-  justify-content: stretch;
-  height: 100%;
-  min-height: 0;
-}
-
-.col-header {
-  font-size: clamp(14px, 2vh, 18px);
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: clamp(12px, 2vh, 16px);
-  padding-bottom: clamp(6px, 1vh, 8px);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  line-height: 1.2;
-  flex-shrink: 0;
-}
-.col-header svg {
-  width: clamp(16px, 2.2vh, 20px);
-  height: clamp(16px, 2.2vh, 20px);
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-/* Workflow Container */
-.wf-container {
-  display: flex; 
-  flex-direction: column; 
-  height: 100%;
-  gap: clamp(4px, 1vh, 12px);
-  min-height: 0;
-}
-.wf-node {
-  flex: 1; /* Distribute nodes equally vertically */
-  min-height: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: clamp(4px, 1vh, 12px) clamp(10px, 1.5vw, 16px);
-  display: flex;
-  align-items: center;
-  gap: clamp(8px, 1.5vw, 16px);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.wf-node { position: relative; }
-
-.wf-node:not(.master)::before {
-  content: '';
-  position: absolute;
-  top: -7px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-top: 6px solid var(--accent);
-  z-index: 3;
-}
-
-.wf-node:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-hover);
-  transform: translateX(4px);
-  box-shadow: var(--shadow-sm);
-}
-.wf-node.master { border-color: rgba(var(--accent-rgb), 0.4); background: var(--accent-faint); }
-.wf-node.master:hover { border-color: var(--accent-hover); }
-
-.wf-badge {
-  font-size: clamp(9px, 1.4vh, 11px); 
-  font-weight: 700; 
-  text-transform: uppercase;
-  background: var(--accent); color: #000;
-  padding: 4px 8px; border-radius: 4px; letter-spacing: 0.1em;
-}
-.wf-step {
-  font-family: var(--font-mono); 
-  font-size: clamp(11px, 1.6vh, 13px); 
-  font-weight: 600;
-  color: var(--accent); background: var(--surface-solid);
-  border: 1px solid var(--border);
-  width: clamp(24px, 3.5vh, 32px); 
-  height: clamp(24px, 3.5vh, 32px); 
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.wf-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-.wf-title { font-size: clamp(14px, 2.2vh, 16px); font-weight: 600; color: var(--text); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wf-desc { font-size: clamp(13px, 1.8vh, 15px); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* Output Container */
-.out-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  min-height: 0;
-  box-shadow: var(--shadow-sm);
-}
-.out-row {
-  flex: 1; /* Distribute rows equally vertically */
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  gap: clamp(10px, 1.5vw, 16px);
-  padding: clamp(4px, 1vh, 12px) clamp(12px, 2vw, 20px);
-  border-bottom: 1px solid var(--border);
-  transition: var(--transition);
-}
-.out-row:last-child { border-bottom: none; }
-.out-row:hover { background: var(--surface-hover); }
-
-.out-num { font-size: clamp(11px, 1.6vh, 13px); font-weight: 600; color: var(--text-dim); font-family: var(--font-mono); }
-.out-icon {
-  width: clamp(28px, 4vh, 36px); 
-  height: clamp(28px, 4vh, 36px);
-  background: rgba(152, 176, 35, 0.1);
-  color: var(--accent);
-  border: 1px solid rgba(152, 176, 35, 0.2);
-  border-radius: var(--radius-sm);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.out-icon svg { width: clamp(14px, 2vh, 18px); height: clamp(14px, 2vh, 18px); }
-.out-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-.out-name { font-size: clamp(14px, 2.2vh, 16px); font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.out-ext { font-size: clamp(12px, 1.8vh, 14px); color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-
-/* ════════════════════════════════════════
-   SECTION 3: DEMOS (STRICT CONTAINMENT)
-════════════════════════════════════════ */
-.demos-section .section-header { text-align: center; }
-
-.demos-grid {
-  display: flex;
-  flex-direction: row;
-  flex: 1;
-  min-height: 0;
-  gap: clamp(16px, 2vw, 24px);
-}
-.demo-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  cursor: pointer;
-  transition: var(--transition);
-  display: flex;
-}
-.demo-card:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-hover);
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-md);
-}
-.demo-card:hover .play-btn { background: var(--accent); color: #000; transform: translate(-50%, -50%) scale(1.1); }
-.demo-thumb {
-  position: relative;
-  background: #000;
-  overflow: hidden;
-}
-.demo-thumb video {
-  width: 100%; height: 100%; object-fit: cover;
-  pointer-events: none; opacity: 0.8; transition: var(--transition);
-}
-.demo-card:hover .demo-thumb video { opacity: 1; }
-.play-btn {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: clamp(36px, 6vh, 48px); height: clamp(36px, 6vh, 48px);
-  background: rgba(0,0,0,0.6); color: #fff;
-  border-radius: 50%; backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
-  transition: var(--transition);
-}
-.play-btn svg { width: clamp(16px, 3vh, 24px); height: clamp(16px, 3vh, 24px); fill: currentColor; margin-left: 2px; }
-
-/* Large Video */
-.demo-large { flex: 1.2; flex-direction: column; min-height: 0; }
-.demo-large .demo-thumb { flex: 1; min-height: 0; width: 100%; }
-.demo-large .demo-info { flex-shrink: 0; padding: clamp(16px, 2.5vh, 24px); }
-.demo-large .demo-title { font-size: clamp(18px, 2.5vh, 22px); font-weight: 600; margin-bottom: clamp(6px, 1vh, 10px); }
-.demo-large .demo-desc { font-size: clamp(14px, 2vh, 16px); line-height: 1.5; color: var(--text-muted); display: -webkit-box; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
-/* Small Videos */
-.demo-list { flex: 1; display: flex; flex-direction: column; gap: clamp(8px, 1.5vh, 16px); min-height: 0; }
-.demo-small { flex: 1; flex-direction: row; align-items: stretch; min-height: 0; }
-.demo-small .demo-thumb { width: 35%; flex-shrink: 0; }
-.demo-small .play-btn { width: clamp(28px, 4vh, 36px); height: clamp(28px, 4vh, 36px); }
-.demo-small .play-btn svg { width: clamp(12px, 2vh, 16px); height: clamp(12px, 2vh, 16px); }
-.demo-small .demo-info { flex: 1; padding: clamp(10px, 1.5vh, 16px); display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-.demo-small .demo-title { font-size: clamp(15px, 2.2vh, 17px); font-weight: 600; margin-bottom: clamp(4px, 0.8vh, 6px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.demo-small .demo-desc { font-size: clamp(13px, 1.8vh, 15px); line-height: 1.4; color: var(--text-muted); display: -webkit-box; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
-/* ════════════════════════════════════════
-   SECTION 4: USE CASES & FOOTER
-════════════════════════════════════════ */
-.use-cases-section { border-top: 1px solid var(--border); }
-.use-cases-section .section-header { text-align: center; }
-
-.uc-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.uc-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: clamp(16px, 2vw, 32px);
-  flex: 1;
-  min-height: 0;
-}
-.divider-v {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-  flex-shrink: 0;
-  margin-right: 4px;
-}
-.uc-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: clamp(20px, 3vh, 32px);
-  display: flex;
-  flex-direction: column;
-  gap: clamp(12px, 2vh, 20px);
-  transition: var(--transition);
-  min-height: 0;
-}
-.uc-card:hover { border-color: var(--border-hover); background: var(--surface-hover); transform: translateY(-3px); box-shadow: var(--shadow-md); }
-.uc-num { font-size: clamp(12px, 2vh, 14px); font-weight: 700; color: var(--accent); font-family: var(--font-mono); flex-shrink: 0;}
-.uc-title { font-size: clamp(18px, 2.5vh, 24px); font-weight: 600; flex-shrink: 0;}
-.uc-desc { 
-  font-size: clamp(14px, 2vh, 16px); 
-  color: var(--text-muted); 
-  line-height: 1.5;
-  flex: 1; 
-  text-align: left;
-  min-height: 0;
-  overflow: hidden; 
-  display: -webkit-box;
-  line-clamp: 2; 
-  -webkit-line-clamp: 5; 
-  -webkit-box-orient: vertical; 
-}
-
-.uc-platforms {
-  display: grid;
-  grid-template-columns: repeat(4, max-content);
-  justify-content: center;
-  gap: clamp(8px, 1.5vh, 12px);
-  align-items: center;
-  align-content: center;
-}
-
-.uc-footnote {
-  flex-shrink: 0;
-  margin-top: auto; /* Aligns all footnotes identically at the bottom */
-  font-size: clamp(11px, 1.5vh, 12px);
-  line-height: 1.5;
-  color: var(--text-dim);
-  min-height: 18px;
-}
-.uc-footnote a {
-  color: var(--text-muted);
-  text-decoration: underline;
-  text-decoration-color: rgba(255,255,255,0.25);
-  text-underline-offset: 2px;
-}
-.uc-footnote a:hover { color: var(--accent); text-decoration-color: var(--accent); }
-.plat-btn {
-  display: flex; 
-  flex-direction: column; 
-  align-items: center; 
-  justify-content: center;
-  gap: clamp(8px, 1.3vh, 12px);
-  background: var(--surface-solid); 
-  border: 1px solid var(--border);
-  padding: clamp(16px, 2.6vh, 24px) clamp(10px, 1.2vw, 14px); 
-  border-radius: var(--radius-md);
-  font-size: clamp(12px, 1.8vh, 14px); 
-  font-weight: 500; 
-  color: var(--text);
-  transition: var(--transition); 
-  width: 100%;
-  text-align: center;
-}
-.plat-btn:hover { border-color: var(--accent); color: #fff; background: rgba(255,255,255,0.05); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(var(--accent-rgb), 0.15); }
-.plat-icon { 
-  width: clamp(32px, 5.2vh, 48px); 
-  height: clamp(32px, 5.2vh, 48px); 
-  background: #fff; 
-  border-radius: 10px; 
-  padding: 5px; 
-  flex-shrink: 0;
-}
-.plat-icon.dark { background: transparent; color: var(--accent); padding: 0; }
-.plat-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-
-/* Page Footer styling borrowed directly from changelog.html */
-.page-foot {
-  margin-top: clamp(20px, 4vh, 32px);
-  padding-top: clamp(16px, 3vh, 24px);
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: clamp(12px, 1.8vh, 14px);
-  color: var(--text-dim);
-  flex-wrap: wrap;
-  width: 100%;
-}
-.page-foot a { color: var(--text-muted); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;}
-.page-foot a:hover { color: var(--accent); text-decoration-color: var(--accent); }
-
-/* ════════════════════════════════════════
-   MODALS
-════════════════════════════════════════ */
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
-  opacity: 0; pointer-events: none; transition: var(--transition);
-}
-.modal-overlay.open { opacity: 1; pointer-events: auto; }
-.modal-content {
-  background: var(--surface-solid);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  width: 100%; max-width: 600px; max-height: 90vh;
-  transform: translateY(20px); transition: var(--transition);
-  display: flex; flex-direction: column;
-  box-shadow: var(--shadow-lg);
-}
-.modal-overlay.open .modal-content { transform: translateY(0); }
-.modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
-.modal-title { font-size: 18px; font-weight: 600; font-family: var(--font-mono); }
-.modal-close { color: var(--text-muted); padding: 4px; border-radius: 4px; }
-.modal-close:hover { background: var(--surface); color: #fff; }
-.modal-body { padding: 24px; overflow-y: auto; flex: 1; }
-.modal-bullets { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-.modal-bullets li { position: relative; padding-left: 20px; font-size: 15px; color: var(--text-muted); }
-.modal-bullets li::before { content: ''; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
-.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; flex-shrink: 0; }
-.btn-primary { background: var(--accent); color: #000; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 600; font-size: 14px; }
-.btn-primary:hover { background: var(--accent); }
-
-/* Video Modal */
-.vid-content { max-width: 900px; padding: 0; background: #000; border-radius: var(--radius-md); overflow: hidden; position: relative; }
-.vid-wrapper { width: 100%; aspect-ratio: 16/9; background: #000; }
-.vid-wrapper video { width: 100%; height: 100%; object-fit: contain; }
-.vid-close-btn { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; z-index: 10; }
-.vid-close-btn:hover { background: var(--accent); color: #000; }
-
-/* ════════════════════════════════════════
-   RESPONSIVE OVERRIDES
-════════════════════════════════════════ */
-@media (max-width: 900px) {
-  .hero-content { grid-template-columns: 1fr; gap: 2vh; }
-  .hero-text { text-align: center; align-items: center; }
-  .hero-features { justify-content: center; }
-  .hero-visual { max-width: 80%; margin: 0 auto; max-height: 35vh; }
-}
-
-@media (max-width: 768px) {
-  .hero-text .page-icon,
-  .hero-text .title {
-    position: relative;
-    top: 25px; /* Increase or decrease this number to match the changelog perfectly */
-  }
-}
-
-@media (max-width: 768px) {
-
-  .hero-text .title {
-  font-size: clamp(28px, 10vw, 44px);
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-  .rate-text { display: none; }
-  .divider-v { display: none; }
-  .nav-btn .label { display: none; }
-  .nav-btn.cta .label { display: inline; }
-  .hero-visual { max-width: 100%; max-height: 30vh; }
-  .fp-nav { right: 8px; }
-
-  /* ─────────────────────────────────────
-     Swap desktop combined sections for the
-     dedicated mobile section set.
-  ───────────────────────────────────── */
-  .desktop-only-section { display: none; }
-  .mobile-only-section { display: flex; }
-
-  /* Strip descriptions inside the (now hidden) desktop two-column
-     pipeline grid so it never causes layout issues mid-transition. */
-  .pipeline-grid .wf-desc, .pipeline-grid .out-ext { display: none; }
-
-  /* ── Mobile Pipeline Sections (Execution Pipeline / Output Package) ── */
-  .mobile-pipeline-figure { flex: 1; min-height: 0; width: 100%; }
-  .pipeline-mobile-section .wf-title,
-  .pipeline-mobile-section .out-name { font-size: clamp(15px, 2.4vh, 18px); white-space: normal; }
-  .pipeline-mobile-section .wf-desc { display: none; }
-  .pipeline-mobile-section .out-ext { display: block; font-size: clamp(12px, 1.8vh, 14px); }
-  .pipeline-mobile-section .wf-node,
-  .pipeline-mobile-section .out-row { padding-left: clamp(14px, 4vw, 20px); padding-right: clamp(14px, 4vw, 20px); }
-  .pipeline-mobile-section .wf-step, 
-  .pipeline-mobile-section .out-icon { flex-shrink: 0; }
-
-  /* ── Mobile Demos: featured video on top, three secondary in a row ── */
-  .demos-grid { flex-direction: column; gap: clamp(14px, 2.2vh, 22px); }
-  .demo-large { flex: 1.6; min-height: 0; }
-  .demo-large .demo-thumb { flex: 1; min-height: 0; }
-  .demo-large .demo-info { padding: clamp(12px, 2vh, 18px) clamp(14px, 4vw, 20px); }
-  .demo-large .demo-title { font-size: clamp(17px, 2.6vh, 20px); }
-  .demo-large .demo-desc { -webkit-line-clamp: 2; line-clamp: 2; }
-  .demo-list { flex: 1; flex-direction: row; gap: clamp(8px, 2vw, 14px); min-height: 0; }
-  .demo-small { flex: 1; flex-direction: column; min-height: 0; }
-  .demo-small .demo-thumb { width: 100%; flex: 1; min-height: 0; }
-  .demo-small .demo-info { flex: 0 0 auto; padding: clamp(8px, 1.4vh, 12px) clamp(4px, 1vw, 6px); text-align: center; }
-  .demo-small .demo-title { font-size: clamp(12px, 1.8vh, 14px); font-weight: 600; white-space: normal; margin-bottom: 0; }
-  .demo-small .demo-desc { display: none; }
-  .demo-small .play-btn { width: clamp(28px, 4.2vh, 34px); height: clamp(28px, 4.2vh, 34px); }
-  .demo-small .play-btn svg { width: clamp(11px, 1.7vh, 14px); height: clamp(11px, 1.7vh, 14px); }
-
-  /* ── Mobile Use Cases: each application is its own full screen ── */
-  .uc-mobile-content {display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  
-  .page-foot { flex-direction: column; text-align: center; gap: 10px; }
-
-  .mobile-showcase {
-    flex: none;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: clamp(18px, 3vh, 28px);
-  }
-  .mobile-showcase .uc-desc {
-    flex: none;
-    overflow: visible;
-    display: block;
-    line-clamp: 2;
-    -webkit-line-clamp: unset;
-    text-align: center;
-    font-size: clamp(15px, 2.3vh, 17px);
-    line-height: 1.55;
-    max-width: 460px;
-  }
-  .mobile-showcase .uc-platforms { grid-template-columns: repeat(2, max-content); margin-top: 0; width: 100%; }
-  .mobile-showcase .plat-icon { width: clamp(32px, 5.2vh, 48px); height: clamp(32px, 5.2vh, 48px); }
-  .mobile-showcase .plat-btn { padding: clamp(14px, 2.2vh, 20px) clamp(10px, 3vw, 16px); font-size: clamp(13px, 1.9vh, 15px); }
-  .mobile-showcase .uc-footnote { text-align: center; margin-top: auto; }
-}
-</style>
+<link rel="stylesheet" href="assets/site.css">
+<script>document.documentElement.classList.add('js');</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "QGIS2VectorTiles",
+  "description": "QGIS plugin that packs a QGIS project into vector tiles with a matching web style and a ready-to-use web viewer.",
+  "applicationCategory": "DesignApplication",
+  "operatingSystem": "Windows, macOS, Linux (QGIS 3.44 or later)",
+  "license": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html",
+  "downloadUrl": "https://plugins.qgis.org/plugins/QGIS2VectorTiles/",
+  "codeRepository": "https://github.com/GallPeters/QGIS2VectorTiles",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 </head>
 <body>
 
-<header class="header">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.53.85l12-7.5a1 1 0 0 0 0-1.7l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></symbol>
+  <symbol id="i-mastodon" viewBox="0 0 24 24" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></symbol>
+  <symbol id="i-qgis" viewBox="0 0 26 26" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+  <symbol id="i-feather" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></symbol>
+  <symbol id="i-type" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
+  <symbol id="i-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
+</svg>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
   <div class="container">
-    <nav class="nav-left">
-      <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="nav-btn cta">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span class="label">Download</span>
-      </a>
-      <a href="changelog.html" class="nav-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <span class="label">Changelog</span>
-      </a>
-      <a href="compatibility.html" class="nav-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
-        <span class="label">Styling Guide</span>
-      </a>
+    <a class="brand" href="./" aria-label="QGIS2VectorTiles home">
+      <img src="icons/logo.webp" alt="" width="30" height="30">
+      <span class="brand-name"><span>QGIS2</span>VectorTiles</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#demos">Demos</a>
+      <a href="#use-cases">Use cases</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="compatibility.html">Styling guide</a>
     </nav>
-    <div class="nav-right">
-      <span class="rate-text">Enjoying the plugin? <strong>Rate it</strong></span>
-      <span class="divider-v"></span>
-      <div class="header-links">
-        <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="QGIS Plugin Repository" title="QGIS Plugin Repository">
-          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M12.879 13.006v3.65l-3.004-3.048v-3.495h3.582l2.852 2.893h-3.43zm10.886 7.606V24h-3.654l-5.73-5.9v-3.55h3.354l6.03 6.062zm-10.828-1.448l3.372 3.371c-1.309.442-2.557.726-4.325.726C5.136 23.26 0 18.243 0 11.565 0 4.92 5.136 0 11.984 0 18.864 0 24 4.952 24 11.565c0 2.12-.523 4.076-1.457 5.759l-3.625-3.725a8.393 8.393 0 0 0 .24-2.005c0-4.291-3.148-7.527-7.1-7.527-3.954 0-7.248 3.236-7.248 7.527s3.33 7.6 7.247 7.6c.548 0 .661.017.88-.03z"/></svg>
-        </a>
-        <a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank" class="icon-link" aria-label="GitHub" title="GitHub">
-          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
-        </a>
-        <a href="https://mastodon.social/@JossefKanter" target="_blank" rel="me" class="icon-link" aria-label="Mastodon" title="Mastodon">
-          <svg viewBox="0 0 26 26" fill="currentColor"><path d="M23.193 7.879c0-5.207-3.411-6.733-3.411-6.733C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.146 0 0-3.412 1.526-3.412 6.733 0 1.193-.023 2.619.015 4.13.124 5.092.934 10.11 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.151 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.13.539c-2.165-.074-4.449-.233-4.799-2.891a5.5 5.5 0 0 1-.048-.745s2.125.52 4.82.643c1.65.075 3.196-.097 4.766-.283 3.009-.36 5.629-2.215 5.958-3.911.518-2.673.475-6.524.475-6.524zm-4.024 6.709h-2.497V8.469c0-1.29-.541-1.944-1.628-1.944-1.2 0-1.802.778-1.802 2.316v3.357h-2.484V8.841c0-1.538-.601-2.316-1.802-2.316-1.087 0-1.628.654-1.628 1.944v6.119H4.832V8.279c0-1.286.328-2.309.987-3.063.68-.755 1.57-1.142 2.674-1.142 1.276 0 2.243.491 2.886 1.474l.622 1.044.624-1.044c.643-.983 1.61-1.474 2.886-1.474 1.103 0 1.994.387 2.674 1.142.658.755.986 1.777.986 3.063z"/></svg>
-        </a>
-      </div>
+    <div class="header-actions">
+      <a class="icon-btn" href="https://github.com/GallPeters/QGIS2VectorTiles" aria-label="GitHub repository"><svg><use href="#i-github"/></svg></a>
+      <a class="icon-btn" href="https://mastodon.social/@JossefKanter" rel="me" aria-label="Mastodon"><svg><use href="#i-mastodon"/></svg></a>
+      <a class="btn btn-primary btn-sm" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download</a>
     </div>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu"><span></span></button>
   </div>
+  <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile">
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#demos">Demos</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="changelog.html">Changelog</a>
+    <a href="compatibility.html">Styling guide</a>
+    <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
+    <div class="mobile-icons">
+      <a class="icon-btn" href="https://github.com/GallPeters/QGIS2VectorTiles" aria-label="GitHub repository"><svg><use href="#i-github"/></svg></a>
+      <a class="icon-btn" href="https://mastodon.social/@JossefKanter" rel="me" aria-label="Mastodon"><svg><use href="#i-mastodon"/></svg></a>
+    </div>
+  </nav>
 </header>
 
-<div class="fp-nav" id="fpNav"></div>
+<main id="main">
 
-<div id="fullpage-wrapper">
+  <!-- Hero ------------------------------------------------------------- -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <a class="pill" href="changelog.html" data-reveal><b>v3.7</b>Much faster conversion<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
+        <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
+        <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No server, no internet connection, nothing else to install.</p>
+        <div class="hero-actions" data-reveal style="--d:3">
+          <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
+          <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
+        </div>
+        <ul class="hero-meta" data-reveal style="--d:4">
+          <li><svg><use href="#i-check"/></svg>Free &amp; open source</li>
+          <li><svg><use href="#i-check"/></svg>QGIS 3.44 – 4.x</li>
+          <li><svg><use href="#i-check"/></svg>Works offline</li>
+        </ul>
+      </div>
 
-  <section class="section" id="top" data-group="hero">
+      <figure class="window" data-reveal style="--d:2">
+        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>Same project, two places</span></div>
+        <div class="compare">
+          <img src="screenshots/qgis_screenshot.webp" alt="The project styled in QGIS Desktop" width="1315" height="1089" fetchpriority="high">
+          <img class="compare-after" src="screenshots/web_screenshot.webp" alt="The same project rendered as vector tiles in a web browser" width="1372" height="1126" fetchpriority="high">
+          <input class="compare-range" type="range" min="0" max="100" step="0.5" value="50" aria-label="Drag to compare QGIS Desktop and the web map">
+          <div class="compare-handle" aria-hidden="true"></div>
+          <span class="compare-label left" aria-hidden="true">QGIS Desktop</span>
+          <span class="compare-label right" aria-hidden="true">Web browser</span>
+        </div>
+        <figcaption class="visually-hidden">Drag the slider to compare the project in QGIS Desktop with the generated web map.</figcaption>
+      </figure>
+    </div>
+
+    <div class="container works-with" data-reveal>
+      <p>Output works with</p>
+      <ul>
+        <li><img src="icons/maplibre.png" alt="" width="26" height="26" loading="lazy">MapLibre</li>
+        <li><img src="icons/openlayers.png" alt="" width="26" height="26" loading="lazy">OpenLayers</li>
+        <li><img src="icons/mapbox.png" alt="" width="26" height="26" loading="lazy">Mapbox</li>
+        <li><img src="icons/maptiler.png" alt="" width="26" height="26" loading="lazy">MapTiler</li>
+        <li><img src="icons/geoserver.png" alt="" width="26" height="26" loading="lazy">GeoServer</li>
+        <li><img src="icons/qgis.png" alt="" width="26" height="26" loading="lazy">QGIS</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Features --------------------------------------------------------- -->
+  <section class="section" id="features" aria-labelledby="features-title">
     <div class="container">
-      <div class="hero-content">
-        <div class="hero-text">
-          <div class="page-icon">
-            <img src="icons/logo.webp" alt="qgis2vectortiles">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow">Features</p>
+        <h2 class="h2" id="features-title">Your QGIS styling, carried all the way to the browser.</h2>
+        <p class="lead">Design in the tool you know. QGIS2VectorTiles takes care of tiling, styling and packaging, and keeps what you see in QGIS on the web.</p>
+      </div>
+
+      <div class="features">
+        <article class="feature wide has-art" data-reveal>
+          <div class="feature-art" aria-hidden="true"><div class="tile-art"></div></div>
+          <div class="feature-body">
+            <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
+            <h3 class="h3">Large datasets</h3>
+            <p>Sources are clipped to your extent, read once, cached between runs and processed in parallel, so big projects stay fast.</p>
           </div>
-          <h1 class="title"><span>QGIS2</span>VectorTiles</h1>
-          <p class="desc text-gradient">
-          From QGIS projects to web maps in a single run
-          </p>
-          <div class="hero-features">
-            <span class="feature-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-            Large Datasets
-            </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-          Complex Styling
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          Data-Style Coupling
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-          Familiar GUI
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="15"></line></svg>
-          Compact Output
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          Client Render
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          No Dependencies
-        </span>
-        <span class="feature-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-          Open Standard
-        </span>
-          
+        </article>
+        <article class="feature" data-reveal style="--d:1">
+          <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
+          <h3 class="h3">Complex styling</h3>
+          <p>Rule-based, categorized and graduated renderers, labels and geometry generators become clean, tile-ready rules.</p>
+        </article>
+        <article class="feature" data-reveal style="--d:2">
+          <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
+          <h3 class="h3">Data-style coupling</h3>
+          <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
+        </article>
+        <article class="feature" data-reveal>
+          <div class="feature-icon"><svg><use href="#i-monitor"/></svg></div>
+          <h3 class="h3">Familiar GUI</h3>
+          <p>A standard QGIS Processing tool. Choose the extent, zoom range and viewer, then run.</p>
+        </article>
+        <article class="feature" data-reveal style="--d:1">
+          <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
+          <h3 class="h3">Compact output</h3>
+          <p>Each layer is written only to its own zoom range, with only the fields its style uses.</p>
+        </article>
+        <article class="feature wide has-art" data-reveal style="--d:2">
+          <div class="feature-art" aria-hidden="true"><div class="layers-art"><span></span><span></span><span></span></div></div>
+          <div class="feature-body">
+            <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
+            <h3 class="h3">Client-side rendering</h3>
+            <p>The browser draws the tiles with MapLibre or OpenLayers. No map server, no rasterization, sharp at every zoom.</p>
+          </div>
+        </article>
+        <article class="feature wide" data-reveal>
+          <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
+          <h3 class="h3">No dependencies</h3>
+          <p>Runs on the Python and GDAL that ship with QGIS. No internet connection and nothing extra to install.</p>
+        </article>
+        <article class="feature wide" data-reveal style="--d:1">
+          <div class="feature-icon"><svg><use href="#i-globe"/></svg></div>
+          <h3 class="h3">Open standards</h3>
+          <p>Mapbox Vector Tiles in MBTiles, a MapLibre GL style and a QGIS layer file: formats the whole web-mapping ecosystem reads.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works ----------------------------------------------------- -->
+  <section class="section" id="how-it-works" aria-labelledby="how-title">
+    <div class="container">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow">How it works</p>
+        <h2 class="h2" id="how-title">One run. Six modules. A complete web map.</h2>
+        <p class="lead">Every step is open source. Select a module to see what it does and jump to its code.</p>
+      </div>
+
+      <div class="pipeline">
+        <div class="panel" data-reveal>
+          <div class="panel-head"><span>Execution pipeline</span><span class="mono">src/</span></div>
+          <div class="steps">
+            <button class="step core" type="button" data-module="orchestrator">
+              <span class="step-num" aria-hidden="true">◆</span>
+              <span class="step-text"><span class="step-title">qgis2vectortiles.py</span><span class="step-desc">Execution wrapper and environment manager</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="flattener">
+              <span class="step-num" aria-hidden="true">01</span>
+              <span class="step-text"><span class="step-title">rules_flattener.py</span><span class="step-desc">Flattens complex nested symbology and filters</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="exporter">
+              <span class="step-num" aria-hidden="true">02</span>
+              <span class="step-text"><span class="step-title">rules_exporter.py</span><span class="step-desc">Trims bounds and exports to intermediate vectors</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="generator">
+              <span class="step-num" aria-hidden="true">03</span>
+              <span class="step-text"><span class="step-title">tiles_generator.py</span><span class="step-desc">Slices geometries via multi-threaded GDAL</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="styler">
+              <span class="step-num" aria-hidden="true">04</span>
+              <span class="step-text"><span class="step-title">tiles_styler.py</span><span class="step-desc">Binds original QGIS styles to vector channels</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="converter">
+              <span class="step-num" aria-hidden="true">05</span>
+              <span class="step-text"><span class="step-title">maplibre_converter.py</span><span class="step-desc">Translates configs to MapLibre JSON schema</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="step" type="button" data-module="server">
+              <span class="step-num" aria-hidden="true">06</span>
+              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc">Prepares ready-to-deploy web environments</span></span>
+              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
+            </button>
           </div>
         </div>
-        
-        <div class="hero-visual">
-          <img src="screenshots/qgis_screenshot.webp" alt="QGIS Desktop" class="hero-anim-img base" fetchpriority="high">
-          <img src="screenshots/web_screenshot.webp" alt="Web Vector Tiles Output" class="hero-anim-img top-img" fetchpriority="high">
-          <div class="hero-slider-line"></div>
-          <div class="hero-anim-labels">
-            <span class="anim-status-label web-status">Web Browser</span>
-            <span class="anim-status-label qgis-status">QGIS Desktop</span>
+
+        <div class="pipeline-side">
+          <div class="panel" data-reveal style="--d:1">
+            <div class="panel-head"><span>Output package</span><span class="mono">6 parts</span></div>
+            <ul class="tree">
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-grid"/></svg></span><span class="tree-name">Vector tiles archive</span><span class="tree-ext">.mbtiles</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-file"/></svg></span><span class="tree-name">Styled QGIS layer</span><span class="tree-ext">.qlr</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-globe"/></svg></span><span class="tree-name">MapLibre style sheet</span><span class="tree-ext">.json</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-image"/></svg></span><span class="tree-name">Icon sprites</span><span class="tree-ext">.png &amp; .json</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Standalone viewer</span><span class="tree-ext">index.html</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-type"/></svg></span><span class="tree-name">Font glyphs</span><span class="tree-ext">.pbf</span></li>
+            </ul>
           </div>
+          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it anywhere.</strong> The package includes a standalone web viewer and a <code>.qlr</code> layer, so the same tiles open in a browser and back in QGIS.</span></p>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="section pipeline-section desktop-only-section" data-group="pipeline">
+  <!-- Demos ------------------------------------------------------------ -->
+  <section class="section" id="demos" aria-labelledby="demos-title">
     <div class="container">
-      
-      <div class="section-header">
-        <div class="badge">Pipeline</div>
-        <h2 class="h2">Processing Workflow</h2>
-        <p>From complex styling to interactive map. Click nodes for source code.</p>
+      <div class="section-head" data-reveal>
+        <p class="eyebrow">Gallery</p>
+        <h2 class="h2" id="demos-title">See it in action.</h2>
+        <p class="lead">Rendering capabilities and feature fidelity, straight from real exports.</p>
       </div>
-      
-      <div class="pipeline-grid">
-        
-        <div class="pipeline-col left">
-          <h3 class="col-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Execution Pipeline
-          </h3>
-          <div class="wf-container">
-            <div class="wf-node master" data-node="orchestrator" role="button" tabindex="0">
-              <div class="wf-badge">Core</div>
-              <div class="wf-info">
-                <span class="wf-title">QGIS2VectorTiles.py</span>
-                <span class="wf-desc">Execution wrapper and environment manager</span>
-              </div>
-            </div>
-            
-            <div class="wf-node" data-node="node1" role="button" tabindex="0">
-              <div class="wf-step">1</div>
-              <div class="wf-info">
-                <span class="wf-title">rules_flattener.py</span>
-                <span class="wf-desc">Flattens complex nested symbology and filters</span>
-              </div>
-            </div>
 
-            <div class="wf-node" data-node="node2" role="button" tabindex="0">
-              <div class="wf-step">2</div>
-              <div class="wf-info">
-                <span class="wf-title">rules_exporter.py</span>
-                <span class="wf-desc">Trims bounds and exports to intermediate vectors</span>
-              </div>
-            </div>
-
-            <div class="wf-node" data-node="node3" role="button" tabindex="0">
-              <div class="wf-step">3</div>
-              <div class="wf-info">
-                <span class="wf-title">tiles_generator.py</span>
-                <span class="wf-desc">Slices geometries via multi-threaded GDAL</span>
-              </div>
-            </div>
-
-            <div class="wf-node" data-node="node4" role="button" tabindex="0">
-              <div class="wf-step">4</div>
-              <div class="wf-info">
-                <span class="wf-title">tiles_styler.py</span>
-                <span class="wf-desc">Binds original QGIS styles to vector channels</span>
-              </div>
-            </div>
-
-            <div class="wf-node" data-node="node5" role="button" tabindex="0">
-              <div class="wf-step">5</div>
-              <div class="wf-info">
-                <span class="wf-title">maplibre_converter.py</span>
-                <span class="wf-desc">Translates configs to MapLibre JSON schema</span>
-              </div>
-            </div>
-
-            <div class="wf-node" data-node="node6" role="button" tabindex="0">
-              <div class="wf-step">6</div>
-              <div class="wf-info">
-                <span class="wf-title">server_initializer.py</span>
-                <span class="wf-desc">Prepares ready-to-deploy web environments</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="pipeline-col right">
-          <h3 class="col-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-            Exported Package Contents
-          </h3>
-          <div class="out-card">
-            <div class="out-row">
-              <span class="out-num">01</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">Vector Tiles Archive</div>
-                <div class="out-ext">.mbtiles</div>
-              </div>
-            </div>
-
-            <div class="out-row">
-              <span class="out-num">02</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">Styled QGIS Layer</div>
-                <div class="out-ext">.qlr</div>
-              </div>
-            </div>
-
-            <div class="out-row">
-              <span class="out-num">03</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">MapLibre Style Sheet</div>
-                <div class="out-ext">.json</div>
-              </div>
-            </div>
-
-            <div class="out-row">
-              <span class="out-num">04</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">Icon Sprites</div>
-                <div class="out-ext">.png &amp; .json</div>
-              </div>
-            </div>
-
-            <div class="out-row">
-              <span class="out-num">05</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">Standalone Viewer</div>
-                <div class="out-ext">index.html &amp; scripts</div>
-              </div>
-            </div>
-            
-            <div class="out-row">
-              <span class="out-num">06</span>
-              <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
-              <div class="out-info">
-                <div class="out-name">Font Glyphs</div>
-                <div class="out-ext">.pbf</div>
-              </div>
-            </div>
-            
-          </div>
-        </div>
-
+      <div class="gallery">
+        <button class="demo featured" type="button" data-video="demos/demo_main.mp4" data-reveal>
+          <span class="demo-media">
+            <video data-src="demos/demo_main.mp4" data-poster="demos/posters/demo_main.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
+            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
+          </span>
+          <span class="demo-body">
+            <span class="demo-tag">Overview</span>
+            <span class="h3">Full workflow overview</span>
+            <span class="demo-desc">Watch how millions of features are exported, tiled, and rendered natively in the browser within minutes.</span>
+          </span>
+        </button>
+        <button class="demo" type="button" data-video="demos/demo_data_driven.mp4" data-reveal>
+          <span class="demo-media">
+            <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
+            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
+          </span>
+          <span class="demo-body">
+            <span class="h3">Data-defined properties</span>
+            <span class="demo-desc">Exporting complex QGIS expressions to an identical web map.</span>
+          </span>
+        </button>
+        <button class="demo" type="button" data-video="demos/demo_transparency.mp4" data-reveal style="--d:1">
+          <span class="demo-media">
+            <video data-src="demos/demo_transparency.mp4" data-poster="demos/posters/demo_transparency.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
+            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
+          </span>
+          <span class="demo-body">
+            <span class="h3">Opacity &amp; colors</span>
+            <span class="demo-desc">Translating expression engine random transparent colors.</span>
+          </span>
+        </button>
+        <button class="demo" type="button" data-video="demos/complex_lines_cartography.mp4" data-reveal style="--d:2">
+          <span class="demo-media">
+            <video data-src="demos/complex_lines_cartography.mp4" data-poster="demos/posters/complex_lines_cartography.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
+            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
+          </span>
+          <span class="demo-body">
+            <span class="h3">Complex cartography</span>
+            <span class="demo-desc">Leverage QGIS symbology and labeling for fast, sharp web maps.</span>
+          </span>
+        </button>
       </div>
     </div>
   </section>
 
-  <section class="section mobile-only-section pipeline-mobile-section" data-group="pipeline">
+  <!-- Use cases -------------------------------------------------------- -->
+  <section class="section" id="use-cases" aria-labelledby="uc-title">
     <div class="container">
-      <div class="section-header">
-        <div class="badge">Pipeline · 1 of 2</div>
-        <h2 class="h2">Execution Pipeline</h2>
-        <p>From complex styling to interactive map. Tap any step for source code.</p>
+      <div class="section-head" data-reveal>
+        <p class="eyebrow">Use cases</p>
+        <h2 class="h2" id="uc-title">Fits the stack you already have.</h2>
+        <p class="lead">One export, three ways to use it.</p>
       </div>
 
-      <div class="wf-container mobile-pipeline-figure">
-        <div class="wf-node master" data-node="orchestrator" role="button" tabindex="0">
-          <div class="wf-badge">Core</div>
-          <div class="wf-info">
-            <span class="wf-title">QGIS2VectorTiles.py</span>
-            <span class="wf-desc">Execution wrapper and environment manager</span>
+      <div class="usecases">
+        <article class="usecase" data-reveal>
+          <span class="usecase-num">01</span>
+          <h3 class="h3">Client-side rendering</h3>
+          <p>Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization, just fast, sharp, fully styled vector tiles rendered natively.</p>
+          <div class="chips">
+            <a class="chip" href="https://www.mapbox.com/"><img src="icons/mapbox.png" alt="" width="26" height="26" loading="lazy">Mapbox</a>
+            <a class="chip" href="https://www.maptiler.com/"><img src="icons/maptiler.png" alt="" width="26" height="26" loading="lazy">MapTiler</a>
+            <a class="chip" href="https://maplibre.org/"><img src="icons/maplibre.png" alt="" width="26" height="26" loading="lazy">MapLibre</a>
+            <a class="chip" href="https://openlayers.org/"><img src="icons/openlayers.png" alt="" width="26" height="26" loading="lazy">OpenLayers</a>
           </div>
-        </div>
-
-        <div class="wf-node" data-node="node1" role="button" tabindex="0">
-          <div class="wf-step">1</div>
-          <div class="wf-info">
-            <span class="wf-title">rules_flattener.py</span>
-            <span class="wf-desc">Flattens complex nested symbology and filters</span>
+          <p class="usecase-note">Compatible with <a class="link" href="https://github.com/mapbox/vector-tile-spec">Vector Tiles</a> and <a class="link" href="https://maplibre.org/maplibre-style-spec/">GL Styles</a>.</p>
+        </article>
+        <article class="usecase" data-reveal style="--d:1">
+          <span class="usecase-num">02</span>
+          <h3 class="h3">Web map services</h3>
+          <p>Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
+          <div class="chips">
+            <a class="chip" href="https://geoserver.org/"><img src="icons/geoserver.png" alt="" width="26" height="26" loading="lazy">GeoServer</a>
+            <a class="chip" href="https://qgis.org/en/site/forusers/index.html#qgis-server"><img src="icons/qgis.png" alt="" width="26" height="26" loading="lazy">QGIS Server</a>
           </div>
-        </div>
-
-        <div class="wf-node" data-node="node2" role="button" tabindex="0">
-          <div class="wf-step">2</div>
-          <div class="wf-info">
-            <span class="wf-title">rules_exporter.py</span>
-            <span class="wf-desc">Trims bounds and exports to intermediate vectors</span>
+          <p class="usecase-note">Using the <a class="link" href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html">MBTiles</a> and <a class="link" href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html">MBStyle</a> extensions.</p>
+        </article>
+        <article class="usecase" data-reveal style="--d:2">
+          <span class="usecase-num">03</span>
+          <h3 class="h3">Project sharing</h3>
+          <p>Share a single styled layer file instead of dozens of datasets, projections, and dependencies. The complex multi-source project is collapsed with visuals baked in.</p>
+          <div class="chips">
+            <span class="chip"><span class="chip-glyph"><svg><use href="#i-folder"/></svg></span>1× source</span>
+            <a class="chip" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel"><img src="icons/qlr.png" alt="" width="26" height="26" loading="lazy">1× .qlr layer</a>
           </div>
-        </div>
-
-        <div class="wf-node" data-node="node3" role="button" tabindex="0">
-          <div class="wf-step">3</div>
-          <div class="wf-info">
-            <span class="wf-title">tiles_generator.py</span>
-            <span class="wf-desc">Slices geometries via multi-threaded GDAL</span>
-          </div>
-        </div>
-
-        <div class="wf-node" data-node="node4" role="button" tabindex="0">
-          <div class="wf-step">4</div>
-          <div class="wf-info">
-            <span class="wf-title">tiles_styler.py</span>
-            <span class="wf-desc">Binds original QGIS styles to vector channels</span>
-          </div>
-        </div>
-
-        <div class="wf-node" data-node="node5" role="button" tabindex="0">
-          <div class="wf-step">5</div>
-          <div class="wf-info">
-            <span class="wf-title">maplibre_converter.py</span>
-            <span class="wf-desc">Translates configs to MapLibre JSON schema</span>
-          </div>
-        </div>
-
-        <div class="wf-node" data-node="node6" role="button" tabindex="0">
-          <div class="wf-step">6</div>
-          <div class="wf-info">
-            <span class="wf-title">server_initializer.py</span>
-            <span class="wf-desc">Prepares ready-to-deploy web environments</span>
-          </div>
-        </div>
+          <p class="usecase-note">Standard <a class="link" href="https://qgis.org/">QGIS</a> layer definition format.</p>
+        </article>
       </div>
     </div>
   </section>
 
-  <section class="section mobile-only-section pipeline-mobile-section" data-group="pipeline">
+  <!-- CTA -------------------------------------------------------------- -->
+  <section class="section" aria-labelledby="cta-title">
     <div class="container">
-      <div class="section-header">
-        <div class="badge">Pipeline · 2 of 2</div>
-        <h2 class="h2">Exported Package</h2>
-        <p>A complete, self-contained bundle ready to deploy anywhere.</p>
-      </div>
-
-      <div class="out-card mobile-pipeline-figure">
-        <div class="out-row">
-          <span class="out-num">01</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">Vector Tiles Archive</div>
-            <div class="out-ext">.mbtiles</div>
-          </div>
+      <div class="cta" data-reveal>
+        <h2 class="h2" id="cta-title">Your next web map is <span class="text-gradient">one run away.</span></h2>
+        <p class="lead">Install QGIS2VectorTiles from the official QGIS plugin repository. Free and open source, now and always.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
+          <a class="btn btn-ghost" href="https://github.com/GallPeters/QGIS2VectorTiles"><svg><use href="#i-github"/></svg>Star on GitHub</a>
         </div>
-
-        <div class="out-row">
-          <span class="out-num">02</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">Styled QGIS Layer</div>
-            <div class="out-ext">.qlr</div>
-          </div>
-        </div>
-
-        <div class="out-row">
-          <span class="out-num">03</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">MapLibre Style Sheet</div>
-            <div class="out-ext">.json</div>
-          </div>
-        </div>
-
-        <div class="out-row">
-          <span class="out-num">04</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">Icon Sprites</div>
-            <div class="out-ext">.png &amp; .json</div>
-          </div>
-        </div>
-
-        <div class="out-row">
-          <span class="out-num">05</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">Standalone Viewer</div>
-            <div class="out-ext">index.html &amp; scripts</div>
-          </div>
-        </div>
-
-        <div class="out-row">
-          <span class="out-num">06</span>
-          <div class="out-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
-          <div class="out-info">
-            <div class="out-name">Font Glyphs</div>
-            <div class="out-ext">.pbf</div>
-          </div>
-        </div>
+        <p class="cta-rate">
+          <span class="stars" aria-hidden="true"><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg></span>
+          Enjoying the plugin? <a class="link" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/">Rate it on the QGIS plugin repository</a>
+        </p>
       </div>
     </div>
   </section>
 
-  <section class="section demos-section" data-group="demos">
-    <div class="container">
-      <div class="section-header">
-        <div class="badge">Gallery</div>
-        <h2 class="h2">See it in action</h2>
-        <p>Explore the rendering capabilities and feature fidelity.</p>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="./"><img src="icons/logo.webp" alt="" width="30" height="30" loading="lazy"><span class="brand-name"><span>QGIS2</span>VectorTiles</span></a>
+        <p>Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.</p>
       </div>
-
-      <div class="demos-grid">
-        <div class="demo-card demo-large" data-video="demos/demo_main.mp4" role="button" tabindex="0">
-          <div class="demo-thumb">
-            <video data-src="demos/demo_main.mp4" data-poster="demos/posters/demo_main.webp" preload="none" loop muted playsinline></video>
-            <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-          </div>
-          <div class="demo-info">
-            <div class="demo-title">Full Workflow Overview</div>
-            <div class="demo-desc">Watch how millions of features are exported, tiled, and rendered natively in the browser within minutes.</div>
-          </div>
-        </div>
-
-        <div class="demo-list">
-          <div class="demo-card demo-small" data-video="demos/demo_data_driven.mp4" role="button" tabindex="0">
-            <div class="demo-thumb">
-              <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" loop muted playsinline></video>
-              <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-            </div>
-            <div class="demo-info">
-              <div class="demo-title">Data-Defined Properties</div>
-              <div class="demo-desc">Exporting complex QGIS expressions to an identical web map.</div>
-            </div>
-          </div>
-          
-          <div class="demo-card demo-small" data-video="demos/demo_transparency.mp4" role="button" tabindex="0">
-            <div class="demo-thumb">
-              <video data-src="demos/demo_transparency.mp4" data-poster="demos/posters/demo_transparency.webp" preload="none" loop muted playsinline></video>
-              <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-            </div>
-            <div class="demo-info">
-              <div class="demo-title">Opacity &amp; Colors</div>
-              <div class="demo-desc">Translating expression engine random transparent colors.</div>
-            </div>
-          </div>
-
-          <div class="demo-card demo-small" data-video="demos/complex_lines_cartography.mp4" role="button" tabindex="0">
-            <div class="demo-thumb">
-              <video data-src="demos/complex_lines_cartography.mp4" data-poster="demos/posters/complex_lines_cartography.webp" preload="none" loop muted playsinline></video>
-              <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-            </div>
-            <div class="demo-info">
-              <div class="demo-title">Complex Cartography</div>
-              <div class="demo-desc">Leverage QGIS symbology and labeling for fast, sharp web maps.</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <nav class="footer-col" aria-label="Product">
+        <h2>Product</h2>
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#demos">Demos</a>
+        <a href="#use-cases">Use cases</a>
+      </nav>
+      <nav class="footer-col" aria-label="Resources">
+        <h2>Resources</h2>
+        <a href="changelog.html">Changelog</a>
+        <a href="compatibility.html">Styling guide</a>
+        <a href="https://github.com/GallPeters/QGIS2VectorTiles/issues">Report an issue</a>
+      </nav>
+      <nav class="footer-col" aria-label="Community">
+        <h2>Community</h2>
+        <a href="https://github.com/GallPeters/QGIS2VectorTiles">GitHub</a>
+        <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/">QGIS plugin repository</a>
+        <a href="https://mastodon.social/@JossefKanter" rel="me">Mastodon</a>
+      </nav>
     </div>
-  </section>
-
-  <section class="section use-cases-section desktop-only-section" data-group="usecases">
-    <div class="container">
-      <div class="uc-content">
-        <div class="section-header">
-          <div class="badge">Applications</div>
-          <h2 class="h2">Versatile Deployments</h2>
-          <p>Built to fit seamlessly into modern spatial stacks.</p>
-        </div>
-
-        <div class="uc-grid">
-          <div class="uc-card">
-            <div class="uc-num">01</div>
-            <h3 class="uc-title">Client-Side Rendering</h3>
-            <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
-            <div class="uc-platforms">
-              <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
-              <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
-              <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
-              <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
-            </div>
-            <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
-          </div>
-
-          <div class="uc-card">
-            <div class="uc-num">02</div>
-            <h3 class="uc-title">Web Map Services</h3>
-            <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
-            <div class="uc-platforms">
-              <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
-              <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
-            </div>
-            <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
-          </div>
-
-          <div class="uc-card">
-            <div class="uc-num">03</div>
-            <h3 class="uc-title">Project Sharing</h3>
-            <p class="uc-desc">Share a single styled layer file instead of dozens of datasets, projections, and dependencies. The complex multi-source project is collapsed with visuals baked in.</p>
-            <div class="uc-platforms">
-              <div class="plat-btn" style="pointer-events: none;">
-                <svg class="plat-icon dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> <span>1× Source</span>
-              </div>
-              <a class="plat-btn" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank">
-                <img class="plat-icon" loading="lazy" decoding="async" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
-              </a>
-            </div>
-            <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="page-foot">
-        <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
-        <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
-      </div>
-    </div>
-  </section>
-
-  <section class="section mobile-only-section uc-mobile-section" data-group="usecases">
-    <div class="container">
-      <div class="uc-mobile-content">
-        <div class="section-header">
-          <div class="badge">Applications · 1 of 3</div>
-          <h2 class="h2">Client-Side Rendering</h2>
-        </div>
-        <div class="uc-card mobile-showcase">
-          <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
-          <div class="uc-platforms">
-            <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
-            <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
-            <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
-            <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
-          </div>
-          <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section mobile-only-section uc-mobile-section" data-group="usecases">
-    <div class="container">
-      <div class="uc-mobile-content">
-        <div class="section-header">
-          <div class="badge">Applications · 2 of 3</div>
-          <h2 class="h2">Web Map Services</h2>
-        </div>
-        <div class="uc-card mobile-showcase">
-          <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
-          <div class="uc-platforms">
-            <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
-            <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
-          </div>
-          <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section mobile-only-section uc-mobile-section" data-group="usecases">
-    <div class="container">
-      <div class="uc-mobile-content">
-        <div class="section-header">
-          <div class="badge">Applications · 3 of 3</div>
-          <h2 class="h2">Project Sharing</h2>
-        </div>
-        <div class="uc-card mobile-showcase">
-          <p class="uc-desc">Share a single styled layer file instead of dozens of datasets, projections, and dependencies. The complex multi-source project is collapsed with visuals baked in.</p>
-          <div class="uc-platforms">
-            <div class="plat-btn" style="pointer-events: none;">
-              <svg class="plat-icon dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> <span>1× Source</span>
-            </div>
-            <a class="plat-btn" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank">
-              <img class="plat-icon" loading="lazy" decoding="async" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
-            </a>
-          </div>
-          <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
-        </div>
-      </div>
-
-      <div class="page-foot">
-        <span>QGIS2VectorTiles &mdash; Licensed under <a href="https://www.gnu.org/licenses/gpl-2.0-standalone.html" target="_blank">GNU GPL v2</a></span>
-        <span><a href="https://github.com/GallPeters/QGIS2VectorTiles" target="_blank">GitHub</a> &nbsp;·&nbsp; <a href="https://plugins.qgis.org/plugins/QGIS2VectorTiles" target="_blank">QGIS Plugin Repository</a></span>
-      </div>
-    </div>
-  </section>
-
-</div>
-
-<div id="wfModal" class="modal-overlay">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="modalTitle" class="modal-title">Title</h3>
-      <button class="modal-close" onclick="closeWfModal()"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    </div>
-    <div class="modal-body">
-      <ul id="modalBullets" class="modal-bullets"></ul>
-    </div>
-    <div class="modal-footer">
-      <a id="modalGitLink" href="#" class="btn-primary" target="_blank">View on GitHub</a>
+    <div class="footer-bottom">
+      <span>QGIS2VectorTiles · Licensed under <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0-standalone.html">GNU GPL v2</a></span>
+      <span>Made for the QGIS community</span>
     </div>
   </div>
-</div>
+</footer>
 
-<div id="vidModal" class="modal-overlay">
-  <div class="modal-content vid-content">
-    <button class="vid-close-btn" onclick="closeVidModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    <div class="vid-wrapper">
-      <video id="modalVideo" controls controlsList="nodownload"></video>
-    </div>
+<dialog class="module-dialog" id="module-dialog" aria-labelledby="module-title">
+  <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
+  <div class="dialog-inner">
+    <p class="mono"></p>
+    <h2 id="module-title"></h2>
+    <ul></ul>
+    <a class="btn btn-primary" href="https://github.com/GallPeters/QGIS2VectorTiles"><svg><use href="#i-github"/></svg>View source on GitHub</a>
   </div>
-</div>
+</dialog>
 
-<script>
-  // ════════════════════════════════════════
-  // FULLPAGE STRICT SNAP SCROLLER
-  // Dynamically tracks whichever section set (desktop or mobile)
-  // is active for the current viewport, so exactly one section is
-  // ever visible regardless of breakpoint, resize, or rotation.
-  // ════════════════════════════════════════
-  const wrapper = document.getElementById('fullpage-wrapper');
-  const fpNav = document.getElementById('fpNav');
-  const allSections = Array.from(document.querySelectorAll('.section'));
+<dialog class="video-dialog" id="video-dialog" aria-label="Demo video">
+  <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
+  <video controls playsinline controlslist="nodownload" preload="none"></video>
+</dialog>
 
-  const MOBILE_BREAKPOINT = 768;
-  function isMobileView() { return window.innerWidth <= MOBILE_BREAKPOINT; }
+<button class="to-top" type="button" aria-label="Back to top"><svg><use href="#i-up"/></svg></button>
 
-  function getActiveSections() {
-    return allSections.filter(s => isMobileView()
-      ? !s.classList.contains('desktop-only-section')
-      : !s.classList.contains('mobile-only-section'));
-  }
-
-  let activeSections = getActiveSections();
-  let totalSections = activeSections.length;
-  let currentIndex = 0;
-  let isScrolling = false;
-  let lastScrollTime = 0;
-  const SNAP_MS = 600; // = the #fullpage-wrapper transition in the CSS
-  let snapTimer = null;
-
-  function renderDots() {
-    fpNav.innerHTML = '';
-    activeSections.forEach((sec, i) => {
-      const dot = document.createElement('div');
-      dot.className = 'fp-dot' + (i === currentIndex ? ' active' : '');
-      dot.addEventListener('click', () => goToSection(i));
-      fpNav.appendChild(dot);
-    });
-  }
-
-  function updateDots() {
-    Array.from(fpNav.children).forEach((dot, i) => dot.classList.toggle('active', i === currentIndex));
-  }
-
-  function applyTransform(instant) {
-    if (instant) {
-      wrapper.style.transition = 'none';
-      wrapper.style.transform = `translateY(-${currentIndex * 100}dvh)`;
-      void wrapper.offsetHeight; // force reflow before restoring the transition
-      wrapper.style.transition = '';
-    } else {
-      wrapper.style.transform = `translateY(-${currentIndex * 100}dvh)`;
-    }
-  }
-
-  function goToSection(index) {
-    if (index < 0 || index >= totalSections || isScrolling) return;
-
-    currentIndex = index;
-    isScrolling = true;
-    lastScrollTime = Date.now();
-
-    document.body.classList.add('fp-snapping');
-    applyTransform(false);
-    updateDots();
-    updateSectionState();
-
-    // Match transition duration
-    clearTimeout(snapTimer);
-    snapTimer = setTimeout(() => {
-      isScrolling = false;
-      document.body.classList.remove('fp-snapping');
-    }, SNAP_MS);
-  }
-
-  function updateSectionState() {
-    const section = activeSections[currentIndex];
-    document.body.classList.toggle('fp-away-hero', !section || section.id !== 'top');
-    // Show the demo posters as soon as the visitor heads for them.
-    const next = activeSections[currentIndex + 1];
-    if ((section && section.querySelector('video[data-poster]')) || (next && next.querySelector('video[data-poster]'))) loadDemoPosters();
-  }
-
-  // Demo cards show a poster (the video's first frame), set after the page
-  // has loaded or earlier when the visitor heads for them. A video itself
-  // loads only when its card is hovered or opened.
-  let demoPostersLoaded = false;
-  function loadDemoPosters() {
-    if (demoPostersLoaded) return;
-    demoPostersLoaded = true;
-    document.querySelectorAll('video[data-poster]').forEach(v => {
-      v.poster = v.dataset.poster;
-      v.removeAttribute('data-poster');
-    });
-  }
-  window.addEventListener('load', () => setTimeout(loadDemoPosters, 300));
-
-  function loadDemoVideo(v) {
-    if (v.dataset.src) {
-      v.src = v.dataset.src;
-      v.removeAttribute('data-src');
-    }
-  }
-
-  renderDots();
-  applyTransform(true);
-  updateSectionState();
-
-  // If resizing/rotating crosses the mobile breakpoint, the number of
-  // sections changes. Re-pin instantly to the equivalent section group
-  // (hero / pipeline / demos / usecases) so nothing is left mid-transform.
-  let resizeTimer = null;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      const currentGroup = activeSections[currentIndex] ? activeSections[currentIndex].dataset.group : 'hero';
-      const newActive = getActiveSections();
-      const sameSet = newActive.length === activeSections.length && newActive.every((s, i) => s === activeSections[i]);
-
-      if (!sameSet) {
-        activeSections = newActive;
-        totalSections = activeSections.length;
-        let newIndex = activeSections.findIndex(s => s.dataset.group === currentGroup);
-        if (newIndex === -1) newIndex = 0;
-        currentIndex = newIndex;
-        renderDots();
-      }
-      applyTransform(true); // re-pin (also corrects for dvh changes, e.g. iOS toolbar show/hide)
-      updateSectionState();
-    }, 120);
-  });
-
-  // Wheel handling
-  window.addEventListener('wheel', (e) => {
-    // Let modals handle their own internal scroll natively
-    if (e.target.closest('.modal-content')) return;
-
-    e.preventDefault(); // Block native scroll
-
-    const now = Date.now();
-    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
-
-    if (Math.abs(e.deltaY) > 20) { // Threshold for sensitive trackpads
-      if (e.deltaY > 0) goToSection(currentIndex + 1);
-      else goToSection(currentIndex - 1);
-    }
-  }, { passive: false });
-
-  // Touch handling
-  let touchStartY = 0;
-  let touchStartX = 0;
-
-  window.addEventListener('touchstart', e => {
-    if (e.target.closest('.modal-content')) return;
-    touchStartY = e.touches[0].clientY;
-    touchStartX = e.touches[0].clientX;
-  }, { passive: false });
-
-  window.addEventListener('touchmove', e => {
-    if (e.target.closest('.modal-content')) return;
-    e.preventDefault(); // Block native scroll pulling
-  }, { passive: false });
-
-  window.addEventListener('touchend', e => {
-    if (e.target.closest('.modal-content')) return;
-
-    const now = Date.now();
-    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
-
-    const touchEndY = e.changedTouches[0].clientY;
-    const deltaY = touchStartY - touchEndY;
-
-    if (Math.abs(deltaY) > 50) { // Swipe threshold
-      if (deltaY > 0) goToSection(currentIndex + 1);
-      else goToSection(currentIndex - 1);
-    }
-  }, { passive: false });
-
-  // Keyboard handling
-  window.addEventListener('keydown', e => {
-    if (document.querySelector('.modal-overlay.open')) return;
-
-    const now = Date.now();
-    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
-
-    if (['ArrowDown', 'PageDown', ' '].includes(e.key)) {
-      e.preventDefault();
-      goToSection(currentIndex + 1);
-    } else if (['ArrowUp', 'PageUp'].includes(e.key)) {
-      e.preventDefault();
-      goToSection(currentIndex - 1);
-    }
-  }, { passive: false });
-
-  // ════════════════════════════════════════
-  // INTERACTION LOGIC
-  // ════════════════════════════════════════
-
-  // Play/Pause hover preview for video cards
-  document.querySelectorAll('.demo-card video').forEach(v => {
-    const card = v.closest('.demo-card');
-    card.addEventListener('mouseenter', () => { loadDemoVideo(v); v.play().catch(()=>{}); });
-    card.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0; });
-  });
-
-  // Workflow Modal Logic
-  const workflowData = {
-    orchestrator: {
-      title: "QGIS2VectorTiles.py", file: "qgis2vectortiles.py",
-      bullets: ["Core plugin framework entry point script.", "Manages operational properties and runtime variables.", "Coordinates sequential execution across the workspace."]
-    },
-    node1: {
-      title: "rules_flattener.py", file: "core/rules_flattener.py",
-      bullets: ["Processes intricate desktop renderer rules.", "Flattens compound parameters into clear conditional groups.", "Preserves filters and scaling logic."]
-    },
-    node2: {
-      title: "rules_exporter.py", file: "core/rules_exporter.py",
-      bullets: ["Slices vector features into intermediate datastores.", "Executes spatial bounds trimming.", "Applies geometry correction schemas."]
-    },
-    node3: {
-      title: "tiles_generator.py", file: "core/tiles_generator.py",
-      bullets: ["Coordinates multi-threaded tile slicing.", "Hooks directly into system-level GDAL installations.", "Runs optimized map routines."]
-    },
-    node4: {
-      title: "tiles_styler.py", file: "core/tiles_styler.py",
-      bullets: ["Transforms styling definitions.", "Matches and binds QGIS styles to vector channels.", "Outputs unified .qlr layers."]
-    },
-    node5: {
-      title: "maplibre_converter.py", file: "core/maplibre_converter.py",
-      bullets: ["Translates QGIS configurations to MapLibre JSON.", "Maps coordinate grids, fonts, and limits.", "Generates icon sprite sheets."]
-    },
-    node6: {
-      title: "server_initializer.py", file: "core/server_initializer.py",
-      bullets: ["Bundles output formats and local resources.", "Constructs isolated deployment environments.", "Provides instant web preview frameworks."]
-    }
-  };
-
-  const wfModal = document.getElementById('wfModal');
-  const modalTitle = document.getElementById('modalTitle');
-  const modalBullets = document.getElementById('modalBullets');
-  const modalGitLink = document.getElementById('modalGitLink');
-  const gitHubBasePath = "https://github.com/GallPeters/QGIS2VectorTiles/blob/main/src/";
-
-  function openWfModal(key) {
-    const data = workflowData[key];
-    if (!data) return;
-    modalTitle.textContent = data.title;
-    modalGitLink.href = gitHubBasePath + data.file;
-    modalBullets.innerHTML = data.bullets.map(b => `<li>${b}</li>`).join('');
-    wfModal.classList.add('open');
-  }
-
-  function closeWfModal() {
-    wfModal.classList.remove('open');
-  }
-
-  document.querySelectorAll('.wf-node').forEach(node => {
-    node.addEventListener('click', () => openWfModal(node.dataset.node));
-    node.addEventListener('keydown', e => { if(e.key === 'Enter') openWfModal(node.dataset.node); });
-  });
-
-  wfModal.addEventListener('click', e => { if(e.target === wfModal) closeWfModal(); });
-
-  // Video Modal Logic
-  const vidModal = document.getElementById('vidModal');
-  const modalVideo = document.getElementById('modalVideo');
-
-  function openVidModal(src) {
-    modalVideo.src = src;
-    vidModal.classList.add('open');
-    modalVideo.play();
-  }
-
-  function closeVidModal() {
-    vidModal.classList.remove('open');
-    modalVideo.pause();
-    modalVideo.src = '';
-  }
-
-  document.querySelectorAll('.demo-card').forEach(card => {
-    card.addEventListener('click', () => openVidModal(card.dataset.video));
-    card.addEventListener('keydown', e => { if(e.key === 'Enter') openVidModal(card.dataset.video); });
-  });
-
-  vidModal.addEventListener('click', e => { if(e.target === vidModal) closeVidModal(); });
-
-  window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeWfModal(); closeVidModal(); }
-  });
-</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/home.js" defer></script>
 </body>
 </html>
