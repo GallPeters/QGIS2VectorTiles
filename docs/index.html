@@ -34,8 +34,27 @@
 
 <meta name="theme-color" content="#98B023">
 
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Inter (SIL Open Font License, fonts/OFL.txt), self-hosted: one variable
+   file per character set covers every weight. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 
 /* ════════════════════════════════════════
    DESIGN TOKENS & RESET
@@ -154,9 +173,26 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 #fullpage-wrapper {
   width: 100%;
   height: 100%;
-  transition: transform 0.8s cubic-bezier(0.7, 0, 0.3, 1);
+  transition: transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); /* = SNAP_MS in the script */
   will-change: transform;
 }
+
+/* While a section slides, skip the blur effects (they are recomputed every
+   frame) and pause the hero animation whenever the hero is off screen. */
+.fp-snapping .header {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(5, 5, 5, 0.92);
+}
+.fp-snapping .hero-anim-labels,
+.fp-snapping .play-btn {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.fp-away-hero .hero-anim-img.top-img,
+.fp-away-hero .hero-slider-line,
+.fp-away-hero .web-status,
+.fp-away-hero .qgis-status { animation-play-state: paused; }
 
 .section {
   width: 100vw;
@@ -269,7 +305,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   gap: 6px;
   font-size: clamp(12.5px, 1.4vh, 13px);
   color: var(--text-dim);
-  font-weight: 410;
+  font-weight: 400;
   white-space: nowrap;
   padding-right: 8px;
 }
@@ -972,7 +1008,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
       <div class="hero-content">
         <div class="hero-text">
           <div class="page-icon">
-            <img src="icons/icon.svg" alt="qgis2vectortiles">
+            <img src="icons/logo.webp" alt="qgis2vectortiles">
           </div>
           <h1 class="title"><span>QGIS2</span>VectorTiles</h1>
           <p class="desc text-gradient">
@@ -1015,8 +1051,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
         </div>
         
         <div class="hero-visual">
-          <img src="screenshots/qgis_screenshot.png" alt="QGIS Desktop" class="hero-anim-img base">
-          <img src="screenshots/web_screenshot.png" alt="Web Vector Tiles Output" class="hero-anim-img top-img">
+          <img src="screenshots/qgis_screenshot.webp" alt="QGIS Desktop" class="hero-anim-img base" fetchpriority="high">
+          <img src="screenshots/web_screenshot.webp" alt="Web Vector Tiles Output" class="hero-anim-img top-img" fetchpriority="high">
           <div class="hero-slider-line"></div>
           <div class="hero-anim-labels">
             <span class="anim-status-label web-status">Web Browser</span>
@@ -1314,7 +1350,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
       <div class="demos-grid">
         <div class="demo-card demo-large" data-video="demos/demo_main.mp4" role="button" tabindex="0">
           <div class="demo-thumb">
-            <video src="demos/demo_main.mp4" loop muted playsinline></video>
+            <video data-src="demos/demo_main.mp4" data-poster="demos/posters/demo_main.webp" preload="none" loop muted playsinline></video>
             <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
           </div>
           <div class="demo-info">
@@ -1326,7 +1362,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
         <div class="demo-list">
           <div class="demo-card demo-small" data-video="demos/demo_data_driven.mp4" role="button" tabindex="0">
             <div class="demo-thumb">
-              <video src="demos/demo_data_driven.mp4" loop muted playsinline></video>
+              <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" loop muted playsinline></video>
               <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
             </div>
             <div class="demo-info">
@@ -1337,7 +1373,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
           
           <div class="demo-card demo-small" data-video="demos/demo_transparency.mp4" role="button" tabindex="0">
             <div class="demo-thumb">
-              <video src="demos/demo_transparency.mp4" loop muted playsinline></video>
+              <video data-src="demos/demo_transparency.mp4" data-poster="demos/posters/demo_transparency.webp" preload="none" loop muted playsinline></video>
               <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
             </div>
             <div class="demo-info">
@@ -1348,7 +1384,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
           <div class="demo-card demo-small" data-video="demos/complex_lines_cartography.mp4" role="button" tabindex="0">
             <div class="demo-thumb">
-              <video src="demos/complex_lines_cartography.mp4" loop muted playsinline></video>
+              <video data-src="demos/complex_lines_cartography.mp4" data-poster="demos/posters/complex_lines_cartography.webp" preload="none" loop muted playsinline></video>
               <div class="play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
             </div>
             <div class="demo-info">
@@ -1376,10 +1412,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
             <h3 class="uc-title">Client-Side Rendering</h3>
             <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
             <div class="uc-platforms">
-              <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
-              <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
-              <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
-              <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
+              <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
+              <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
+              <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
+              <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
             </div>
             <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
           </div>
@@ -1389,8 +1425,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
             <h3 class="uc-title">Web Map Services</h3>
             <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
             <div class="uc-platforms">
-              <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
-              <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
+              <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
+              <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
             </div>
             <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
           </div>
@@ -1404,7 +1440,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
                 <svg class="plat-icon dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> <span>1× Source</span>
               </div>
               <a class="plat-btn" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank">
-                <img class="plat-icon" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
+                <img class="plat-icon" loading="lazy" decoding="async" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
               </a>
             </div>
             <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
@@ -1429,10 +1465,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
         <div class="uc-card mobile-showcase">
           <p class="uc-desc">Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization-just fast, sharp, fully styled vector tiles rendered natively.</p>
           <div class="uc-platforms">
-            <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
-            <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
-            <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
-            <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
+            <a class="plat-btn" href="https://www.mapbox.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/mapbox.png" alt=""> <span>Mapbox</span></a>
+            <a class="plat-btn" href="https://www.maptiler.com/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maptiler.png" alt=""> <span>MapTiler</span></a>
+            <a class="plat-btn" href="https://maplibre.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/maplibre.png" alt=""> <span>MapLibre</span></a>
+            <a class="plat-btn" href="https://openlayers.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/openlayers.png" alt=""> <span>OpenLayers</span></a>
           </div>
           <p class="uc-footnote">Compatible with <a href="#" target="_blank">Vector Tiles</a> and <a href="#" target="_blank">GL Styles</a>.</p>
         </div>
@@ -1450,8 +1486,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
         <div class="uc-card mobile-showcase">
           <p class="uc-desc">Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
           <div class="uc-platforms">
-            <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
-            <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
+            <a class="plat-btn" href="https://geoserver.org/" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/geoserver.png" alt=""> <span>GeoServer</span></a>
+            <a class="plat-btn" href="https://qgis.org/en/site/forusers/index.html#qgis-server" target="_blank"><img class="plat-icon" loading="lazy" decoding="async" src="icons/qgis.png" alt=""> <span>QGIS Server</span></a>
           </div>
           <p class="uc-footnote">Using <a href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html" target="_blank">MBTiles</a> and <a href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html" target="_blank">MBStyle</a> extensions.</p>
         </div>
@@ -1473,7 +1509,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
               <svg class="plat-icon dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> <span>1× Source</span>
             </div>
             <a class="plat-btn" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel" target="_blank">
-              <img class="plat-icon" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
+              <img class="plat-icon" loading="lazy" decoding="async" src="icons/qlr.png" alt=""> <span>1× .qlr Layer</span>
             </a>
           </div>
           <p class="uc-footnote">Standardized <a href="#" target="_blank">QGIS</a> styling format integration.</p>
@@ -1538,6 +1574,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   let currentIndex = 0;
   let isScrolling = false;
   let lastScrollTime = 0;
+  const SNAP_MS = 600; // = the #fullpage-wrapper transition in the CSS
+  let snapTimer = null;
 
   function renderDots() {
     fpNav.innerHTML = '';
@@ -1571,15 +1609,51 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     isScrolling = true;
     lastScrollTime = Date.now();
 
+    document.body.classList.add('fp-snapping');
     applyTransform(false);
     updateDots();
+    updateSectionState();
 
     // Match transition duration
-    setTimeout(() => { isScrolling = false; }, 800);
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(() => {
+      isScrolling = false;
+      document.body.classList.remove('fp-snapping');
+    }, SNAP_MS);
+  }
+
+  function updateSectionState() {
+    const section = activeSections[currentIndex];
+    document.body.classList.toggle('fp-away-hero', !section || section.id !== 'top');
+    // Show the demo posters as soon as the visitor heads for them.
+    const next = activeSections[currentIndex + 1];
+    if ((section && section.querySelector('video[data-poster]')) || (next && next.querySelector('video[data-poster]'))) loadDemoPosters();
+  }
+
+  // Demo cards show a poster (the video's first frame), set after the page
+  // has loaded or earlier when the visitor heads for them. A video itself
+  // loads only when its card is hovered or opened.
+  let demoPostersLoaded = false;
+  function loadDemoPosters() {
+    if (demoPostersLoaded) return;
+    demoPostersLoaded = true;
+    document.querySelectorAll('video[data-poster]').forEach(v => {
+      v.poster = v.dataset.poster;
+      v.removeAttribute('data-poster');
+    });
+  }
+  window.addEventListener('load', () => setTimeout(loadDemoPosters, 300));
+
+  function loadDemoVideo(v) {
+    if (v.dataset.src) {
+      v.src = v.dataset.src;
+      v.removeAttribute('data-src');
+    }
   }
 
   renderDots();
   applyTransform(true);
+  updateSectionState();
 
   // If resizing/rotating crosses the mobile breakpoint, the number of
   // sections changes. Re-pin instantly to the equivalent section group
@@ -1601,6 +1675,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
         renderDots();
       }
       applyTransform(true); // re-pin (also corrects for dvh changes, e.g. iOS toolbar show/hide)
+      updateSectionState();
     }, 120);
   });
 
@@ -1612,7 +1687,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     e.preventDefault(); // Block native scroll
 
     const now = Date.now();
-    if (now - lastScrollTime < 800 || isScrolling) return;
+    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
 
     if (Math.abs(e.deltaY) > 20) { // Threshold for sensitive trackpads
       if (e.deltaY > 0) goToSection(currentIndex + 1);
@@ -1639,7 +1714,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     if (e.target.closest('.modal-content')) return;
 
     const now = Date.now();
-    if (now - lastScrollTime < 800 || isScrolling) return;
+    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
 
     const touchEndY = e.changedTouches[0].clientY;
     const deltaY = touchStartY - touchEndY;
@@ -1655,7 +1730,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     if (document.querySelector('.modal-overlay.open')) return;
 
     const now = Date.now();
-    if (now - lastScrollTime < 800 || isScrolling) return;
+    if (now - lastScrollTime < SNAP_MS || isScrolling) return;
 
     if (['ArrowDown', 'PageDown', ' '].includes(e.key)) {
       e.preventDefault();
@@ -1673,7 +1748,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   // Play/Pause hover preview for video cards
   document.querySelectorAll('.demo-card video').forEach(v => {
     const card = v.closest('.demo-card');
-    card.addEventListener('mouseenter', () => v.play().catch(()=>{}));
+    card.addEventListener('mouseenter', () => { loadDemoVideo(v); v.play().catch(()=>{}); });
     card.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0; });
   });
 
