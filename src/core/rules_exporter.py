@@ -93,7 +93,7 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from os.path import exists, join, splitext
-from typing import Any, Deque, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterator, List, Optional, Set, Tuple
 from uuid import uuid4
 from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QMetaType, QVariant
@@ -996,18 +996,19 @@ class RulesExporter:
             if groups[0].filter_expression:
                 request.setFilterExpression(groups[0].filter_expression)
                 request.setExpressionContext(context)
-            if groups[0].keep_biggest_part:
-                biggest = self._biggest_part_ids(layer, request)
-                if biggest is not None:
-                    request = QgsFeatureRequest()
-                    request.setInvalidGeometryCheck(
-                        QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
-                    )
-                    request.setFilterFids(biggest)
+            # Read again in file order and skip the other parts, rather than
+            # fetching the biggest parts by id: base layers have no spatial
+            # index, so FlatGeobuf can only find a feature by id by reading
+            # from the start of the file.
+            biggest = (
+                self._biggest_part_ids(layer, request) if groups[0].keep_biggest_part else None
+            )
 
             for n, feature in enumerate(layer.getFeatures(request)):
                 if n % _WRITE_BATCH_SIZE == 0:
                     self._check_cancel()
+                if biggest is not None and feature.id() not in biggest:
+                    continue
                 context.setFeature(feature)
                 self._export_rule_feature(feature, context, outputs)
             for output in outputs:
@@ -1198,7 +1199,7 @@ class RulesExporter:
 
     def _biggest_part_ids(
         self, layer: QgsVectorLayer, request: QgsFeatureRequest
-    ) -> Optional[List[int]]:
+    ) -> Optional[Set[int]]:
         """Feature ids of the largest part of each original feature.
 
         Base layers are exploded to single parts tagged with q2vt_orig_id, so
@@ -1235,7 +1236,7 @@ class RulesExporter:
             current = best.get(key)
             if current is None or size > current[0]:
                 best[key] = (size, feature.id())
-        return [fid for _, fid in best.values()]
+        return {fid for _, fid in best.values()}
 
     def _plan_field(
         self,
