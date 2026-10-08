@@ -26,6 +26,7 @@ from qgis.core import (
 from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
 from .sprite_generator import SpriteGenerator
+from .rules_exporter import _TEMP_RULE_FORMAT
 from ..utils.config import _SPRITE_QUALITY, _MAPLIBRE_LABELS_FACTOR
 
 
@@ -1738,7 +1739,7 @@ class QgisMapLibreStyleExporter:
         if text_field:
             layer_def["layout"]["text-field"] = text_field
         font = TextPropertyExtractor.get_text_font(text_format)
-        dataset = join(self.utils_dir, f'{source_layer_name}.gpkg')
+        dataset = join(self.utils_dir, f'{source_layer_name}.{_TEMP_RULE_FORMAT}')
         if self.glyphs.get(font):
             self.glyphs[font].append(dataset)
         else:

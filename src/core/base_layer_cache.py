@@ -35,7 +35,7 @@ from ..utils.config import (
 
 # Bump whenever the way base layers are built changes, to invalidate entries
 # made by older code.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 # Providers whose URI starts with a local file path.
 _FILE_PROVIDERS = frozenset({"ogr"})

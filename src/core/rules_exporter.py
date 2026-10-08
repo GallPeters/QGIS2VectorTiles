@@ -38,26 +38,30 @@ The redesign separates the export pipeline into clearly typed phases:
    │     the rule expressions actually reference.                         │
    │   * After this phase NO QObject crosses a thread boundary.           │
    ├──────────────────────────────────────────────────────────────────────┤
-   │ Phase 1 — Source materialisation (SERIAL, caller thread)             │
+   │ Phase 1 — Source reading (SERIAL, caller thread)                     │
    │   * Each source is read from a fresh QgsVectorLayer constructed FROM │
-   │     URI, filtered to the extent bbox and the referenced fields only, │
-   │     and dumped to a local file. The bbox filter runs inside the      │
-   │     provider (server-side for Postgres), so out-of-extent rows are   │
-   │     never transferred.                                               │
+   │     URI, filtered to the extent bbox and the referenced fields only. │
+   │     The bbox filter runs inside the provider (server-side for        │
+   │     Postgres), so out-of-extent rows are never transferred.          │
    │   * Postgres / remote providers are not parallel-safe; we never read │
-   │     more than one source concurrently. Each materialised source is   │
-   │     handed to Phase 2 immediately, so reads overlap with processing. │
+   │     more than one source concurrently. Features go to Phase 2 in     │
+   │     batches as they are read, so reads overlap with processing.      │
    ├──────────────────────────────────────────────────────────────────────┤
-   │ Phase 2 — Base-layer pipeline (PARALLEL, file → file)                │
-   │   * For each materialised source, ONE streaming pass: fix geometry → │
-   │     reproject → orig_id → explode multiparts → simplify.             │
-   │   * All inputs and outputs are file paths; no live layers cross      │
-   │     threads.                                                         │
+   │ Phase 2 — Base-layer pipeline (PARALLEL batches, caller writes)      │
+   │   * Workers take each batch through fix geometry → reproject →       │
+   │     explode multiparts → simplify; batches of every source, and      │
+   │     several batches of one large source, are processed at once.      │
+   │   * The caller thread writes finished batches to the base layer in   │
+   │     reading order, numbering orig_id as it goes. No intermediate     │
+   │     copy of the source is written.                                   │
    ├──────────────────────────────────────────────────────────────────────┤
    │ Phase 3 — Rule export (PARALLEL, file → file)                        │
-   │   * For each rule group, ONE streaming pass over the base layer:     │
-   │     filter → field expressions → geometry transform → drop null /    │
-   │     empty → explode multiparts, written straight to the output file. │
+   │   * Rule groups of one base layer that share a filter are exported   │
+   │     in ONE streaming pass: filter → geometry transform → clip to the │
+   │     extent → drop null / empty → explode multiparts → field          │
+   │     expressions, written straight to each group's output file.       │
+   │     Expressions shared by several groups (typically the geometry     │
+   │     transform) are evaluated once per feature.                       │
    │   * "Keep biggest part" groups first pick the largest part per       │
    │     orig_id (no dissolve / geometry union needed).                   │
    │   * Inputs are base-layer file paths and pure-data RuleGroupSnapshot │
@@ -85,10 +89,11 @@ import os
 import threading
 import traceback
 import platform
+from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from os.path import exists, join, splitext
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
 from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QMetaType, QVariant
@@ -146,17 +151,22 @@ _SERIAL_READ_PROVIDERS = frozenset(
     {"postgres", "mssql", "oracle", "wfs", "spatialite", "hana", "db2"}
 )
 
-# Temp files prefered to be parquet but in linux which not support parquet they are became gpkg.
-# FlatGeobuf, not SQLite/SpatiaLite: many threads create and read these files
-# at once, and SpatiaLite's per-connection setup isn't thread-safe (it calls
-# setlocale), which corrupted the heap. Written without a spatial index, so
-# features keep their order.
+# Base layers and rule outputs. FlatGeobuf, not SQLite/SpatiaLite/GeoPackage:
+# many threads create and read these files at once, and SpatiaLite's
+# per-connection setup isn't thread-safe (it calls setlocale), which corrupted
+# the heap. Written without a spatial index (nothing reads them by area, and
+# the index would reorder features), so writing is a plain append.
 _TEMP_LAYER_FORMAT = 'fgb'
-_TEMP_RULE_FORMAT = 'gpkg'
+_TEMP_RULE_FORMAT = 'fgb'
 
-# Features buffered per writer.addFeatures() call, and how often streaming
-# loops poll for cancellation.
+# Features buffered per writer.addFeatures() call, features per base-layer
+# batch handed to a worker, and how often streaming loops poll for
+# cancellation.
 _WRITE_BATCH_SIZE = 1000
+
+# Most rule outputs one pass writes at once, as each holds an open file and a
+# write buffer; groups beyond this go to further passes.
+_MAX_GROUPS_PER_PASS = 64
 
 # Output WKB type per geometrybyexpression OUTPUT_GEOMETRY code
 # (0 = polygon, 1 = line, 2 = point), already exploded to single parts.
@@ -243,8 +253,52 @@ class _RuleGroupSnapshot:
         return f'{rule_type} of the "{self.layer_name or self.layer_id}" layer'
 
 
+class _BaseBuild:
+    """One base layer being written by the caller thread (Phases 1 + 2)."""
+
+    def __init__(self, src: _SourceSnapshot, path: str):
+        self.src = src
+        self.path = path
+        self.writer: Optional[QgsVectorFileWriter] = None
+        self.orig_idx = -1
+        self.pending = 0            # Batches submitted but not yet written.
+        self.reading_done = False
+        self.orig_id = 0
+        self.dropped = 0
+        self.failed = False
+        self.finished = False
+
+
+class _RuleOutput:
+    """One rule group's output while a Phase 3 pass writes it."""
+
+    def __init__(self, grp: _RuleGroupSnapshot, path: str, wkb_type):
+        self.grp = grp
+        self.path = path
+        self.wkb_type = wkb_type
+        self.geometry_type = QgsWkbTypes.geometryType(wkb_type)
+        self.fields = QgsFields()
+        self.plan: List[Tuple[int, QgsField, Any, bool]] = []
+        self.geometry: Optional[QgsExpression] = None
+        self.writer: Optional[QgsVectorFileWriter] = None
+        self.batch: List[QgsFeature] = []
+        self.written = 0
+        self.failed = False
+        # Problems that don't stop the export, reported once per group as
+        # {what: [occurrences, first error]}.
+        self.problems: Dict[str, List[Any]] = {}
+
+    def note(self, what: str, error: str) -> None:
+        entry = self.problems.setdefault(what, [0, error])
+        entry[0] += 1
+
+
 class _Cancelled(Exception):
     """Raised inside workers when the caller has signalled cancellation."""
+
+
+# Marks a per-feature cache entry not computed yet.
+_MISSING = object()
 
 
 # ============================================================================
@@ -480,103 +534,19 @@ class RulesExporter:
         return tuple(sorted(names))
 
     # -------------------------------------------------------------------
-    # Phase 1 — source materialisation
-    # -------------------------------------------------------------------
-    def _materialized_path(self, src: _SourceSnapshot) -> str:
-        return join(self.utils_dir, f"materialized_{src.layer_id}.{_TEMP_LAYER_FORMAT}")
-
-    def _materialize_source(self, src: _SourceSnapshot) -> Optional[str]:
-        """Dump the in-extent, referenced-fields-only part of a source to a
-        local file. Returns its path, or None if the source can't be read.
-
-        Caller thread only: this is the only place in the pipeline where we
-        touch a database/network provider.
-        """
-        self._check_cancel()
-        out_path = self._materialized_path(src)
-        if exists(out_path):
-            # Idempotent restart support.
-            return out_path
-
-        # Open a FRESH layer in this thread. The original FlattenedRule.layer
-        # reference may have main-thread affinity; here we deliberately don't
-        # reuse it. The newly constructed layer is owned by this thread.
-        layer = QgsVectorLayer(src.source_uri, src.name, src.provider)
-        try:
-            return self._materialize_layer(src, layer, out_path)
-        finally:
-            self._dispose_layer(layer)
-
-    def _materialize_layer(
-        self, src: _SourceSnapshot, layer: QgsVectorLayer, out_path: str
-    ) -> Optional[str]:
-        """_materialize_source, once the source layer is open."""
-        if not layer.isValid():
-            self.feedback.pushWarning(
-                f"Cannot open source '{src.name}' "
-                f"(provider={src.provider}); skipping."
-            )
-            return None
-
-        fields = layer.fields()
-        if src.required_fields is None:
-            indices = list(range(fields.count()))
-        else:
-            indices = sorted(
-                {fields.lookupField(name) for name in src.required_fields} - {-1}
-            )
-        subset = len(indices) != fields.count()
-        out_fields = QgsFields()
-        for idx in indices:
-            out_fields.append(fields.at(idx))
-
-        request = QgsFeatureRequest()
-        request.setInvalidGeometryCheck(
-            QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
-        )
-        if src.extent is not None:
-            # Bbox-only test: the provider evaluates it with its spatial index
-            # (server-side for databases) and it never trips on invalid
-            # geometries. Rule geometry expressions clip to the exact extent.
-            request.setFilterRect(QgsRectangle(*src.extent))
-        if subset:
-            request.setSubsetOfAttributes(indices)
-
-        writer = self._create_writer(out_path, out_fields, layer.wkbType(), layer.crs())
-        completed = False
-        try:
-            batch: List[QgsFeature] = []
-            for feature in layer.getFeatures(request):
-                if subset:
-                    out = QgsFeature(out_fields, feature.id())
-                    out.setAttributes([feature.attribute(i) for i in indices])
-                    out.setGeometry(feature.geometry())
-                    feature = out
-                batch.append(feature)
-                if len(batch) >= _WRITE_BATCH_SIZE:
-                    self._check_cancel()
-                    self._write_batch(writer, batch)
-            self._write_batch(writer, batch)
-            completed = True
-        finally:
-            del writer  # Closes the file.
-            if not completed:
-                self._remove_file(out_path)
-        return out_path
-
-    # -------------------------------------------------------------------
-    # Phase 2 — parallel base-layer pipeline (file → file)
+    # Phases 1 + 2 — read sources, build base layers
     # -------------------------------------------------------------------
     def _build_base_layers(
         self, sources: Dict[str, _SourceSnapshot]
     ) -> Dict[str, str]:
-        """Materialise every source and run fix → reproject → orig_id →
-        singleparts → simplify on it.
+        """Read every source and run fix → reproject → orig_id → singleparts
+        → simplify on it.
 
-        Sources are materialised one at a time on this (caller) thread —
-        opening project sources from worker threads can deadlock — and each
-        is submitted to the pool as soon as it is on disk, so the caller
-        reads the next source while workers process the previous ones.
+        Sources are read one at a time on this (caller) thread — opening
+        project sources from worker threads can deadlock. Their features go
+        to the pool in batches, and this thread writes the finished batches
+        to the base layers in reading order. Workers process batches of
+        every source at once, including several of one large source.
 
         Base layers of unchanged local sources come from BaseLayerCache;
         new ones are built under a temporary name and then committed to it.
@@ -601,152 +571,248 @@ class RulesExporter:
             self.feedback.pushInfo(
                 f". Reused {reused} of {len(sources)} prepared layers from the cache."
             )
-        # Cached entries are built under a temporary name, committed when done.
-        build_paths = {
-            lid: cache.temp_path_for(target_paths[lid]) if cached[lid] else target_paths[lid]
-            for lid in todo
-        }
-
         if not todo:
             return target_paths
 
-        max_workers = self._compute_pool_size(len(todo))
-
+        max_workers = self._compute_pool_size(os.cpu_count() or 1)
+        builds: Dict[str, _BaseBuild] = {}
         with ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="rules-base",
             initializer=_lower_thread_priority,
         ) as pool:
-            futures: Dict[Future, str] = {}
-            for lid, src in todo.items():
-                try:
-                    if src.needs_serial_read:
-                        with self._serial_read_lock:
-                            src_path = self._materialize_source(src)
-                    else:
-                        src_path = self._materialize_source(src)
-                except _Cancelled:
-                    self.feedback.pushInfo("Base-layer build cancelled.")
-                    return target_paths
-                except Exception as e:  # noqa: BLE001  (we want to swallow per-source)
-                    self.feedback.pushWarning(f'The "{src.name}" layer was skipped: {e}')
-                    self.feedback.pushDebugInfo(
-                        f"Failed to export source '{src.name}':\n"
-                        f"{traceback.format_exc()}"
-                    )
-                    continue
-                if src_path is not None:
-                    futures[pool.submit(
-                        self._build_one_base_layer, src_path, build_paths[lid]
-                    )] = lid
+            # (build, future) in submission order — the order they are written.
+            pending: Deque[Tuple[_BaseBuild, Future]] = deque()
+            try:
+                for lid, src in todo.items():
+                    # Cached entries are built under a temporary name.
+                    path = cache.temp_path_for(target_paths[lid]) if cached[lid] else target_paths[lid]
+                    build = builds[lid] = _BaseBuild(src, path)
+                    try:
+                        if src.needs_serial_read:
+                            with self._serial_read_lock:
+                                self._read_source(build, pool, pending, max_workers)
+                        else:
+                            self._read_source(build, pool, pending, max_workers)
+                    except _Cancelled:
+                        raise
+                    except Exception as e:  # noqa: BLE001  (we want to swallow per-source)
+                        self._fail_base_build(build, e)
+                    build.reading_done = True
+                    if build.pending == 0:
+                        self._finish_base_build(build)
+                self._write_ready_batches(pending, keep=0)
+            except _Cancelled:
+                self.feedback.pushInfo("Base-layer build cancelled.")
+                for _, fut in pending:
+                    fut.cancel()
+                for build in builds.values():
+                    if not build.finished:
+                        self._close_base_build(build, remove=True)
 
-            for fut in self._iter_completed(futures):
-                lid = futures[fut]
-                try:
-                    fut.result(timeout=_PER_ALG_TIMEOUT_S)
-                    if cached[lid]:
-                        target_paths[lid] = cache.commit(build_paths[lid], target_paths[lid])
-                except _Cancelled:
-                    self.feedback.pushInfo("Base-layer build cancelled.")
-                    return target_paths
-                except Exception as e:  # noqa: BLE001
-                    self.feedback.pushWarning(f'The "{sources[lid].name}" layer was skipped: {e}')
-                    self.feedback.pushDebugInfo(
-                        f"Base-layer build failed for layer_id={lid}:\n"
-                        f"{traceback.format_exc()}"
-                    )
+        # Base layers finished before a cancellation are still worth keeping.
+        for lid, build in builds.items():
+            if build.finished and cached[lid]:
+                target_paths[lid] = cache.commit(build.path, target_paths[lid])
         return target_paths
 
-    def _build_one_base_layer(self, src_path: str, dst_path: str) -> None:
-        """Worker: build the base layer from a materialised local file.
+    def _read_source(
+        self,
+        build: _BaseBuild,
+        pool: ThreadPoolExecutor,
+        pending: "Deque[Tuple[_BaseBuild, Future]]",
+        max_workers: int,
+    ) -> None:
+        """Read the in-extent, referenced-fields-only part of a source and
+        submit it to the pool in batches.
 
-        One streaming pass equivalent to the processing chain
-        fixgeometries(METHOD=0) → reprojectlayer → fieldcalculator
-        (q2vt_orig_id) → multiparttosingleparts → simplifygeometries(METHOD=0),
-        but every feature is read once and only the result is written.
+        Caller thread only: this is the only place in the pipeline where we
+        touch a database/network provider.
         """
         self._check_cancel()
-        layer = QgsVectorLayer(src_path, "materialized", "ogr")
+        src = build.src
+        # Open a FRESH layer in this thread. The original FlattenedRule.layer
+        # reference may have main-thread affinity; here we deliberately don't
+        # reuse it. The newly constructed layer is owned by this thread.
+        layer = QgsVectorLayer(src.source_uri, src.name, src.provider)
         try:
-            self._build_base_layer_from(layer, src_path, dst_path)
+            if not layer.isValid():
+                build.failed = True
+                self.feedback.pushWarning(
+                    f"Cannot open source '{src.name}' "
+                    f"(provider={src.provider}); skipping."
+                )
+                return
+
+            fields = layer.fields()
+            if src.required_fields is None:
+                indices = list(range(fields.count()))
+            else:
+                indices = sorted(
+                    {fields.lookupField(name) for name in src.required_fields} - {-1}
+                )
+            subset = len(indices) != fields.count()
+
+            # Output schema: the read fields + q2vt_orig_id, typed as
+            # fieldcalculator's FIELD_TYPE=0 (decimal, length 10, precision 3).
+            out_fields = QgsFields()
+            for idx in indices:
+                out_fields.append(fields.at(idx))
+            orig_name = f"{_FIELD_PREFIX}_orig_id"
+            build.orig_idx = out_fields.lookupField(orig_name)
+            if build.orig_idx < 0:
+                out_fields.append(QgsField(orig_name, QMetaType.Type.Double, "", 10, 3))
+                build.orig_idx = out_fields.count() - 1
+
+            request = QgsFeatureRequest()
+            request.setInvalidGeometryCheck(
+                QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
+            )
+            if src.extent is not None:
+                # Bbox-only test: the provider evaluates it with its spatial
+                # index (server-side for databases) and it never trips on
+                # invalid geometries. Rule outputs are clipped to the exact
+                # extent.
+                request.setFilterRect(QgsRectangle(*src.extent))
+            if subset:
+                request.setSubsetOfAttributes(indices)
+
+            build.writer = self._create_writer(
+                build.path, out_fields, QgsWkbTypes.singleType(layer.wkbType()),
+                QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
+            )
+            source_crs = layer.crs()
+            batch: List[Tuple[List[Any], QgsGeometry]] = []
+            for feature in layer.getFeatures(request):
+                attributes = (
+                    [feature.attribute(i) for i in indices] if subset else feature.attributes()
+                )
+                batch.append((attributes, feature.geometry()))
+                if len(batch) >= _WRITE_BATCH_SIZE:
+                    self._check_cancel()
+                    self._submit_base_batch(build, batch, source_crs, out_fields, pool, pending, max_workers)
+                    batch = []
+                    if build.failed:
+                        return  # Writing an earlier batch failed.
+            if batch:
+                self._submit_base_batch(build, batch, source_crs, out_fields, pool, pending, max_workers)
         finally:
             self._dispose_layer(layer)
 
-    def _build_base_layer_from(
-        self, layer: QgsVectorLayer, src_path: str, dst_path: str
+    def _submit_base_batch(
+        self, build, batch, source_crs, out_fields, pool, pending, max_workers
     ) -> None:
-        """_build_one_base_layer, once the materialised layer is open."""
-        if not layer.isValid():
-            raise RuntimeError(f"Cannot open materialised source '{src_path}'")
+        """Hand a batch to the pool, then write whatever batches are ready."""
+        pending.append((build, pool.submit(
+            self._prepare_base_batch, batch, source_crs, out_fields, build.orig_idx
+        )))
+        build.pending += 1
+        # Bounds the features held in memory while workers catch up.
+        self._write_ready_batches(pending, keep=2 * max_workers)
 
-        # Output schema: source fields + q2vt_orig_id, typed as fieldcalculator's
-        # FIELD_TYPE=0 (decimal, length 10, precision 3).
-        out_fields = QgsFields(layer.fields())
-        orig_name = f"{_FIELD_PREFIX}_orig_id"
-        orig_idx = out_fields.lookupField(orig_name)
-        if orig_idx < 0:
-            out_fields.append(QgsField(orig_name, QMetaType.Type.Double, "", 10, 3))
-            orig_idx = out_fields.count() - 1
+    def _prepare_base_batch(
+        self,
+        batch: List[Tuple[List[Any], QgsGeometry]],
+        source_crs: QgsCoordinateReferenceSystem,
+        out_fields: QgsFields,
+        orig_idx: int,
+    ) -> List[Optional[List[QgsFeature]]]:
+        """Worker: fix → reproject → singleparts → simplify one batch.
 
-        dest_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
-        transform = QgsCoordinateTransform(layer.crs(), dest_crs, self._transform_context)
-        out_wkb = QgsWkbTypes.singleType(layer.wkbType())
+        Returns, per feature that survives, its output parts; q2vt_orig_id
+        is filled in by the writer, which knows the feature's position.
+        """
+        self._check_cancel()
+        transform = QgsCoordinateTransform(
+            source_crs, QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
+            self._transform_context,
+        )
+        size = out_fields.count()
+        results: List[Optional[List[QgsFeature]]] = []
+        for attributes, geometry in batch:
+            if not geometry.isNull():
+                geometry = self._fix_geometry(geometry)
+                if not geometry.isNull():
+                    try:
+                        geometry.transform(transform)
+                    except QgsCsException:
+                        results.append(None)  # reprojectlayer drops these too
+                        continue
+            attributes += [None] * (size - len(attributes))
+            parts = (
+                geometry.asGeometryCollection()
+                if not geometry.isNull() and geometry.isMultipart()
+                else [geometry]
+            )
+            features = []
+            for part in parts:
+                out = QgsFeature(out_fields)
+                out.setAttributes(attributes)
+                out.setGeometry(
+                    part if part.isNull() else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
+                )
+                features.append(out)
+            results.append(features)
+        return results
 
-        request = QgsFeatureRequest()
-        request.setInvalidGeometryCheck(
-            QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
+    def _write_ready_batches(
+        self, pending: "Deque[Tuple[_BaseBuild, Future]]", keep: int
+    ) -> None:
+        """Write finished batches in submission order, waiting for the oldest
+        while more than ``keep`` are pending."""
+        while pending and (len(pending) > keep or pending[0][1].done()):
+            build, fut = pending.popleft()
+            build.pending -= 1
+            try:
+                results = fut.result(timeout=_PER_ALG_TIMEOUT_S)
+                if not build.failed:
+                    self._write_base_results(build, results)
+            except _Cancelled:
+                raise
+            except Exception as e:  # noqa: BLE001
+                self._fail_base_build(build, e)
+            if build.reading_done and build.pending == 0:
+                self._finish_base_build(build)
+
+    def _write_base_results(
+        self, build: _BaseBuild, results: List[Optional[List[QgsFeature]]]
+    ) -> None:
+        batch: List[QgsFeature] = []
+        for features in results:
+            if features is None:
+                build.dropped += 1
+                continue
+            # @id of the reprojected layer: 1-based position of the feature.
+            build.orig_id += 1
+            for feature in features:
+                feature.setAttribute(build.orig_idx, float(build.orig_id))
+            batch.extend(features)
+        self._write_batch(build.writer, batch)
+
+    def _fail_base_build(self, build: _BaseBuild, error: Exception) -> None:
+        if build.failed:
+            return
+        build.failed = True
+        self._close_base_build(build, remove=True)
+        self.feedback.pushWarning(f'The "{build.src.name}" layer was skipped: {error}')
+        self.feedback.pushDebugInfo(
+            f"Base-layer build failed for '{build.src.name}':\n{traceback.format_exc()}"
         )
 
-        dropped = 0
-        orig_id = 0
-        completed = False
-        writer = self._create_writer(dst_path, out_fields, out_wkb, dest_crs)
-        try:
-            batch: List[QgsFeature] = []
-            for n, feature in enumerate(layer.getFeatures(request)):
-                if n % _WRITE_BATCH_SIZE == 0:
-                    self._check_cancel()
-                geometry = feature.geometry()
-                if not geometry.isNull():
-                    geometry = self._fix_geometry(geometry)
-                    if not geometry.isNull():
-                        try:
-                            geometry.transform(transform)
-                        except QgsCsException:
-                            dropped += 1  # reprojectlayer drops these too
-                            continue
-
-                # @id of the reprojected layer: 1-based position of the feature.
-                orig_id += 1
-                attributes = feature.attributes()
-                attributes += [None] * (out_fields.count() - len(attributes))
-                attributes[orig_idx] = float(orig_id)
-
-                parts = (
-                    geometry.asGeometryCollection()
-                    if not geometry.isNull() and geometry.isMultipart()
-                    else [geometry]
-                )
-                for part in parts:
-                    out = QgsFeature(out_fields)
-                    out.setAttributes(attributes)
-                    out.setGeometry(
-                        part if part.isNull() else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
-                    )
-                    batch.append(out)
-                if len(batch) >= _WRITE_BATCH_SIZE:
-                    self._write_batch(writer, batch)
-            self._write_batch(writer, batch)
-            completed = True
-        finally:
-            del writer  # Closes the file.
-            if not completed:
-                self._remove_file(dst_path)
-
-        if dropped:
+    def _finish_base_build(self, build: _BaseBuild) -> None:
+        if build.failed or build.finished:
+            return
+        build.finished = True
+        self._close_base_build(build, remove=False)
+        if build.dropped:
             self.feedback.pushWarning(
-                f"{dropped} features of '{layer.name()}' could not be reprojected "
-                f"to EPSG:{_EPSG_CRS} and were skipped."
+                f"{build.dropped} features of '{build.src.name}' could not be "
+                f"reprojected to EPSG:{_EPSG_CRS} and were skipped."
             )
+
+    def _close_base_build(self, build: _BaseBuild, remove: bool) -> None:
+        build.writer = None  # Closes the file.
+        if remove:
+            self._remove_file(build.path)
 
     @staticmethod
     def _fix_geometry(geometry: QgsGeometry) -> QgsGeometry:
@@ -757,6 +823,8 @@ class RulesExporter:
         the algorithm leaves it.
         """
         geometry_type = geometry.type()
+        if geometry_type == Qgis.GeometryType.Point:
+            return geometry  # Points have nothing to repair.
         fixed = geometry.makeValid(Qgis.MakeValidMethod.Linework, False)
         if fixed.isNull():
             return QgsGeometry()
@@ -777,48 +845,58 @@ class RulesExporter:
         rule_groups: List[_RuleGroupSnapshot],
         base_layers: Dict[str, str],
     ) -> Dict[str, Optional[str]]:
-        """For each rule group, run filter → refactor → geometry chain in parallel."""
+        """Export the rule groups in parallel, one pass per base layer and
+        filter: groups that read the same features share the read and the
+        expressions they have in common."""
         outputs: Dict[str, Optional[str]] = {}
-        if not rule_groups:
+        passes: Dict[Tuple[str, Optional[str], bool], List[_RuleGroupSnapshot]] = {}
+        for grp in rule_groups:
+            src_path = base_layers.get(grp.layer_id)
+            if not src_path or not exists(src_path):
+                outputs[grp.output_dataset] = None
+                continue
+            key = (grp.layer_id, grp.filter_expression, grp.keep_biggest_part)
+            passes.setdefault(key, []).append(grp)
+        tasks: List[Tuple[str, List[_RuleGroupSnapshot]]] = []
+        for (layer_id, _, _), groups in passes.items():
+            for i in range(0, len(groups), _MAX_GROUPS_PER_PASS):
+                tasks.append((base_layers[layer_id], groups[i:i + _MAX_GROUPS_PER_PASS]))
+        if not tasks:
             return outputs
+        # Largest first, so that no big pass starts last and holds up the end.
+        tasks.sort(key=lambda task: self._file_size(task[0]) * len(task[1]), reverse=True)
 
-        max_workers = self._compute_pool_size(len(rule_groups))
+        max_workers = self._compute_pool_size(len(tasks))
 
         with ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="rules-export",
             initializer=_lower_thread_priority,
         ) as pool:
-            futures: Dict[Future, _RuleGroupSnapshot] = {}
-            for grp in rule_groups:
-                src_path = base_layers.get(grp.layer_id)
-                if not src_path or not exists(src_path):
-                    outputs[grp.output_dataset] = None
-                    continue
-                fut = pool.submit(
-                    self._export_one_rule_group, grp, src_path
-                )
-                futures[fut] = grp
-
+            futures: Dict[Future, List[_RuleGroupSnapshot]] = {
+                pool.submit(self._export_rule_pass, groups, src_path): groups
+                for src_path, groups in tasks
+            }
             for fut in self._iter_completed(futures):
-                grp = futures[fut]
+                groups = futures[fut]
                 try:
-                    outputs[grp.output_dataset] = fut.result(
-                        timeout=_PER_ALG_TIMEOUT_S
-                    )
+                    outputs.update(fut.result(timeout=_PER_ALG_TIMEOUT_S))
                 except _Cancelled:
                     self.feedback.pushInfo("Rule export cancelled.")
-                    for pending_fut, pending_grp in futures.items():
-                        outputs.setdefault(pending_grp.output_dataset, None)
+                    for pending_groups in futures.values():
+                        for grp in pending_groups:
+                            outputs.setdefault(grp.output_dataset, None)
                     return outputs
                 except Exception as e:  # noqa: BLE001
-                    self.feedback.pushWarning(
-                        f"A rule in the {grp.label} was skipped: {e}"
-                    )
+                    for grp in groups:
+                        self.feedback.pushWarning(
+                            f"A rule in the {grp.label} was skipped: {e}"
+                        )
+                        outputs[grp.output_dataset] = None
                     self.feedback.pushDebugInfo(
-                        f"Rule export failed for '{grp.output_dataset}':\n"
+                        f"Rule export failed for "
+                        f"{', '.join(grp.output_dataset for grp in groups)}:\n"
                         f"{traceback.format_exc()}"
                     )
-                    outputs[grp.output_dataset] = None
         return outputs
 
     def validate_expression(self, grp, expr_str: str):
@@ -840,21 +918,117 @@ class RulesExporter:
 
         return expr_str
 
-    def _export_one_rule_group(
-        self, grp: _RuleGroupSnapshot, source_path: str
-    ) -> Optional[str]:
-        """Worker: export one rule group in a single streaming pass.
+    def _export_rule_pass(
+        self, groups: List[_RuleGroupSnapshot], source_path: str
+    ) -> Dict[str, Optional[str]]:
+        """Worker: export rule groups that share a base layer and a filter in
+        a single streaming pass.
 
-        Equivalent to the chain extractbyexpression → refactorfields →
-        [dissolve → keepnbiggestparts] → geometrybyexpression →
-        removenullgeometries → multiparttosingleparts, but every feature is
-        read once and only the final output is written to disk.
+        Per group, equivalent to the chain extractbyexpression →
+        refactorfields → [dissolve → keepnbiggestparts] →
+        geometrybyexpression → clip to the extent → removenullgeometries →
+        multiparttosingleparts, but every feature is read once for all the
+        groups and only the final outputs are written to disk.
         """
         self._check_cancel()
-        output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
-        if exists(output_path):
-            return output_path
+        layer = QgsVectorLayer(source_path, "base", "ogr")
+        try:
+            return self._export_rule_pass_from(groups, layer)
+        finally:
+            self._dispose_layer(layer)
 
+    def _export_rule_pass_from(
+        self, groups: List[_RuleGroupSnapshot], layer: QgsVectorLayer
+    ) -> Dict[str, Optional[str]]:
+        """_export_rule_pass, once the base layer is open."""
+        results: Dict[str, Optional[str]] = {grp.output_dataset: None for grp in groups}
+        if not layer.isValid():
+            return results
+        src_fields = layer.fields()
+
+        context = QgsProject.instance().createExpressionContext()
+        context.appendScope(QgsExpressionContextUtils.layerScope(layer))
+        context.setFields(src_fields)
+        # Planar measurements, as with a default QgsProcessingContext.
+        distance_area = QgsDistanceArea()
+        distance_area.setSourceCrs(layer.crs(), self._transform_context)
+
+        # One prepared expression per distinct string, shared by the groups,
+        # so that per feature each is evaluated once.
+        prepared: Dict[str, QgsExpression] = {}
+
+        def prepare(expr_str: str) -> QgsExpression:
+            expr = prepared.get(expr_str)
+            if expr is None:
+                expr = prepared[expr_str] = self._prepare_expression(
+                    expr_str, context, distance_area
+                )
+            return expr
+
+        outputs: List[_RuleOutput] = []
+        completed = False
+        try:
+            for grp in groups:
+                output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
+                if exists(output_path):
+                    results[grp.output_dataset] = output_path
+                    continue
+                output = self._open_rule_output(grp, output_path, src_fields, layer.crs(), prepare)
+                if output is not None:
+                    outputs.append(output)
+            if not outputs:
+                return results
+
+            # Every group of a pass has the same filter and biggest-part mode.
+            request = QgsFeatureRequest()
+            request.setInvalidGeometryCheck(
+                QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
+            )
+            if groups[0].filter_expression:
+                request.setFilterExpression(groups[0].filter_expression)
+                request.setExpressionContext(context)
+            if groups[0].keep_biggest_part:
+                biggest = self._biggest_part_ids(layer, request)
+                if biggest is not None:
+                    request = QgsFeatureRequest()
+                    request.setInvalidGeometryCheck(
+                        QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
+                    )
+                    request.setFilterFids(biggest)
+
+            for n, feature in enumerate(layer.getFeatures(request)):
+                if n % _WRITE_BATCH_SIZE == 0:
+                    self._check_cancel()
+                context.setFeature(feature)
+                self._export_rule_feature(feature, context, outputs)
+            for output in outputs:
+                self._flush_rule_output(output)
+            completed = True
+        finally:
+            for output in outputs:
+                output.writer = None  # Closes the file.
+                if not completed or output.failed or output.written == 0:
+                    self._remove_file(output.path)
+
+        for output in outputs:
+            for what, (count, error) in output.problems.items():
+                self.feedback.pushWarning(
+                    f"In the {output.grp.label}: {count} {what}. First error: {error.strip()}"
+                )
+            if not output.failed and output.written:
+                results[output.grp.output_dataset] = output.path
+        return results
+
+    def _open_rule_output(
+        self,
+        grp: _RuleGroupSnapshot,
+        output_path: str,
+        src_fields: QgsFields,
+        crs: QgsCoordinateReferenceSystem,
+        prepare,
+    ) -> Optional[_RuleOutput]:
+        """Plan one group's output fields and geometry and open its writer;
+        None if the group can't be exported."""
         if grp.filter_expression and not self.validate_expression(grp, grp.filter_expression):
             return None
         if not self.validate_expression(grp, grp.geometry_expression):
@@ -865,132 +1039,153 @@ class RulesExporter:
         if out_wkb is None:
             return None
 
-        layer = QgsVectorLayer(source_path, "base", "ogr")
-        try:
-            return self._export_rule_group_from(grp, layer, output_path, out_wkb)
-        finally:
-            self._dispose_layer(layer)
-
-    def _export_rule_group_from(
-        self, grp: _RuleGroupSnapshot, layer: QgsVectorLayer, output_path: str, out_wkb
-    ) -> Optional[str]:
-        """_export_one_rule_group, once the base layer is open."""
-        if not layer.isValid():
-            return None
-        src_fields = layer.fields()
-
-        context = QgsProject.instance().createExpressionContext()
-        context.appendScope(QgsExpressionContextUtils.layerScope(layer))
-        context.setFields(src_fields)
-        # Planar measurements, as with a default QgsProcessingContext.
-        distance_area = QgsDistanceArea()
-        distance_area.setSourceCrs(layer.crs(), self._transform_context)
-
-        # Problems that don't stop the export, reported once per group as
-        # {what: [occurrences, first error]}.
-        problems: Dict[str, List[Any]] = {}
-
-        def note(what: str, error: str) -> None:
-            entry = problems.setdefault(what, [0, error])
-            entry[0] += 1
-
+        output = _RuleOutput(grp, output_path, out_wkb)
         # Per output field: how to compute its value, cheapest kind first —
         # a constant, a straight copy of a source attribute, or an expression.
-        out_fields = QgsFields()
-        field_plan: List[Tuple[int, QgsField, Any, bool]] = []
         for m in self._build_field_mapping(grp, src_fields):
             field = QgsField(m["name"], QMetaType.Type(m["type"]))
-            if not out_fields.append(field):
+            if not output.fields.append(field):
                 continue  # Duplicate name: first definition wins.
             try:
-                plan = self._plan_field(field, m["expression"], src_fields, context, distance_area)
+                plan = self._plan_field(field, m["expression"], src_fields, prepare)
             except RuntimeError as e:
-                note(f'field "{field.name()}" (exported as NULL)', str(e))
+                output.note(f'field "{field.name()}" (exported as NULL)', str(e))
                 plan = (_FIELD_CONSTANT, field, None, False)
-            field_plan.append(plan)
-        geom_expr = self._prepare_expression(grp.geometry_expression, context, distance_area)
-
-        request = QgsFeatureRequest()
-        request.setInvalidGeometryCheck(
-            QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
-        )
-        if grp.filter_expression:
-            request.setFilterExpression(grp.filter_expression)
-            request.setExpressionContext(context)
-        if grp.keep_biggest_part:
-            biggest = self._biggest_part_ids(layer, request)
-            if biggest is not None:
-                request = QgsFeatureRequest()
-                request.setInvalidGeometryCheck(
-                    QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
-                )
-                request.setFilterFids(biggest)
-
-        written = 0
-        completed = False
-        writer = self._create_writer(output_path, out_fields, out_wkb, layer.crs())
+            output.plan.append(plan)
         try:
-            batch: List[QgsFeature] = []
-            for n, feature in enumerate(layer.getFeatures(request)):
-                if n % _WRITE_BATCH_SIZE == 0:
-                    self._check_cancel()
-                context.setFeature(feature)
+            output.geometry = prepare(grp.geometry_expression)
+            output.writer = self._create_writer(output_path, output.fields, out_wkb, crs)
+        except RuntimeError as e:
+            self.feedback.pushWarning(f"A rule in the {grp.label} was skipped: {e}")
+            return None
+        return output
 
-                geometry = geom_expr.evaluate(context)
-                if geom_expr.hasEvalError():
-                    note("features (skipped: geometry could not be computed)", geom_expr.evalErrorString())
-                    continue
-                if geometry is None:
-                    continue
-                if not isinstance(geometry, QgsGeometry):
-                    note("features (skipped: geometry expression did not return a geometry)",
-                         f"got {geometry!r}")
-                    continue
-                if geometry.isNull() or geometry.isEmpty():
-                    continue
+    def _export_rule_feature(
+        self, feature: QgsFeature, context: QgsExpressionContext, outputs: List[_RuleOutput]
+    ) -> None:
+        """Add one base-layer feature to every output it belongs in."""
+        # Per expression object: its result for this feature.
+        geometries: Dict[int, Tuple[Optional[List[QgsGeometry]], Optional[Tuple[str, str]]]] = {}
+        values: Dict[int, Tuple[Any, Optional[str]]] = {}
+        src_values = None
+        for output in outputs:
+            if output.failed:
+                continue
+            key = id(output.geometry)
+            evaluated = geometries.get(key)
+            if evaluated is None:
+                evaluated = geometries[key] = self._evaluate_geometry(output.geometry, context)
+            parts, problem = evaluated
+            if problem is not None:
+                output.note(*problem)
+            if not parts:
+                continue
+            parts = self._parts_of_type(parts, output)
+            if not parts:
+                continue
 
+            if src_values is None:
                 src_values = feature.attributes()
-                attributes = []
-                for kind, field, source, convert in field_plan:
-                    if kind == _FIELD_CONSTANT:
-                        attributes.append(source)
-                        continue
-                    if kind == _FIELD_COPY:
-                        value = src_values[source]
-                    else:
+            attributes = []
+            for kind, field, source, convert in output.plan:
+                if kind == _FIELD_CONSTANT:
+                    attributes.append(source)
+                    continue
+                if kind == _FIELD_COPY:
+                    value = src_values[source]
+                else:
+                    cached = values.get(id(source), _MISSING)
+                    if cached is _MISSING:
                         value = source.evaluate(context)
-                        if source.hasEvalError():
-                            note(f'values of field "{field.name()}" (exported as NULL)', source.evalErrorString())
-                            attributes.append(None)
-                            continue
-                    if convert:
-                        try:
-                            value = self._convert_value(field, value)
-                        except RuntimeError as e:
-                            note(f'values of field "{field.name()}" (exported as NULL)', str(e))
-                            value = None
-                    attributes.append(value)
+                        error = source.evalErrorString() if source.hasEvalError() else None
+                        cached = values[id(source)] = (value, error)
+                    value, error = cached
+                    if error is not None:
+                        output.note(f'values of field "{field.name()}" (exported as NULL)', error)
+                        attributes.append(None)
+                        continue
+                if convert:
+                    try:
+                        value = self._convert_value(field, value)
+                    except RuntimeError as e:
+                        output.note(f'values of field "{field.name()}" (exported as NULL)', str(e))
+                        value = None
+                attributes.append(value)
 
-                parts = geometry.asGeometryCollection() if geometry.isMultipart() else [geometry]
-                for part in parts:
-                    out = QgsFeature(out_fields)
-                    out.setAttributes(attributes)
-                    out.setGeometry(part)
-                    batch.append(out)
-                if len(batch) >= _WRITE_BATCH_SIZE:
-                    written += self._write_batch(writer, batch)
-            written += self._write_batch(writer, batch)
-            completed = True
-        finally:
-            del writer  # Closes the file.
-            if not completed or written == 0:
-                self._remove_file(output_path)
+            for part in parts:
+                out = QgsFeature(output.fields)
+                out.setAttributes(attributes)
+                out.setGeometry(part)
+                output.batch.append(out)
+            if len(output.batch) >= _WRITE_BATCH_SIZE:
+                self._flush_rule_output(output)
 
-        for what, (count, error) in problems.items():
-            self.feedback.pushWarning(
-                f"In the {grp.label}: {count} {what}. First error: {error.strip()}"
-            )
-        return output_path if written else None
+    def _evaluate_geometry(
+        self, expr: QgsExpression, context: QgsExpressionContext
+    ) -> Tuple[Optional[List[QgsGeometry]], Optional[Tuple[str, str]]]:
+        """(single parts of the clipped geometry or None, problem or None)."""
+        geometry = expr.evaluate(context)
+        if expr.hasEvalError():
+            return None, ("features (skipped: geometry could not be computed)", expr.evalErrorString())
+        if geometry is None:
+            return None, None
+        if not isinstance(geometry, QgsGeometry):
+            return None, ("features (skipped: geometry expression did not return a geometry)",
+                          f"got {geometry!r}")
+        if geometry.isNull() or geometry.isEmpty():
+            return None, None
+        geometry = self._clip_to_extent(geometry)
+        if geometry is None:
+            return None, None
+        return (geometry.asGeometryCollection() if geometry.isMultipart() else [geometry]), None
+
+    def _clip_to_extent(self, geometry: QgsGeometry) -> Optional[QgsGeometry]:
+        """The part of ``geometry`` inside the export extent; None if none.
+
+        Most features lie wholly inside the extent and are returned as they
+        are; the rest are cut with GEOS's rectangle clip, much cheaper than a
+        general intersection with the extent polygon.
+        """
+        bbox = geometry.boundingBox()
+        if self.extent.contains(bbox):
+            return geometry
+        if not self.extent.intersects(bbox):
+            return None
+        clipped = geometry.clipped(self.extent)
+        if clipped.isNull() or clipped.isEmpty():
+            return None
+        return clipped
+
+    @staticmethod
+    def _parts_of_type(parts: List[QgsGeometry], output: _RuleOutput) -> List[QgsGeometry]:
+        """``parts`` as the output's WKB type; parts of another geometry type
+        (e.g. lines from a polygon geometry generator) are skipped."""
+        if all(part.wkbType() == output.wkb_type for part in parts):
+            return parts
+        matching: List[QgsGeometry] = []
+        for part in parts:
+            if part.wkbType() == output.wkb_type:
+                matching.append(part)
+            elif part.type() == output.geometry_type:
+                # Same kind with Z/M or curves: drop them as the file needs.
+                matching.extend(part.coerceToType(output.wkb_type))
+            else:
+                output.note(
+                    "geometry parts of another type (skipped)",
+                    f"got {QgsWkbTypes.displayString(part.wkbType())}",
+                )
+        return matching
+
+    def _flush_rule_output(self, output: _RuleOutput) -> None:
+        """Write a group's buffered features; a failure drops that group only."""
+        if output.failed:
+            return
+        try:
+            output.written += self._write_batch(output.writer, output.batch)
+        except RuntimeError as e:
+            output.failed = True
+            output.batch.clear()
+            self.feedback.pushWarning(f"A rule in the {output.grp.label} was skipped: {e}")
 
     def _biggest_part_ids(
         self, layer: QgsVectorLayer, request: QgsFeatureRequest
@@ -1038,20 +1233,20 @@ class RulesExporter:
         field: QgsField,
         expr_str: str,
         src_fields: QgsFields,
-        context: QgsExpressionContext,
-        distance_area: QgsDistanceArea,
+        prepare,
     ) -> Tuple[int, QgsField, Any, bool]:
         """(kind, field, source, convert) for one output field.
 
         Constants are evaluated and converted once; plain references to a
         source field are copied by index (and only converted when the types
-        differ); anything else is evaluated per feature.
+        differ); anything else is evaluated per feature. ``prepare`` turns
+        an expression string into a prepared QgsExpression.
         """
         if not isinstance(expr_str, str) or not expr_str.strip():
             # As in refactorfields, an empty expression yields NULL. The DDP
             # fetcher emits these for field-based properties.
             return (_FIELD_CONSTANT, field, None, False)
-        expr = self._prepare_expression(expr_str, context, distance_area)
+        expr = prepare(expr_str)
         root = expr.rootNode()
         if root is not None and root.hasCachedStaticValue():
             return (_FIELD_CONSTANT, field, self._convert_value(field, root.cachedStaticValue()), False)
@@ -1278,13 +1473,8 @@ class RulesExporter:
             return None
         if not transformation:
             return None
-        extent_wkt = self.extent.asWktPolygon()
-        clipped = (
-            f"with_variable('clip', intersection({transformation[1]}, "
-            f"geom_from_wkt('{extent_wkt}')), "
-            f"if(not is_empty_or_null(@clip), @clip, NULL))"
-        )
-        transformation[1] = clipped
+        # The result is clipped to the extent after evaluation, in
+        # _clip_to_extent.
         return tuple(transformation)
 
     def _get_labeling_transformation(self, flat_rule: FlattenedRule):
@@ -1389,6 +1579,13 @@ class RulesExporter:
             self._temp_files.clear()
         for p in paths:
             self._remove_file(p)
+
+    @staticmethod
+    def _file_size(path: str) -> int:
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
 
     @staticmethod
     def _remove_file(path: str) -> None:
