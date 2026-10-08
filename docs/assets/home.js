@@ -152,6 +152,39 @@
     }
   }
 
+  // --- Section dots ------------------------------------------------------
+  // One link per full-screen section; the browser's scroll snapping does the
+  // moving, the dots show where you are and jump on click.
+  var dotsNav = document.querySelector('.dots');
+  var slides = document.querySelectorAll('.slide[data-title]');
+  if (dotsNav && slides.length) {
+    var dotFor = {};
+    slides.forEach(function (slide) {
+      var a = document.createElement('a');
+      a.href = '#' + slide.id;
+      a.dataset.label = slide.dataset.title;
+      a.setAttribute('aria-label', slide.dataset.title);
+      dotsNav.appendChild(a);
+      dotFor[slide.id] = a;
+    });
+    var activeDot = null;
+    var setActive = function (id) {
+      var dot = dotFor[id];
+      if (!dot || dot === activeDot) return;
+      if (activeDot) { activeDot.classList.remove('is-active'); activeDot.removeAttribute('aria-current'); }
+      dot.classList.add('is-active');
+      dot.setAttribute('aria-current', 'true');
+      activeDot = dot;
+    };
+    setActive(slides[0].id);
+    if ('IntersectionObserver' in window) {
+      var spy = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) setActive(entry.target.id); });
+      }, { rootMargin: '-45% 0px -45% 0px' });
+      slides.forEach(function (slide) { spy.observe(slide); });
+    }
+  }
+
   // --- Dialogs: close button and backdrop click ---------------------------
   document.querySelectorAll('dialog').forEach(function (dlg) {
     dlg.addEventListener('click', function (e) {
