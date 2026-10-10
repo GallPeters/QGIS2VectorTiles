@@ -168,66 +168,57 @@
   <!-- 2 · Features ----------------------------------------------------- -->
   <section class="slide" id="features" data-title="Features" aria-labelledby="features-title">
     <div class="container slide-inner">
-      <div class="screen">
-        <div class="section-head split" data-reveal>
-          <div>
-            <p class="eyebrow">Features</p>
-            <h2 class="h2" id="features-title">Built for complex cartography, not a <span class="text-gradient">layer or two.</span></h2>
-          </div>
-          <p class="lead">Most QGIS web exporters focus on the HTML page. QGIS2VectorTiles focuses on the hard part: converting full cartographic styling into vector tiles that stay fast with large data.</p>
-        </div>
-
-        <div class="scale-strip" data-reveal style="--d:1">
-          <p class="scale-strip-title"><svg aria-hidden="true"><use href="#i-globe"/></svg><span>Made for projects like <strong>Natural Earth</strong></span></p>
-          <ul>
-            <li>Dozens of styled layers</li>
-            <li>Millions of features</li>
-            <li>Nested rules &amp; labels</li>
-            <li>Every zoom level</li>
-          </ul>
-        </div>
-      </div>
-
       <div class="features">
         <div class="screen">
-          <article class="feature" data-reveal>
+          <div class="section-head split" data-reveal>
+            <div>
+              <p class="eyebrow">Features</p>
+              <h2 class="h2" id="features-title">Your QGIS styling, carried all the way to the browser.</h2>
+            </div>
+            <p class="lead">Built for complex cartographic projects: many layers, large datasets and detailed styling, turned into fast vector tiles that look the way you designed them in QGIS.</p>
+          </div>
+          <article class="feature" data-reveal style="--d:1">
             <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
             <h3 class="h3">Complex styling</h3>
             <p>Nested rule-based, categorized and graduated renderers and geometry generators become flat, tile-ready rules.</p>
           </article>
-          <article class="feature" data-reveal style="--d:1">
+          <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-grid"/></svg></div>
             <h3 class="h3">Multi-scale maps</h3>
             <p>Scale ranges become zoom ranges, so every zoom level shows exactly the layers and rules you designed for it.</p>
           </article>
-          <article class="feature" data-reveal style="--d:2">
+        </div>
+        <div class="screen">
+          <p class="eyebrow screen-label" aria-hidden="true">Features</p>
+          <article class="feature" data-reveal>
             <div class="feature-icon"><svg><use href="#i-type"/></svg></div>
             <h3 class="h3">Labels &amp; symbols</h3>
             <p>Labels, fonts and marker symbols are rebuilt as MapLibre glyphs and icon sprites from your own project.</p>
           </article>
-          <article class="feature" data-reveal style="--d:3">
+          <article class="feature" data-reveal style="--d:1">
             <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
             <h3 class="h3">Data-defined styling</h3>
             <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
           </article>
-        </div>
-        <div class="screen">
-          <article class="feature" data-reveal>
+          <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
             <h3 class="h3">Large datasets</h3>
             <p>Millions of features are clipped to your extent, read once, cached between runs and tiled in parallel.</p>
           </article>
-          <article class="feature" data-reveal style="--d:1">
+        </div>
+        <div class="screen">
+          <p class="eyebrow screen-label" aria-hidden="true">Features</p>
+          <article class="feature" data-reveal>
             <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
             <h3 class="h3">Compact tiles</h3>
             <p>Each layer is written only to its own zoom range, with only the fields its style uses.</p>
           </article>
-          <article class="feature" data-reveal style="--d:2">
+          <article class="feature" data-reveal style="--d:1">
             <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
             <h3 class="h3">Client-side rendering</h3>
             <p>The browser draws the tiles with MapLibre or OpenLayers. No map server, sharp at every zoom.</p>
           </article>
-          <article class="feature" data-reveal style="--d:3">
+          <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
             <h3 class="h3">No dependencies</h3>
             <p>A standard QGIS Processing tool on the Python and GDAL that ship with QGIS. Nothing else to install.</p>
@@ -292,6 +283,7 @@
       </div>
 
       <div class="screen">
+        <p class="eyebrow screen-label" aria-hidden="true">How it works</p>
         <div class="pipeline-side">
           <div class="panel" data-reveal style="--d:1">
             <div class="panel-head"><span>Output package</span><span class="mono">6 parts</span></div>
@@ -336,6 +328,7 @@
       </div>
 
       <div class="screen">
+        <p class="eyebrow screen-label" aria-hidden="true">Gallery</p>
         <button class="demo" type="button" data-video="demos/demo_data_driven.mp4" data-reveal style="--d:1">
           <span class="demo-media">
             <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
@@ -397,6 +390,7 @@
       </div>
 
       <div class="screen">
+        <p class="eyebrow screen-label" aria-hidden="true">Use cases</p>
         <article class="usecase" data-reveal style="--d:1">
           <span class="usecase-num">02</span>
           <h3 class="h3">Web map services</h3>
