@@ -111,50 +111,56 @@
 <main id="main">
 
   <!-- 1 · Hero --------------------------------------------------------- -->
+  <!-- Each .screen is one phone screen; on wider layouts the wrappers
+       vanish (display: contents) and the grids lay out their children. -->
   <section class="slide hero" id="top" data-title="Overview" aria-labelledby="hero-title">
     <div class="hero-bg" aria-hidden="true"></div>
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container slide-inner">
       <div class="hero-inner">
-        <div class="hero-copy">
-          <a class="pill" href="changelog.html" data-reveal><b>v3.7</b>Much faster conversion<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
-          <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
-          <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No server, no internet connection, nothing else to install.</p>
-          <div class="hero-actions" data-reveal style="--d:3">
-            <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
-            <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
+        <div class="screen">
+          <div class="hero-copy">
+            <a class="pill" href="changelog.html" data-reveal><b>v3.7</b>Much faster conversion<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
+            <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
+            <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No server, no internet connection, nothing else to install.</p>
+            <div class="hero-actions" data-reveal style="--d:3">
+              <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
+              <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
+            </div>
+            <ul class="hero-meta" data-reveal style="--d:4">
+              <li><svg><use href="#i-check"/></svg>Free &amp; open source</li>
+              <li><svg><use href="#i-check"/></svg>QGIS 3.44 – 4.x</li>
+              <li><svg><use href="#i-check"/></svg>Works offline</li>
+            </ul>
           </div>
-          <ul class="hero-meta" data-reveal style="--d:4">
-            <li><svg><use href="#i-check"/></svg>Free &amp; open source</li>
-            <li><svg><use href="#i-check"/></svg>QGIS 3.44 – 4.x</li>
-            <li><svg><use href="#i-check"/></svg>Works offline</li>
-          </ul>
         </div>
 
-        <figure class="window" data-reveal style="--d:2">
-          <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>Same project, two places</span></div>
-          <div class="compare">
-            <img src="screenshots/qgis_screenshot.webp" alt="The project styled in QGIS Desktop" width="1315" height="1089" fetchpriority="high">
-            <img class="compare-after" src="screenshots/web_screenshot.webp" alt="The same project rendered as vector tiles in a web browser" width="1372" height="1126" fetchpriority="high">
-            <input class="compare-range" type="range" min="0" max="100" step="0.5" value="50" aria-label="Drag to compare QGIS Desktop and the web map">
-            <div class="compare-handle" aria-hidden="true"></div>
-            <span class="compare-label left" aria-hidden="true">QGIS Desktop</span>
-            <span class="compare-label right" aria-hidden="true">Web browser</span>
-          </div>
-          <figcaption class="visually-hidden">Drag the slider to compare the project in QGIS Desktop with the generated web map.</figcaption>
-        </figure>
-      </div>
+        <div class="screen">
+          <figure class="window" data-reveal style="--d:2">
+            <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>Same project, two places</span></div>
+            <div class="compare">
+              <img src="screenshots/qgis_screenshot.webp" alt="The project styled in QGIS Desktop" width="1315" height="1089" fetchpriority="high">
+              <img class="compare-after" src="screenshots/web_screenshot.webp" alt="The same project rendered as vector tiles in a web browser" width="1372" height="1126" fetchpriority="high">
+              <input class="compare-range" type="range" min="0" max="100" step="0.5" value="50" aria-label="Drag to compare QGIS Desktop and the web map">
+              <div class="compare-handle" aria-hidden="true"></div>
+              <span class="compare-label left" aria-hidden="true">QGIS Desktop</span>
+              <span class="compare-label right" aria-hidden="true">Web browser</span>
+            </div>
+            <figcaption class="visually-hidden">Drag the slider to compare the project in QGIS Desktop with the generated web map.</figcaption>
+          </figure>
 
-      <div class="works-with" data-reveal style="--d:3">
-        <p>Output works with</p>
-        <ul>
-          <li><img src="icons/maplibre.png" alt="" width="26" height="26">MapLibre</li>
-          <li><img src="icons/openlayers.png" alt="" width="26" height="26">OpenLayers</li>
-          <li><img src="icons/mapbox.png" alt="" width="26" height="26">Mapbox</li>
-          <li><img src="icons/maptiler.png" alt="" width="26" height="26">MapTiler</li>
-          <li><img src="icons/geoserver.png" alt="" width="26" height="26">GeoServer</li>
-          <li><img src="icons/qgis.png" alt="" width="26" height="26">QGIS</li>
-        </ul>
+          <div class="works-with" data-reveal style="--d:3">
+            <p>Output works with</p>
+            <ul>
+              <li><img src="icons/maplibre.png" alt="" width="26" height="26">MapLibre</li>
+              <li><img src="icons/openlayers.png" alt="" width="26" height="26">OpenLayers</li>
+              <li><img src="icons/mapbox.png" alt="" width="26" height="26">Mapbox</li>
+              <li><img src="icons/maptiler.png" alt="" width="26" height="26">MapTiler</li>
+              <li><img src="icons/geoserver.png" alt="" width="26" height="26">GeoServer</li>
+              <li><img src="icons/qgis.png" alt="" width="26" height="26">QGIS</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -162,72 +168,88 @@
   <!-- 2 · Features ----------------------------------------------------- -->
   <section class="slide" id="features" data-title="Features" aria-labelledby="features-title">
     <div class="container slide-inner">
-      <div class="section-head split" data-reveal>
-        <div>
-          <p class="eyebrow">Features</p>
-          <h2 class="h2" id="features-title">Your QGIS styling, carried all the way to the browser.</h2>
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Features</p>
+            <h2 class="h2" id="features-title">Built for complex cartography, not a <span class="text-gradient">layer or two.</span></h2>
+          </div>
+          <p class="lead">Most QGIS web exporters focus on the HTML page. QGIS2VectorTiles focuses on the hard part: converting full cartographic styling into vector tiles that stay fast with large data.</p>
         </div>
-        <p class="lead">Design in the tool you know. QGIS2VectorTiles takes care of tiling, styling and packaging, and keeps what you see in QGIS on the web.</p>
+
+        <div class="scale-strip" data-reveal style="--d:1">
+          <p class="scale-strip-title"><svg aria-hidden="true"><use href="#i-globe"/></svg><span>Made for projects like <strong>Natural Earth</strong></span></p>
+          <ul>
+            <li>Dozens of styled layers</li>
+            <li>Millions of features</li>
+            <li>Nested rules &amp; labels</li>
+            <li>Every zoom level</li>
+          </ul>
+        </div>
       </div>
 
       <div class="features">
-        <article class="feature" data-reveal>
-          <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
-          <h3 class="h3">Large datasets</h3>
-          <p>Sources are clipped to your extent, read once, cached between runs and processed in parallel.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:1">
-          <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
-          <h3 class="h3">Complex styling</h3>
-          <p>Rule-based, categorized and graduated renderers, labels and geometry generators become tile-ready rules.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:2">
-          <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
-          <h3 class="h3">Data-style coupling</h3>
-          <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:3">
-          <div class="feature-icon"><svg><use href="#i-monitor"/></svg></div>
-          <h3 class="h3">Familiar GUI</h3>
-          <p>A standard QGIS Processing tool. Choose the extent, zoom range and viewer, then run.</p>
-        </article>
-        <article class="feature" data-reveal>
-          <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
-          <h3 class="h3">Compact output</h3>
-          <p>Each layer is written only to its own zoom range, with only the fields its style uses.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:1">
-          <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
-          <h3 class="h3">Client-side rendering</h3>
-          <p>The browser draws the tiles with MapLibre or OpenLayers. No map server, sharp at every zoom.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:2">
-          <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
-          <h3 class="h3">No dependencies</h3>
-          <p>Runs on the Python and GDAL that ship with QGIS. No internet connection, nothing extra to install.</p>
-        </article>
-        <article class="feature" data-reveal style="--d:3">
-          <div class="feature-icon"><svg><use href="#i-globe"/></svg></div>
-          <h3 class="h3">Open standards</h3>
-          <p>Vector tiles in MBTiles, a MapLibre GL style and a QGIS layer file: formats the web-mapping world reads.</p>
-        </article>
+        <div class="screen">
+          <article class="feature" data-reveal>
+            <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
+            <h3 class="h3">Complex styling</h3>
+            <p>Nested rule-based, categorized and graduated renderers and geometry generators become flat, tile-ready rules.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:1">
+            <div class="feature-icon"><svg><use href="#i-grid"/></svg></div>
+            <h3 class="h3">Multi-scale maps</h3>
+            <p>Scale ranges become zoom ranges, so every zoom level shows exactly the layers and rules you designed for it.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:2">
+            <div class="feature-icon"><svg><use href="#i-type"/></svg></div>
+            <h3 class="h3">Labels &amp; symbols</h3>
+            <p>Labels, fonts and marker symbols are rebuilt as MapLibre glyphs and icon sprites from your own project.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:3">
+            <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
+            <h3 class="h3">Data-defined styling</h3>
+            <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
+          </article>
+        </div>
+        <div class="screen">
+          <article class="feature" data-reveal>
+            <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
+            <h3 class="h3">Large datasets</h3>
+            <p>Millions of features are clipped to your extent, read once, cached between runs and tiled in parallel.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:1">
+            <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
+            <h3 class="h3">Compact tiles</h3>
+            <p>Each layer is written only to its own zoom range, with only the fields its style uses.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:2">
+            <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
+            <h3 class="h3">Client-side rendering</h3>
+            <p>The browser draws the tiles with MapLibre or OpenLayers. No map server, sharp at every zoom.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:3">
+            <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
+            <h3 class="h3">No dependencies</h3>
+            <p>A standard QGIS Processing tool on the Python and GDAL that ship with QGIS. Nothing else to install.</p>
+          </article>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- 3 · How it works ------------------------------------------------- -->
   <section class="slide" id="how-it-works" data-title="How it works" aria-labelledby="how-title">
-    <div class="container slide-inner">
-      <div class="section-head split" data-reveal>
-        <div>
-          <p class="eyebrow">How it works</p>
-          <h2 class="h2" id="how-title">One run. Six modules. A complete web map.</h2>
+    <div class="container slide-inner pipeline">
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">How it works</p>
+            <h2 class="h2" id="how-title">One run. Six modules. A complete web map.</h2>
+          </div>
+          <p class="lead">Every step is open source. Select a module to see what it does and jump to its code.</p>
         </div>
-        <p class="lead">Every step is open source. Select a module to see what it does and jump to its code.</p>
-      </div>
 
-      <div class="pipeline">
-        <div class="panel" data-reveal>
+        <div class="panel pipeline-main" data-reveal>
           <div class="panel-head"><span>Execution pipeline</span><span class="mono">src/</span></div>
           <div class="steps">
             <button class="step core" type="button" data-module="orchestrator">
@@ -267,7 +289,9 @@
             </button>
           </div>
         </div>
+      </div>
 
+      <div class="screen">
         <div class="pipeline-side">
           <div class="panel" data-reveal style="--d:1">
             <div class="panel-head"><span>Output package</span><span class="mono">6 parts</span></div>
@@ -288,16 +312,16 @@
 
   <!-- 4 · Demos -------------------------------------------------------- -->
   <section class="slide" id="demos" data-title="Demos" aria-labelledby="demos-title">
-    <div class="container slide-inner">
-      <div class="section-head split" data-reveal>
-        <div>
-          <p class="eyebrow">Gallery</p>
-          <h2 class="h2" id="demos-title">See it in action.</h2>
+    <div class="container slide-inner gallery">
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Gallery</p>
+            <h2 class="h2" id="demos-title">See it in action.</h2>
+          </div>
+          <p class="lead">Rendering capabilities and feature fidelity, straight from real exports.</p>
         </div>
-        <p class="lead">Rendering capabilities and feature fidelity, straight from real exports.</p>
-      </div>
 
-      <div class="gallery">
         <button class="demo featured" type="button" data-video="demos/demo_main.mp4" data-reveal>
           <span class="demo-media">
             <video data-src="demos/demo_main.mp4" data-poster="demos/posters/demo_main.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
@@ -309,6 +333,9 @@
             <span class="demo-desc">Watch how millions of features are exported, tiled, and rendered natively in the browser within minutes.</span>
           </span>
         </button>
+      </div>
+
+      <div class="screen">
         <button class="demo" type="button" data-video="demos/demo_data_driven.mp4" data-reveal style="--d:1">
           <span class="demo-media">
             <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
@@ -345,16 +372,16 @@
 
   <!-- 5 · Use cases ---------------------------------------------------- -->
   <section class="slide" id="use-cases" data-title="Use cases" aria-labelledby="uc-title">
-    <div class="container slide-inner">
-      <div class="section-head split" data-reveal>
-        <div>
-          <p class="eyebrow">Use cases</p>
-          <h2 class="h2" id="uc-title">Fits the stack you already have.</h2>
+    <div class="container slide-inner usecases">
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Use cases</p>
+            <h2 class="h2" id="uc-title">Fits the stack you already have.</h2>
+          </div>
+          <p class="lead">One export, three ways to use it.</p>
         </div>
-        <p class="lead">One export, three ways to use it.</p>
-      </div>
 
-      <div class="usecases">
         <article class="usecase" data-reveal>
           <span class="usecase-num">01</span>
           <h3 class="h3">Client-side rendering</h3>
@@ -367,6 +394,9 @@
           </div>
           <p class="usecase-note">Compatible with <a class="link" href="https://github.com/mapbox/vector-tile-spec">Vector Tiles</a> and <a class="link" href="https://maplibre.org/maplibre-style-spec/">GL Styles</a>.</p>
         </article>
+      </div>
+
+      <div class="screen">
         <article class="usecase" data-reveal style="--d:1">
           <span class="usecase-num">02</span>
           <h3 class="h3">Web map services</h3>

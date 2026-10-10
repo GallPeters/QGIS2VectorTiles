@@ -261,6 +261,8 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   transition: color 0.2s, background-color 0.2s;
 }
 .nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.nav a { white-space: nowrap; }
+@media (max-width: 1180px) { .nav a { padding-inline: 9px; font-size: 14px; } }
 .nav a[aria-current="page"] { color: var(--text); background: rgba(255, 255, 255, 0.07); }
 
 .header-actions { display: flex; align-items: center; gap: 6px; }
@@ -429,8 +431,9 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   align-items: center;
-  gap: clamp(40px, 6vw, 80px);
+  column-gap: clamp(40px, 6vw, 80px);
 }
+.hero-inner .works-with { grid-column: 1 / -1; }
 .hero-copy .h1 { margin-top: clamp(14px, 3vh, 26px); }
 .hero-copy .lead { max-width: 520px; }
 
@@ -482,6 +485,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 @media (max-width: 960px) {
   .hero-inner { grid-template-columns: 1fr; }
+  .hero .window { margin-top: clamp(40px, 6vw, 80px); }
   .hero-copy { text-align: center; }
   .hero-copy .lead { margin-inline: auto; }
   .hero-actions, .hero-meta { justify-content: center; }
@@ -625,6 +629,36 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 
 /* --- Feature grid ------------------------------------------------------- */
+#features .section-head { margin-bottom: clamp(14px, 2.6vh, 32px); }
+@media (min-width: 861px) {
+  #features .section-head.split { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px 48px; }
+}
+.scale-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 24px;
+  margin-bottom: clamp(12px, 2.2vh, 24px);
+  padding: clamp(10px, 1.6vh, 14px) clamp(14px, 1.6vw, 20px);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--radius-l);
+  background: linear-gradient(90deg, var(--brand-soft), rgba(152, 176, 35, 0.03));
+}
+.scale-strip-title { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--text-2); }
+.scale-strip-title svg { flex: none; width: 20px; height: 20px; color: var(--brand-hi); }
+.scale-strip-title strong { color: var(--text); font-weight: 600; }
+.scale-strip ul { display: flex; flex-wrap: wrap; gap: 8px; }
+.scale-strip li {
+  padding: 5px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(7, 8, 10, 0.4);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
 .features {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -674,12 +708,17 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 
 /* --- Pipeline ----------------------------------------------------------- */
-.pipeline {
+.slide-inner.pipeline {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: clamp(20px, 3vw, 40px);
-  align-items: start;
+  align-content: center;
+  align-items: stretch;
+  column-gap: clamp(20px, 3vw, 40px);
 }
+.pipeline .section-head { grid-column: 1 / -1; }
+.pipeline-main { display: flex; flex-direction: column; }
+.pipeline-main .steps, .pipeline-side .tree { flex: 1; display: flex; flex-direction: column; }
+.pipeline-main .step, .pipeline-side .tree-row { flex: 1 0 auto; }
 .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius-l);
@@ -762,6 +801,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .steps-note { padding: 0 24px 20px; font-size: 13.5px; color: var(--text-3); }
 
 .tree { padding: 8px 10px; }
+.pipeline-side .panel { display: flex; flex-direction: column; }
 .tree-row {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
@@ -793,7 +833,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   color: var(--text-2);
   white-space: nowrap;
 }
-.pipeline-side { display: grid; gap: 16px; }
+.pipeline-side { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
 .callout {
   display: flex;
   gap: 14px;
@@ -808,20 +848,24 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .callout strong { color: var(--text); font-weight: 600; }
 
 @media (max-width: 960px) {
-  .pipeline { grid-template-columns: 1fr; }
+  .slide-inner.pipeline { grid-template-columns: 1fr; }
+  .pipeline-side { margin-top: 16px; }
 }
 
 /* --- Gallery ------------------------------------------------------------ */
 /* The featured demo fills the left column; three compact demos stack on
    the right. The grid's height follows the window, so it fits one screen. */
-.gallery {
+.slide-inner.gallery {
+  --gap: clamp(10px, 1.6vh, 16px);
+  --gallery-h: clamp(320px, calc(100vh - var(--header-h) - 250px), 620px);
+  --gallery-h: clamp(320px, calc(100dvh - var(--header-h) - 250px), 620px);
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
-  grid-template-rows: repeat(3, minmax(0, 1fr));
-  gap: clamp(10px, 1.6vh, 16px);
-  height: clamp(320px, calc(100vh - var(--header-h) - 250px), 620px);
-  height: clamp(320px, calc(100dvh - var(--header-h) - 250px), 620px);
+  grid-template-rows: auto repeat(3, calc((var(--gallery-h) - 2 * var(--gap)) / 3));
+  align-content: center;
+  gap: var(--gap);
 }
+.gallery .section-head { grid-column: 1 / -1; margin-bottom: calc(clamp(20px, 4.4vh, 56px) - var(--gap)); }
 .demo {
   position: relative;
   display: grid;
@@ -917,7 +961,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   color: var(--brand-hi);
 }
 @media (max-width: 960px) {
-  .gallery { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+  .slide-inner.gallery { grid-template-columns: 1fr; grid-template-rows: none; }
   .demo.featured { grid-row: auto; }
   .demo.featured .demo-media { position: relative; inset: auto; aspect-ratio: 16 / 10; }
   .demo.featured .demo-media::after { display: none; }
@@ -930,7 +974,8 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 
 /* --- Use cases ---------------------------------------------------------- */
-.usecases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.slide-inner.usecases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: center; gap: 16px; }
+.usecases .section-head { grid-column: 1 / -1; margin-bottom: calc(clamp(20px, 4.4vh, 56px) - 16px); }
 .usecase {
   display: flex;
   flex-direction: column;
@@ -966,7 +1011,7 @@ a.chip:hover { border-color: var(--brand-line); background: var(--brand-soft); t
 .chip .chip-glyph { display: grid; place-items: center; padding: 0; background: var(--brand-soft); color: var(--brand-hi); }
 .chip .chip-glyph svg { width: 15px; height: 15px; }
 .usecase-note { margin-top: clamp(10px, 2vh, 18px); font-size: 13.5px; color: var(--text-3); }
-@media (max-width: 960px) { .usecases { grid-template-columns: 1fr; } }
+@media (max-width: 960px) { .slide-inner.usecases { grid-template-columns: 1fr; } }
 
 /* --- CTA ---------------------------------------------------------------- */
 .cta {
@@ -1380,14 +1425,19 @@ td.prop { color: var(--text); font-weight: 500; }
 
 /* --- Home: one screen per section --------------------------------------- */
 /* Native scroll snapping: one wheel step, swipe or Page Down moves one
-   section. On desktop every section fills the screen; on phones and very
-   short windows sections keep their natural height and snapping is gentle. */
+   screen. On desktop each section fills one screen. On phones and tablets
+   each section is split into .screen blocks that each fit one screen, so a
+   swipe always lands on whole, uncropped content. Very short windows keep
+   the natural flow with gentle snapping. */
 .snap-page { scroll-padding-top: 0; }
 .snap-page .site-header { position: fixed; left: 0; right: 0; }
-.snap-page .hero { margin-top: 0; }
+/* clip, not hidden: a hidden overflow would make the hero its own scroll
+   container and swallow the snap points of its screens. */
+.snap-page .hero { margin-top: 0; overflow: visible; overflow: clip; }
 .slide { position: relative; scroll-snap-align: start; }
 .slide + .slide { border-top: 1px solid var(--line); }
 .slide-inner { display: flex; flex-direction: column; justify-content: center; }
+.screen { display: contents; }
 
 @media (min-width: 1025px) and (min-height: 540px) {
   .snap-page { scroll-snap-type: y mandatory; }
@@ -1410,14 +1460,16 @@ td.prop { color: var(--text); font-weight: 500; }
    feature title, compact footer, so every section still fits one screen. */
 @media (min-width: 1025px) and (min-height: 540px) and (max-height: 760px) {
   :root { --header-h: 58px; }
-  .feature { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 12px; }
-  .feature-icon { margin-bottom: 0; }
-  .feature p { grid-column: 1 / -1; margin-top: 10px; font-size: 14px; line-height: 1.5; }
-  .gallery { height: clamp(260px, calc(100dvh - var(--header-h) - 215px), 620px); }
+  .feature { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: center; column-gap: 12px; padding-block: 12px; }
+  .feature-icon { margin-bottom: 0; width: 34px; height: 34px; }
+  .feature p { grid-column: 1 / -1; align-self: start; margin-top: 8px; font-size: 13.5px; line-height: 1.5; }
+  .scale-strip { padding-block: 6px; }
+  .scale-strip li { padding-block: 3px; font-size: 13px; }
+  .slide-inner.gallery { --gallery-h: clamp(260px, calc(100dvh - var(--header-h) - 215px), 620px); }
   .footer-grid p { display: none; }
   .footer-col { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; }
   .footer-col h2 { flex-basis: 100%; margin-bottom: 4px; }
-  .pipeline { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+  .slide-inner.pipeline { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
   .step { padding-block: 4px; }
   .step-num { width: 24px; height: 24px; font-size: 11.5px; }
   .step-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1432,12 +1484,143 @@ td.prop { color: var(--text); font-weight: 500; }
   .cta { padding-block: 22px; }
   .site-footer { padding-top: 16px; }
   .footer-bottom { margin-top: 10px; padding-top: 8px; }
+  .usecase-note { display: none; }
+  .usecase > p { font-size: 14px; }
+  .feature { padding-block: 10px; }
+  .feature p { margin-top: 4px; font-size: 13px; line-height: 1.4; }
+  #features .lead { font-size: 14.5px; }
+  #features .section-head { margin-bottom: 10px; }
+  .scale-strip { margin-bottom: 10px; }
 }
-@media (max-width: 1024px), (max-height: 539px) {
+@media (max-height: 479px), (min-width: 1025px) and (max-height: 539px) {
   .snap-page { scroll-snap-type: y proximity; }
   .slide { padding-block: var(--section-y); }
   .snap-page .hero { padding: calc(var(--header-h) + 36px) 0 48px; }
   .slide-end { padding-bottom: 0; }
+  .slide-inner.gallery { --gallery-h: 480px; }
+}
+
+/* Phones and tablets: every .screen is exactly one screen tall (the small
+   viewport, so the browser's toolbars never cover it) and is a snap stop. */
+@media (max-width: 1024px) and (min-height: 480px) {
+  :root {
+    --header-h: 60px;
+    --screen: calc(100svh - var(--header-h));
+  }
+  .snap-page { scroll-snap-type: y mandatory; scroll-padding-top: var(--header-h); }
+  .slide { scroll-snap-align: none; }
+  .snap-page .hero { padding: var(--header-h) 0 0; }
+  .slide > .slide-inner,
+  .hero-inner,
+  .features { display: block; }
+  .screen,
+  .slide-end > .slide-inner,
+  .slide-end > .site-footer {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    min-height: var(--screen);
+    padding-block: clamp(14px, 3svh, 32px);
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .screen > .section-head { margin-bottom: 4px; }
+  .section-head.split { gap: 10px; }
+  .section-head.split .lead { padding-bottom: 0; }
+
+  .hero .window { margin-top: 0; width: 100%; max-width: min(560px, calc((var(--screen) - 230px) * 1.2)); margin-inline: auto; }
+  .hero .works-with { margin-top: clamp(12px, 3svh, 28px); }
+  .hero-copy, .hero-copy .h1, .hero-copy .lead { margin-inline: auto; }
+  .hero-copy { text-align: center; max-width: 640px; }
+  .hero-actions, .hero-meta { justify-content: center; }
+
+  .scale-strip { flex-direction: column; align-items: flex-start; margin-bottom: 0; padding: 16px; }
+  .feature { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: start; padding: 14px 16px; }
+  .feature:hover { transform: none; }
+  .feature-icon { grid-row: span 2; width: 38px; height: 38px; margin-bottom: 0; }
+  .feature .h3 { font-size: 17px; }
+  .feature p { margin-top: 2px; font-size: 14px; line-height: 1.5; }
+  .features .screen { gap: 10px; }
+
+  .pipeline-side { margin-top: 0; }
+  .step { padding-block: 5px; }
+  .step-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+  .tree-row { padding-block: 8px; }
+
+  .demo:not(.featured) { grid-template-columns: 40% minmax(0, 1fr); min-height: 0; height: clamp(112px, calc((var(--screen) - 96px) / 3), 170px); }
+  .demo:not(.featured) .demo-media { aspect-ratio: auto; }
+  .demo:not(.featured) .demo-body { padding: 12px 14px; }
+  .demo.featured .demo-media { aspect-ratio: 16 / 9; }
+  .demo.featured .demo-desc { -webkit-line-clamp: 2; line-clamp: 2; }
+  .demo .h3 { font-size: 16px; }
+  .demo-desc { font-size: 13.5px; -webkit-line-clamp: 2; line-clamp: 2; }
+
+  .usecase { padding: 18px 20px; }
+  .usecase .h3 { margin-top: 6px; }
+  .usecase > p { margin-top: 8px; font-size: 14.5px; line-height: 1.55; }
+  .chips { padding-top: 14px; }
+  .usecase-note { margin-top: 10px; }
+
+  .slide-end { padding-bottom: 0; }
+  .cta { padding: 32px 22px; }
+  .slide-end > .site-footer { justify-content: center; }
+  .footer-grid { gap: 22px 16px; }
+  .footer-col { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 18px; grid-column: 1 / -1; }
+  .footer-col h2 { flex-basis: 100%; margin-bottom: 2px; }
+  .footer-bottom { margin-top: 24px; flex-direction: column; gap: 4px; }
+}
+/* Shorter phones: drop the secondary lines so each screen still fits. */
+@media (max-width: 1024px) and (min-height: 480px) and (max-height: 780px) {
+  .step-desc, .usecase-note, .footer-grid p, .demo.featured .demo-tag { display: none; }
+  .step { padding-block: 4px; }
+  .pipeline-main .steps { padding-block: 4px; }
+  .usecase > p { font-size: 14px; }
+}
+@media (max-width: 1024px) and (min-height: 480px) and (max-height: 640px) {
+  .pipeline .lead, .gallery .lead, .scale-strip-title + ul li:nth-child(n+3) { display: none; }
+  .hero-meta { display: none; }
+  .feature p { font-size: 13.5px; line-height: 1.45; }
+  .feature { padding-block: 11px; }
+  .tree-row { padding-block: 5px; }
+}
+@media (max-width: 1024px) and (min-height: 480px) and (max-height: 560px) {
+  .screen, .slide-end > .slide-inner, .slide-end > .site-footer { gap: 10px; padding-block: 10px; }
+  .h2 { font-size: 24px; }
+  .feature { padding-block: 9px; }
+  .feature-icon { width: 32px; height: 32px; }
+  .feature .h3 { font-size: 16px; }
+  .feature p { font-size: 13px; }
+  .features .screen { gap: 8px; }
+  .panel-head { padding-block: 9px; }
+  .step-num { width: 26px; height: 26px; font-size: 11.5px; }
+  .tree-row { padding-block: 3px; }
+  .tree-icon { width: 26px; height: 26px; }
+  .callout { padding-block: 12px; font-size: 14px; }
+  .demo.featured .demo-media { aspect-ratio: 2 / 1; }
+  .demo.featured .demo-body { padding: 14px 18px 16px; }
+  .usecase { padding-block: 14px; }
+  .usecase > p { font-size: 13.5px; line-height: 1.5; }
+  .chips { padding-top: 10px; }
+  .chip { padding-block: 4px; font-size: 13.5px; }
+}
+@media (min-width: 561px) and (max-width: 1024px) and (min-height: 480px) {
+  .features .screen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; }
+}
+/* Tall tablets: all eight feature cards fit on one screen. */
+@media (min-width: 561px) and (max-width: 1024px) and (min-height: 820px) {
+  .features {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: center;
+    gap: 12px;
+    min-height: var(--screen);
+    padding-block: 24px;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .features .screen { display: contents; }
+}
 }
 
 .dots {
