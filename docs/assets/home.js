@@ -185,6 +185,48 @@
     }
   }
 
+  // --- Phones: feature and use-case cards open their full text -----------
+  // On the one-screen phone layout the cards show only their title; a tap
+  // opens a dialog with a copy of the whole card.
+  var paged = window.matchMedia('(max-width: 1024px) and (min-height: 480px)');
+  var infoDialog = document.getElementById('info-dialog');
+  var infoCards = document.querySelectorAll('.feature, .usecase');
+  if (infoDialog && infoCards.length) {
+    var infoBody = infoDialog.querySelector('.dialog-inner');
+    var syncCards = function () {
+      infoCards.forEach(function (card) {
+        if (paged.matches) {
+          card.setAttribute('role', 'button');
+          card.setAttribute('tabindex', '0');
+          card.setAttribute('aria-haspopup', 'dialog');
+        } else {
+          card.removeAttribute('role');
+          card.removeAttribute('tabindex');
+          card.removeAttribute('aria-haspopup');
+        }
+      });
+    };
+    var openCard = function (card) {
+      infoBody.replaceChildren.apply(infoBody, [].map.call(card.children, function (el) { return el.cloneNode(true); }));
+      infoDialog.setAttribute('aria-label', card.querySelector('.h3').textContent);
+      infoDialog.dataset.kind = card.classList.contains('feature') ? 'feature' : 'usecase';
+      infoDialog.showModal();
+    };
+    syncCards();
+    if (paged.addEventListener) paged.addEventListener('change', syncCards);
+    infoCards.forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        if (!paged.matches || e.target.closest('a')) return;
+        openCard(card);
+      });
+      card.addEventListener('keydown', function (e) {
+        if (!paged.matches || e.target !== card || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        openCard(card);
+      });
+    });
+  }
+
   // --- Dialogs: close button and backdrop click ---------------------------
   document.querySelectorAll('dialog').forEach(function (dlg) {
     dlg.addEventListener('click', function (e) {

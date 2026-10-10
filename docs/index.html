@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=3.7.2">
+<link rel="stylesheet" href="assets/site.css?v=3.7.3">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -136,6 +136,11 @@
         </div>
 
         <div class="screen">
+          <div class="section-head screen-head">
+            <p class="eyebrow">Compare</p>
+            <p class="h2">Same project, two places.</p>
+            <p class="lead">Drag the slider to compare QGIS Desktop with the web map it becomes.</p>
+          </div>
           <figure class="window" data-reveal style="--d:2">
             <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>Same project, two places</span></div>
             <div class="compare">
@@ -152,12 +157,12 @@
           <div class="works-with" data-reveal style="--d:3">
             <p>Output works with</p>
             <ul>
-              <li><img src="icons/maplibre.png" alt="" width="26" height="26">MapLibre</li>
-              <li><img src="icons/openlayers.png" alt="" width="26" height="26">OpenLayers</li>
-              <li><img src="icons/mapbox.png" alt="" width="26" height="26">Mapbox</li>
-              <li><img src="icons/maptiler.png" alt="" width="26" height="26">MapTiler</li>
-              <li><img src="icons/geoserver.png" alt="" width="26" height="26">GeoServer</li>
-              <li><img src="icons/qgis.png" alt="" width="26" height="26">QGIS</li>
+              <li><a href="https://maplibre.org/"><img src="icons/maplibre.png" alt="" width="40" height="40">MapLibre</a></li>
+              <li><a href="https://openlayers.org/"><img src="icons/openlayers.png" alt="" width="40" height="40">OpenLayers</a></li>
+              <li><a href="https://www.mapbox.com/"><img src="icons/mapbox.png" alt="" width="40" height="40">Mapbox</a></li>
+              <li><a href="https://www.maptiler.com/"><img src="icons/maptiler.png" alt="" width="40" height="40">MapTiler</a></li>
+              <li><a href="https://geoserver.org/"><img src="icons/geoserver.png" alt="" width="40" height="40">GeoServer</a></li>
+              <li><a href="https://qgis.org/"><img src="icons/qgis.png" alt="" width="40" height="40">QGIS</a></li>
             </ul>
           </div>
         </div>
@@ -176,11 +181,8 @@
           </div>
           <p class="lead">Design in the tool you know. QGIS2VectorTiles takes care of tiling, styling and packaging, and keeps what you see in QGIS on the web.</p>
         </div>
-      </div>
 
-      <div class="features">
-        <div class="screen">
-          <p class="eyebrow screen-label" aria-hidden="true">Features</p>
+        <div class="features">
           <article class="feature" data-reveal>
             <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
             <h3 class="h3">Large datasets</h3>
@@ -201,9 +203,6 @@
             <h3 class="h3">Familiar GUI</h3>
             <p>A standard QGIS Processing tool. Choose the extent, zoom range and viewer, then run.</p>
           </article>
-        </div>
-        <div class="screen">
-          <p class="eyebrow screen-label" aria-hidden="true">Features</p>
           <article class="feature" data-reveal>
             <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
             <h3 class="h3">Compact output</h3>
@@ -225,6 +224,7 @@
             <p>Vector tiles in MBTiles, a MapLibre GL style and a QGIS layer file: formats the web-mapping world reads.</p>
           </article>
         </div>
+        <p class="tap-hint">Tap a feature for details.</p>
       </div>
     </div>
   </section>
@@ -284,7 +284,11 @@
       </div>
 
       <div class="screen">
-        <p class="eyebrow screen-label" aria-hidden="true">How it works</p>
+        <div class="section-head screen-head">
+          <p class="eyebrow">How it works</p>
+          <p class="h2">One folder, ready to use.</p>
+          <p class="lead">Every run writes the tiles, the style and a ready-to-use viewer side by side.</p>
+        </div>
         <div class="pipeline-side">
           <div class="panel" data-reveal style="--d:1">
             <div class="panel-head"><span>Output package</span><span class="mono">6 parts</span></div>
@@ -329,7 +333,11 @@
       </div>
 
       <div class="screen">
-        <p class="eyebrow screen-label" aria-hidden="true">Gallery</p>
+        <div class="section-head screen-head">
+          <p class="eyebrow">Gallery</p>
+          <p class="h2">Styling in detail.</p>
+          <p class="lead">Expressions, transparency and complex line work, exported straight from QGIS.</p>
+        </div>
         <button class="demo" type="button" data-video="demos/demo_data_driven.mp4" data-reveal style="--d:1">
           <span class="demo-media">
             <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
@@ -388,10 +396,6 @@
           </div>
           <p class="usecase-note">Compatible with <a class="link" href="https://github.com/mapbox/vector-tile-spec">Vector Tiles</a> and <a class="link" href="https://maplibre.org/maplibre-style-spec/">GL Styles</a>.</p>
         </article>
-      </div>
-
-      <div class="screen">
-        <p class="eyebrow screen-label" aria-hidden="true">Use cases</p>
         <article class="usecase" data-reveal style="--d:1">
           <span class="usecase-num">02</span>
           <h3 class="h3">Web map services</h3>
@@ -482,13 +486,18 @@
   </div>
 </dialog>
 
+<dialog class="module-dialog info-dialog" id="info-dialog" aria-label="Details">
+  <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
+  <div class="dialog-inner"></div>
+</dialog>
+
 <dialog class="video-dialog" id="video-dialog" aria-label="Demo video">
   <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
   <video controls playsinline controlslist="nodownload" preload="none"></video>
 </dialog>
 
 
-<script src="assets/site.js?v=3.7.2" defer></script>
-<script src="assets/home.js?v=3.7.2" defer></script>
+<script src="assets/site.js?v=3.7.3" defer></script>
+<script src="assets/home.js?v=3.7.3" defer></script>
 </body>
 </html>
