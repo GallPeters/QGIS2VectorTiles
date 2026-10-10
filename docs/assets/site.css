@@ -629,11 +629,6 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 
 /* --- Feature grid ------------------------------------------------------- */
-.features .section-head { grid-column: 1 / -1; margin-bottom: calc(clamp(20px, 4.4vh, 56px) - clamp(10px, 1.6vh, 16px)); }
-/* Section name repeated on follow-on phone screens; hidden elsewhere. */
-.screen-label { display: none; }
-.features .screen-label { grid-column: 1 / -1; }
-
 .features {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1413,6 +1408,8 @@ td.prop { color: var(--text); font-weight: 500; }
 .slide + .slide { border-top: 1px solid var(--line); }
 .slide-inner { display: flex; flex-direction: column; justify-content: center; }
 .screen { display: contents; }
+/* Section name repeated on follow-on phone screens; hidden elsewhere. */
+.screen-label { display: none; }
 
 @media (min-width: 1025px) and (min-height: 540px) {
   .snap-page { scroll-snap-type: y mandatory; }
@@ -1527,11 +1524,10 @@ td.prop { color: var(--text); font-weight: 500; }
   .demo .h3 { font-size: 16px; }
   .demo-desc { font-size: 13.5px; -webkit-line-clamp: 2; line-clamp: 2; }
 
-  .usecase { padding: 16px 18px; }
-  .usecase .h3 { margin-top: 4px; }
-  .usecase > p { margin-top: 6px; font-size: 14px; line-height: 1.5; }
-  .chips { padding-top: 12px; gap: 6px; }
-  .chip { padding-block: 5px; }
+  .usecase { padding: 18px 20px; }
+  .usecase .h3 { margin-top: 6px; }
+  .usecase > p { margin-top: 8px; font-size: 14.5px; line-height: 1.55; }
+  .chips { padding-top: 14px; }
   .usecase-note { margin-top: 10px; }
 
   .slide-end { padding-bottom: 0; }
@@ -1547,6 +1543,7 @@ td.prop { color: var(--text); font-weight: 500; }
   .step-desc, .usecase-note, .footer-grid p, .demo.featured .demo-tag { display: none; }
   .step { padding-block: 4px; }
   .pipeline-main .steps { padding-block: 4px; }
+  .usecase > p { font-size: 14px; }
 }
 @media (max-width: 1024px) and (min-height: 480px) and (max-height: 640px) {
   .pipeline .lead, .gallery .lead { display: none; }
@@ -1556,7 +1553,7 @@ td.prop { color: var(--text); font-weight: 500; }
   .tree-row { padding-block: 5px; }
 }
 @media (max-width: 1024px) and (min-height: 480px) and (max-height: 560px) {
-  .screen, .slide-end > .slide-inner, .slide-end > .site-footer { gap: 10px; padding-block: 10px; }
+  .screen, .slide-end > .slide-inner, .slide-end > .site-footer { gap: 8px; padding-block: 8px; }
   .h2 { font-size: 24px; }
   .feature { padding-block: 9px; }
   .feature-icon { width: 32px; height: 32px; }
@@ -1578,9 +1575,10 @@ td.prop { color: var(--text); font-weight: 500; }
 }
 @media (min-width: 561px) and (max-width: 1024px) and (min-height: 480px) {
   .features .screen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; }
+  .features .screen-label { grid-column: 1 / -1; }
 }
-/* Tall tablets: the whole features section fits on one screen. */
-@media (min-width: 561px) and (max-width: 1024px) and (min-height: 900px) {
+/* Tall tablets: all eight feature cards fit on one screen. */
+@media (min-width: 561px) and (max-width: 1024px) and (min-height: 820px) {
   .features {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1592,7 +1590,7 @@ td.prop { color: var(--text); font-weight: 500; }
     scroll-snap-stop: always;
   }
   .features .screen { display: contents; }
-  .features .screen-label { display: none; }
+  .features .screen + .screen .screen-label { display: none; }
 }
 }
 

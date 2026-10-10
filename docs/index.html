@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/site.css?v=3.7.2">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -168,49 +168,45 @@
   <!-- 2 · Features ----------------------------------------------------- -->
   <section class="slide" id="features" data-title="Features" aria-labelledby="features-title">
     <div class="container slide-inner">
-      <div class="features">
-        <div class="screen">
-          <div class="section-head split" data-reveal>
-            <div>
-              <p class="eyebrow">Features</p>
-              <h2 class="h2" id="features-title">Your QGIS styling, carried all the way to the browser.</h2>
-            </div>
-            <p class="lead">Built for complex cartographic projects: many layers, large datasets and detailed styling, turned into fast vector tiles that look the way you designed them in QGIS.</p>
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Features</p>
+            <h2 class="h2" id="features-title">Your QGIS styling, carried all the way to the browser.</h2>
           </div>
-          <article class="feature" data-reveal style="--d:1">
-            <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
-            <h3 class="h3">Complex styling</h3>
-            <p>Nested rule-based, categorized and graduated renderers and geometry generators become flat, tile-ready rules.</p>
-          </article>
-          <article class="feature" data-reveal style="--d:2">
-            <div class="feature-icon"><svg><use href="#i-grid"/></svg></div>
-            <h3 class="h3">Multi-scale maps</h3>
-            <p>Scale ranges become zoom ranges, so every zoom level shows exactly the layers and rules you designed for it.</p>
-          </article>
+          <p class="lead">Design in the tool you know. QGIS2VectorTiles takes care of tiling, styling and packaging, and keeps what you see in QGIS on the web.</p>
         </div>
+      </div>
+
+      <div class="features">
         <div class="screen">
           <p class="eyebrow screen-label" aria-hidden="true">Features</p>
           <article class="feature" data-reveal>
-            <div class="feature-icon"><svg><use href="#i-type"/></svg></div>
-            <h3 class="h3">Labels &amp; symbols</h3>
-            <p>Labels, fonts and marker symbols are rebuilt as MapLibre glyphs and icon sprites from your own project.</p>
-          </article>
-          <article class="feature" data-reveal style="--d:1">
-            <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
-            <h3 class="h3">Data-defined styling</h3>
-            <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
-          </article>
-          <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-database"/></svg></div>
             <h3 class="h3">Large datasets</h3>
-            <p>Millions of features are clipped to your extent, read once, cached between runs and tiled in parallel.</p>
+            <p>Sources are clipped to your extent, read once, cached between runs and processed in parallel.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:1">
+            <div class="feature-icon"><svg><use href="#i-layers"/></svg></div>
+            <h3 class="h3">Complex styling</h3>
+            <p>Rule-based, categorized and graduated renderers, labels and geometry generators become tile-ready rules.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:2">
+            <div class="feature-icon"><svg><use href="#i-link"/></svg></div>
+            <h3 class="h3">Data-style coupling</h3>
+            <p>Data-defined properties are evaluated per feature and stored with the data, so every value renders exactly.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:3">
+            <div class="feature-icon"><svg><use href="#i-monitor"/></svg></div>
+            <h3 class="h3">Familiar GUI</h3>
+            <p>A standard QGIS Processing tool. Choose the extent, zoom range and viewer, then run.</p>
           </article>
         </div>
         <div class="screen">
           <p class="eyebrow screen-label" aria-hidden="true">Features</p>
           <article class="feature" data-reveal>
             <div class="feature-icon"><svg><use href="#i-feather"/></svg></div>
-            <h3 class="h3">Compact tiles</h3>
+            <h3 class="h3">Compact output</h3>
             <p>Each layer is written only to its own zoom range, with only the fields its style uses.</p>
           </article>
           <article class="feature" data-reveal style="--d:1">
@@ -221,7 +217,12 @@
           <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
             <h3 class="h3">No dependencies</h3>
-            <p>A standard QGIS Processing tool on the Python and GDAL that ship with QGIS. Nothing else to install.</p>
+            <p>Runs on the Python and GDAL that ship with QGIS. No internet connection, nothing extra to install.</p>
+          </article>
+          <article class="feature" data-reveal style="--d:3">
+            <div class="feature-icon"><svg><use href="#i-globe"/></svg></div>
+            <h3 class="h3">Open standards</h3>
+            <p>Vector tiles in MBTiles, a MapLibre GL style and a QGIS layer file: formats the web-mapping world reads.</p>
           </article>
         </div>
       </div>
@@ -487,7 +488,7 @@
 </dialog>
 
 
-<script src="assets/site.js" defer></script>
-<script src="assets/home.js" defer></script>
+<script src="assets/site.js?v=3.7.2" defer></script>
+<script src="assets/home.js?v=3.7.2" defer></script>
 </body>
 </html>
