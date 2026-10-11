@@ -45,7 +45,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     OUTPUT_DIR = "OUTPUT_DIR"
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
-    POLYGONS_LABELS_BASE = "POLYGONS_LABELS_BASE"
     VIEWER = "VIEWER"
     BACKGROUND_TYPE = "BACKGROUND_TYPE"
 
@@ -170,16 +169,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
         self.addParameter(
             QgsProcessingParameterEnum(
-                self.POLYGONS_LABELS_BASE,
-                self.tr("Polygon Labels Base"),
-                options=["Whole Polygon", "Visible Polygon"],
-                defaultValue=0,  # Default to Required Fields Only
-                optional=False,
-            )
-        )
-
-        self.addParameter(
-            QgsProcessingParameterEnum(
                 self.BACKGROUND_TYPE,
                 self.tr("Background"),
                 options=["OpenStreetMap", "NASA's BlueMarble Imagery", "Project Background Color"],
@@ -282,7 +271,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         include_required_fields_only = self.parameterAsBool(
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
-        polygon_labels_base = self.parameterAsInt(parameters, self.POLYGONS_LABELS_BASE, context)
         background_type = self.parameterAsInt(parameters, self.BACKGROUND_TYPE, context)
         viewer = self.parameterAsInt(parameters, self.VIEWER, context)
 
@@ -297,7 +285,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                     "cpu_percent": cpu_percent,
                     "output_dir": output_dir,
                     "include_required_fields_only": include_required_fields_only,
-                    "cent_source": polygon_labels_base,
                     "background_type": background_type,
                     "viewer": viewer,
                 },
@@ -312,7 +299,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 cpu_percent=cpu_percent,
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
-                cent_source=polygon_labels_base,
                 background_type=background_type,
                 viewer=viewer,
                 feedback=feedback,

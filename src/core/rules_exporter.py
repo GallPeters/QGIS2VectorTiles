@@ -111,6 +111,7 @@ from qgis.core import (
     QgsField,
     QgsFields,
     QgsGeometry,
+    QgsPalLayerSettings,
     QgsProcessingContext,
     QgsProcessingFeedback,
     QgsFeatureRequest,
@@ -182,6 +183,20 @@ _FIELD_CONSTANT, _FIELD_COPY, _FIELD_EXPRESSION = range(3)
 # Expression fragments that read attributes dynamically, so their field
 # usage can't be determined statically by referencedColumns().
 _DYNAMIC_ATTRIBUTE_TOKENS = ("@feature", "$currentfeature")
+
+# Polygon "using perimeter" placements (QgsPalLayerSettings.placement codes)
+# and the line placement each becomes on the polygon's boundary.
+_PERIMETER_PLACEMENTS = {
+    2: Qgis.LabelPlacement.Line,             # Using perimeter
+    7: Qgis.LabelPlacement.Curved,           # Using perimeter (curved)
+}
+
+# Polygon placements that look for room inside the polygon rather than
+# around its centroid: Horizontal (4) and Free (5).
+_POLYGON_INTERIOR_PLACEMENTS = frozenset({4, 5})
+
+# Ground size of one pixel at scale 1:1 (OGC's 0.28 mm rendering pixel).
+_METRES_PER_PIXEL_AT_SCALE_1 = 0.00028
 
 
 def _lower_thread_priority() -> None:
@@ -326,7 +341,6 @@ class RulesExporter:
         include_required_fields_only: int,
         max_zoom,
         utils_dir: str,
-        cent_source: int,
         feedback: QgsProcessingFeedback,
         cpu_percent: int = 100,
     ):
@@ -335,7 +349,6 @@ class RulesExporter:
         self.extent = extent
         self.include_required_fields_only = include_required_fields_only
         self.max_zoom = max_zoom
-        self.cent_source = cent_source
         self.utils_dir = utils_dir
         self.feedback = feedback
         self.cpu_percent = cpu_percent
@@ -427,6 +440,15 @@ class RulesExporter:
         for output_dataset, flat_rules in rules_by_dataset.items():
             primary = flat_rules[0]
 
+            # Compute geometry transformation tuple. Before the expression
+            # fields: they replace data-defined properties (e.g. the label's
+            # "centroid of") with references to fields the base layer lacks.
+            transformation = self._get_geometry_transformation(primary)
+            if transformation is None:
+                # No geometry transformation → cannot be exported.
+                continue
+            geom_target, geom_expr = transformation
+
             # Compute expression fields (data-defined properties, optional
             # label field) — these read from the rule symbol/settings.
             expr_fields = self._create_expression_fields(flat_rules)
@@ -434,13 +456,6 @@ class RulesExporter:
                 expr_fields = self._add_label_expression_field(
                     primary, expr_fields
                 )
-
-            # Compute geometry transformation tuple.
-            transformation = self._get_geometry_transformation(primary)
-            if transformation is None:
-                # No geometry transformation → cannot be exported.
-                continue
-            geom_target, geom_expr = transformation
 
             rule_groups.append(_RuleGroupSnapshot(
                 output_dataset=primary.output_dataset,
@@ -1491,6 +1506,8 @@ class RulesExporter:
         settings = flat_rule.rule.settings()
         target_geom = flat_rule.get_attr("g")
         transform_expr = "@geometry"
+        if settings and target_geom == 2 and not settings.geometryGeneratorEnabled:
+            self._perimeter_to_geometry_generator(settings)
         if settings and settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
            
@@ -1501,9 +1518,9 @@ class RulesExporter:
             settings.geometryGeneratorEnabled = False
             flat_rule.set_attr("c", target_geom)
         elif target_geom == 2:
+            transform_expr = self._polygon_label_point_expression(flat_rule)
             flat_rule.set_attr("c", 0)
             target_geom = 0
-            transform_expr = self._get_polygon_centroids_expression()
         return [target_geom, transform_expr]
 
     def _get_renderer_transformation(self, flat_rule: FlattenedRule):
@@ -1524,23 +1541,103 @@ class RulesExporter:
             source_geom = flat_rule.get_attr("g")
             if source_geom != target_geom:
                 if target_geom == 0:
-                    transform_expr = self._get_polygon_centroids_expression()
+                    transform_expr = self._centroid_fill_expression(symbol_layer)
                 elif target_geom == 1:
                     transform_expr = "boundary(@geometry)"
         return [target_geom, transform_expr]
 
-    def _get_polygon_centroids_expression(self) -> str:
-        if self.cent_source == 1:
-            polygons = (
-                f"intersection(@geometry, "
-                f"geom_from_wkt('{self.extent.asWktPolygon()}'))"
+    @classmethod
+    def _perimeter_to_geometry_generator(cls, settings: QgsPalLayerSettings) -> None:
+        """Turn a polygon "using perimeter" label into a line label of the
+        polygon's boundary, as a geometry generator.
+
+        The generator branch then exports the boundary as lines; the label's
+        line settings (above / below / on line, offset, repeat) apply as they
+        are. "Using perimeter (curved)" has no line placement of that name,
+        so it becomes "Curved".
+        """
+        placement = cls._enum_int(settings.placement)
+        if placement not in _PERIMETER_PLACEMENTS:
+            return
+        settings.geometryGeneratorEnabled = True
+        settings.geometryGenerator = "boundary(@geometry)"
+        settings.geometryGeneratorType = Qgis.GeometryType.Line
+        settings.placement = _PERIMETER_PLACEMENTS[placement]
+
+    def _polygon_label_point_expression(self, flat_rule: FlattenedRule) -> str:
+        """The point a polygon label is placed around, as QGIS picks it.
+
+        "Visible" polygons are clipped to the export extent: the area the
+        tiles show. Horizontal / free placements search the visible polygon
+        for room, which the pole of inaccessibility approximates; centroid
+        placements use the whole or visible polygon per "Centroid of"
+        (centroidWhole), which may be data-defined.
+        """
+        settings = flat_rule.rule.settings()
+        visible = self._visible_polygons_expression()
+        if self._enum_int(settings.placement) in _POLYGON_INTERIOR_PLACEMENTS:
+            # About one pixel at the rule's largest zoom, in metres.
+            scale = ZoomLevels.zoom_to_scale(flat_rule.get_attr("i")) or 1
+            tolerance = scale * _METRES_PER_PIXEL_AT_SCALE_1
+            return self._with_polygons(
+                visible, f"pole_of_inaccessibility(@source, {tolerance:.6g})"
             )
-        else:
-            polygons = "@geometry"
+
+        whole_point = self._centroid_expression("@geometry", settings.centroidInside)
+        visible_point = self._centroid_expression(visible, settings.centroidInside)
+        prop = settings.dataDefinedProperties().property(
+            QgsPalLayerSettings.Property.CentroidWhole
+        )
+        if prop and prop.isActive() and prop.asExpression():
+            zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            centroid_whole = prop.asExpression().replace("@map_scale", zoom_scale)
+            default = "true" if settings.centroidWhole else "false"
+            return (
+                f"if(coalesce(({centroid_whole}), {default}), "
+                f"{whole_point}, {visible_point})"
+            )
+        return whole_point if settings.centroidWhole else visible_point
+
+    def _centroid_fill_expression(self, symbol_layer) -> str:
+        """The marker point of a centroid fill, as QGIS draws it: on the
+        polygon clipped to the extent shown (here, the export extent)."""
+        visible = self._visible_polygons_expression()
+        if symbol_layer.layerType() != "CentroidFill":
+            return self._centroid_expression(visible, True)
+        point = (
+            "point_on_surface(@source)" if symbol_layer.pointOnSurface()
+            else "centroid(@source)"
+        )
+        if symbol_layer.clipPoints():
+            # Markers outside the polygon are not drawn.
+            point = (
+                f"with_variable('point', {point}, "
+                f"if(intersects(@point, @source), @point, NULL))"
+            )
+        return self._with_polygons(visible, point)
+
+    def _visible_polygons_expression(self) -> str:
+        return f"intersection(@geometry, geom_from_wkt('{self.extent.asWktPolygon()}'))"
+
+    @classmethod
+    def _centroid_expression(cls, polygons: str, force_inside: bool) -> str:
+        """Centroid of ``polygons``; with ``force_inside``, a point on the
+        surface instead when the centroid falls outside it."""
+        point = "centroid(@source)"
+        if force_inside:
+            point = (
+                "if(intersects(centroid(@source), @source), "
+                "centroid(@source), point_on_surface(@source))"
+            )
+        return cls._with_polygons(polygons, point)
+
+    @staticmethod
+    def _with_polygons(polygons: str, point: str) -> str:
+        """``point`` evaluated with @source set to ``polygons``; NULL where
+        nothing is left of them (e.g. outside the extent)."""
         return (
             f"with_variable('source', {polygons}, "
-            f"if(intersects(centroid(@source), @source), "
-            f"centroid(@source), point_on_surface(@source)))"
+            f"if(is_empty_or_null(@source), NULL, {point}))"
         )
 
     # -------------------------------------------------------------------

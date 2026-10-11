@@ -50,7 +50,6 @@ class QGIS2VectorTiles:
         output_dir: str = None,
         include_required_fields_only=0,
         cpu_percent: int = 100,
-        cent_source: int = 0,
         background_type: int = 0,
         viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
@@ -62,7 +61,6 @@ class QGIS2VectorTiles:
         self.output_dir = output_dir or self.utils_dir
         self.include_required_fields_only = include_required_fields_only
         self.cpu_percent = min(cpu_percent, 90)
-        self.cent_source = cent_source
         self.background_type = background_type
         self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
@@ -172,7 +170,7 @@ class QGIS2VectorTiles:
     def _export_rules(self, rules: List[FlattenedRule]):
         return RulesExporter(
             rules, self.extent, self.include_required_fields_only,
-            self.max_zoom, self.utils_dir, self.cent_source, self.feedback,
+            self.max_zoom, self.utils_dir, self.feedback,
         ).export()
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
