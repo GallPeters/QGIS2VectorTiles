@@ -121,6 +121,7 @@ from qgis.core import (
     QgsCoordinateTransform,
     QgsVectorFileWriter,
     QgsVectorLayer,
+    QgsVectorLayerFeatureSource,
     QgsProject,
     QgsWkbTypes,
 )
@@ -153,6 +154,10 @@ _MAX_WORKERS_HARD_CAP = 6
 _SERIAL_READ_PROVIDERS = frozenset(
     {"postgres", "mssql", "oracle", "wfs", "spatialite", "hana", "db2"}
 )
+
+# Providers whose data lives in the project layer itself, so a layer opened
+# from the URI is empty: these are read from a snapshot of the live layer.
+_LIVE_PROVIDERS = frozenset({"memory"})
 
 # Base layers and rule outputs. FlatGeobuf, not SQLite/SpatiaLite/GeoPackage:
 # many threads create and read these files at once, and SpatiaLite's
@@ -232,8 +237,26 @@ def _lower_thread_priority() -> None:
 # ============================================================================
 
 @dataclass(frozen=True)
+class _LiveSource:
+    """A memory layer's features, fields, geometry type and CRS (as WKT),
+    taken from the project layer. QgsVectorLayerFeatureSource is QGIS's
+    snapshot for reading a layer from another thread."""
+    source: QgsVectorLayerFeatureSource
+    fields: QgsFields
+    wkb_type: Any
+    crs_wkt: str
+
+    @classmethod
+    def of(cls, layer: QgsVectorLayer) -> "_LiveSource":
+        return cls(
+            QgsVectorLayerFeatureSource(layer), QgsFields(layer.fields()), layer.wkbType(),
+            layer.crs().toWkt(Qgis.CrsWktVariant.Preferred),
+        )
+
+
+@dataclass(frozen=True)
 class _SourceSnapshot:
-    """Everything a worker needs to read a base layer; carries no Qt objects."""
+    """Everything a worker needs to read a base layer; carries no QObjects."""
     layer_id: str
     name: str
     source_uri: str
@@ -243,6 +266,8 @@ class _SourceSnapshot:
     extent: Optional[Tuple[float, float, float, float]] = None
     # Source field names referenced by any rule expression; None keeps all.
     required_fields: Optional[Tuple[str, ...]] = None
+    # Set for _LIVE_PROVIDERS, which are read from it instead of the URI.
+    live: Optional[_LiveSource] = None
 
     @property
     def needs_serial_read(self) -> bool:
@@ -628,6 +653,7 @@ class RulesExporter:
                 provider=layer.providerType(),
                 extent=self._extent_in_crs(layer.crs()),
                 required_fields=self._required_source_fields(groups),
+                live=_LiveSource.of(layer) if layer.providerType() in _LIVE_PROVIDERS else None,
             )
 
         return sources, rule_groups
@@ -789,17 +815,26 @@ class RulesExporter:
         # Open a FRESH layer in this thread. The original FlattenedRule.layer
         # reference may have main-thread affinity; here we deliberately don't
         # reuse it. The newly constructed layer is owned by this thread.
-        layer = QgsVectorLayer(src.source_uri, src.name, src.provider)
+        # Memory layers can't be reopened (their data is in the project
+        # layer) and are read from their snapshot instead.
+        layer = None if src.live else QgsVectorLayer(src.source_uri, src.name, src.provider)
         try:
-            if not layer.isValid():
+            if src.live:
+                reader, fields, wkb_type = src.live.source, src.live.fields, src.live.wkb_type
+                source_crs = src.live.crs_wkt
+            elif not layer.isValid():
                 build.failed = True
                 self.feedback.pushWarning(
                     f"Cannot open source '{src.name}' "
                     f"(provider={src.provider}); skipping."
                 )
                 return
+            else:
+                reader, fields, wkb_type = layer, layer.fields(), layer.wkbType()
+                # As WKT, not the CRS object: workers must build their own
+                # (see _prepare_base_batch).
+                source_crs = layer.crs().toWkt(Qgis.CrsWktVariant.Preferred)
 
-            fields = layer.fields()
             if src.required_fields is None:
                 indices = list(range(fields.count()))
             else:
@@ -838,14 +873,11 @@ class RulesExporter:
                 request.setSubsetOfAttributes(indices)
 
             build.writer = self._create_writer(
-                build.path, out_fields, QgsWkbTypes.singleType(layer.wkbType()),
+                build.path, out_fields, QgsWkbTypes.singleType(wkb_type),
                 QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
             )
-            # As WKT, not the CRS object: workers must build their own (see
-            # _prepare_base_batch).
-            source_crs = layer.crs().toWkt(Qgis.CrsWktVariant.Preferred)
             batch: List[Tuple[List[Any], QgsGeometry]] = []
-            for feature in layer.getFeatures(request):
+            for feature in reader.getFeatures(request):
                 attributes = (
                     [feature.attribute(i) for i in indices] if subset else feature.attributes()
                 )
@@ -859,7 +891,8 @@ class RulesExporter:
             if batch:
                 self._submit_base_batch(build, batch, source_crs, out_fields, pool, pending, max_workers)
         finally:
-            self._dispose_layer(layer)
+            if layer is not None:
+                self._dispose_layer(layer)
 
     def _submit_base_batch(
         self, build, batch, source_crs, out_fields, pool, pending, max_workers
