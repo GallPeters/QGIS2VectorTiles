@@ -9,6 +9,7 @@ pipeline from QGIS project styling to vector tiles:
   3. Generate tiles (GDALTilesGenerator)
   4. Style tiles    (TilesStyler)
   5. Export MapLibre style (QgisMapLibreStyleExporter)
+     and the viewers' search index (SearchIndexBuilder)
   6. Serve tiles via local HTTP server
 """
 
@@ -38,6 +39,7 @@ from .core.tiles_generator import GDALTilesGenerator
 from .core.tiles_styler import TilesStyler
 from .core.maplibre_converter import QgisMapLibreStyleExporter
 from .core.server_initializer import ServerInitializer
+from .core.search_index import SearchIndexBuilder
 
 class QGIS2VectorTiles:
     """Orchestrate the conversion from QGIS project styling to vector tiles."""
@@ -50,7 +52,6 @@ class QGIS2VectorTiles:
         output_dir: str = None,
         include_required_fields_only=0,
         cpu_percent: int = 100,
-        background_type: int = 0,
         viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
@@ -61,7 +62,6 @@ class QGIS2VectorTiles:
         self.output_dir = output_dir or self.utils_dir
         self.include_required_fields_only = include_required_fields_only
         self.cpu_percent = min(cpu_percent, 90)
-        self.background_type = background_type
         self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
         # Set when a run completes; finish_in_main_thread() then adds the
@@ -101,6 +101,12 @@ class QGIS2VectorTiles:
             self._log(". Exporting tiles style to client-side style package...")
             style = self._export_maplibre_style(temp_dir, styled_layer)
             self._log(". Successfully exported client-side style package.")
+
+            index_time = perf_counter()
+            self._log(". Building the search index...")
+            if self._build_search_index(rules, temp_dir):
+                self._log(f". Successfully built the search index "
+                          f"({self._elapsed_minutes(index_time)} minutes).")
 
             export_time = perf_counter()
             if self._has_features(layers):
@@ -187,7 +193,12 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        return QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.background_type, self.viewer, self.min_zoom, self.max_zoom).export()
+        return QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.viewer, self.min_zoom, self.max_zoom).export()
+
+    def _build_search_index(self, rules, temp_dir: str) -> Optional[str]:
+        return SearchIndexBuilder(
+            rules, self.extent, join(temp_dir, "style", "search.json"), self.feedback
+        ).build()
 
     def _log(self, message: str):
         if __name__ != "__console__":

@@ -46,7 +46,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     VIEWER = "VIEWER"
-    BACKGROUND_TYPE = "BACKGROUND_TYPE"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -169,16 +168,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
         self.addParameter(
             QgsProcessingParameterEnum(
-                self.BACKGROUND_TYPE,
-                self.tr("Background"),
-                options=["OpenStreetMap", "NASA's BlueMarble Imagery", "Project Background Color"],
-                defaultValue=0,  # Default to Required Fields Only
-                optional=False,
-            )
-        )
-
-        self.addParameter(
-            QgsProcessingParameterEnum(
                 self.VIEWER,
                 self.tr("Output Viewer"),
                 options=["MapLibre (Recommended)", "OpenLayers"],
@@ -271,7 +260,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         include_required_fields_only = self.parameterAsBool(
             parameters, self.REQUIRED_FIELDS_ONLY, context
         )
-        background_type = self.parameterAsInt(parameters, self.BACKGROUND_TYPE, context)
         viewer = self.parameterAsInt(parameters, self.VIEWER, context)
 
         if self._project_path:
@@ -285,7 +273,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                     "cpu_percent": cpu_percent,
                     "output_dir": output_dir,
                     "include_required_fields_only": include_required_fields_only,
-                    "background_type": background_type,
                     "viewer": viewer,
                 },
             )
@@ -299,7 +286,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 cpu_percent=cpu_percent,
                 output_dir=output_dir,
                 include_required_fields_only=include_required_fields_only,
-                background_type=background_type,
                 viewer=viewer,
                 feedback=feedback,
             )

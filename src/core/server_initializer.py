@@ -5,7 +5,7 @@ import subprocess
 import json
 
 from os import makedirs
-from os.path import join, basename, exists
+from os.path import join, basename, exists, normpath
 from shutil import copy2, copytree
 from sys import prefix
 from typing import Optional
@@ -107,6 +107,11 @@ Set WshShell = Nothing
 
         with open(local_style, 'r', encoding='utf-8') as f:
             style_data = json.load(f)
+            # The background colour is for the web viewers; in QGIS it would
+            # cover the layers below the tiles (QGIS has its own background).
+            style_data['layers'] = [
+                l for l in style_data['layers'] if l.get('type') != 'background'
+            ]
             if self.viewer == 0:
                 # Fix style due to mismatch between maplibre and qgis glyphs rendering method
                 for style_layer in style_data['layers']:
@@ -187,12 +192,15 @@ Set WshShell = Nothing
         python_exe: str,
     ):
         """Replace template placeholders in server, viewer, and launcher files."""
+        # Both viewers read their settings from viewer.html; the output
+        # folder's name keys the drawings the browser keeps for this map.
         viewer = join(utils_dir, "viewer", 'viewer.html')
         self.replace_in_file(
             viewer,
             {
                 "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
                 "_Q2VT_CENTER": center,
+                "_Q2VT_STORAGE_KEY": basename(normpath(output_folder)),
                 "18111991": str(self.port),
 
             },
@@ -217,23 +225,6 @@ Set WshShell = Nothing
                 "10031993": str(self.viewer + 1),
             },
         )
-        if self.viewer_dir.endswith("ol_viewer"):
-            self.replace_in_file(
-                join(utils_dir, "viewer", "bundle.js"),
-                {
-                    "18111991": str(self.port),
-                    "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
-                    "_Q2VT_CENTER": center,
-                }
-            )
-            self.replace_in_file(
-                join(utils_dir, "viewer", "viewer.js"),
-                {
-                    "18111991": str(self.port),
-                    "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
-                    "_Q2VT_CENTER": center,
-                }
-            )
 
     @staticmethod
     def _launch_server(output_folder: str, activator: str, wrapper: Optional[str]):

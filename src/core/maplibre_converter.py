@@ -1182,7 +1182,6 @@ class QgisMapLibreStyleExporter:
         output_dir: str,
         utils_dir,
         layer: Optional[QgsVectorTileLayer] = None,
-        background_type: int = 0,
         viewer: int = 0,
         minzoom: int = 0,
         maxzoom: int = 14
@@ -1195,10 +1194,6 @@ class QgisMapLibreStyleExporter:
                              folder will be written.
             layer:           The vector tile layer to export. If ``None``,
                              the active layer in the QGIS interface is used.
-            background_type: Background tile preset:
-                             ``0`` = OpenStreetMap raster,
-                             ``1`` = NASA Blue Marble raster,
-                             anything else = solid project background colour.
         """
         self.output_dir = output_dir
         self.utils_dir = utils_dir
@@ -1211,7 +1206,7 @@ class QgisMapLibreStyleExporter:
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
-        self.style["layers"].append(self._build_background_layer(background_type))
+        self.style["layers"].append(self._build_background_layer())
 
     def _resolve_layer(self, layer: Optional[QgsVectorTileLayer]) -> QgsVectorTileLayer:
         """Return ``layer`` or fall back to the active QGIS layer.
@@ -1251,43 +1246,12 @@ class QgisMapLibreStyleExporter:
             "layers": [],
         }
 
-    def _build_background_layer(self, background_type: int) -> dict:
-        """Add a background source to the style and return its layer definition.
+    def _build_background_layer(self) -> dict:
+        """The style's bottom layer: the project's background colour.
 
-        Args:
-            background_type: ``0`` for OSM, ``1`` for NASA Blue Marble; any
-                             other value emits a solid-colour background
-                             using the project's background colour.
+        The viewers show a basemap (OpenStreetMap, NASA Blue Marble) above
+        it from their own basemap switcher.
         """
-        if background_type == 0:
-            self.style["sources"]["osm"] = {
-                "type": "raster",
-                "tiles": [
-                    "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                    "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                    "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                ],
-                "tileSize": 256,
-                "attribution": (
-                    '&copy; <a href="https://www.openstreetmap.org/copyright">'
-                    "OpenStreetMap</a> contributors"
-                ),
-            }
-            return {"id": "osm-background", "type": "raster", "source": "osm",
-                    "minzoom": 0, "maxzoom": 22}
-
-        if background_type == 1:
-            self.style["sources"]["bluemarbel"] = {
-                "type": "raster",
-                "tiles": [
-                    "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
-                    "BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"
-                ],
-                "tileSize": 256,
-            }
-            return {"id": "bluemarbel-background", "type": "raster", "source": "bluemarbel",
-                    "minzoom": 0, "maxzoom": 22}
-
         bg_color = PropertyExtractor.convert_qcolor_to_maplibre(
             QgsProject.instance().backgroundColor()
         )
@@ -1900,7 +1864,8 @@ class QgisMapLibreStyleExporter:
         if self.glyphs:
             glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
             os.mkdir(glyphs_dir)
-            GlyphGenerator(self.glyphs, 'q2vt_label', glyphs_dir).generate()
+            fontstacks = GlyphGenerator(self.glyphs, 'q2vt_label', glyphs_dir).generate()
+            self._use_fontstacks(fontstacks)
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
@@ -1909,6 +1874,18 @@ class QgisMapLibreStyleExporter:
             json.dump(rounded_style, f, indent=indent)
         return filepath
     
+    def _use_fontstacks(self, fontstacks: Dict[str, str]) -> None:
+        """Point each label's text-font at the glyph folder written for it.
+
+        A font without a style name (e.g. "MS Shell Dlg 2 ") would otherwise
+        request glyphs from a folder that doesn't exist.
+        """
+        for layer_def in self.style["layers"]:
+            layout = layer_def.get("layout", {})
+            fonts = layout.get("text-font")
+            if fonts:
+                layout["text-font"] = [fontstacks.get(font, font.strip()) for font in fonts]
+
     def round_numeric_values(self, obj):
         """
         Recursively walk through dict/list values.

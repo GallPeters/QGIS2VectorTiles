@@ -216,9 +216,16 @@ class GlyphGenerator:
     # ------------------------------------------------------------------
     # Main generation flow
     # ------------------------------------------------------------------
-    def generate(self) -> str:
+    def generate(self) -> Dict[str, str]:
+        """Write the glyphs; returns each generated font key's fontstack name.
+
+        The fontstack name is the folder the glyphs are in, which the style's
+        text-font must use: it names the font found (e.g. "Arial Regular" for
+        a key without a style), not the key as given.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
         available_families = qfontdb.families()
+        fontstacks: Dict[str, str] = {}
 
         for font_key, dataset_paths in self.fonts_datasets.items():
             resolved = self._resolve_font_key(font_key, available_families)
@@ -250,8 +257,9 @@ class GlyphGenerator:
             renderer = _GlyphRenderer(self, qfont, hi_font)
 
             self._generate_blocks_for_fontstack(renderer, fontstack_name, fontstack_dir, codepoints)
+            fontstacks[font_key] = fontstack_name
 
-        return str(self.output_dir)
+        return fontstacks
 
     def _generate_blocks_for_fontstack(self, renderer: "_GlyphRenderer", fontstack_name: str,
                                         out_dir: Path, codepoints: List[int]) -> None:

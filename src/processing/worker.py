@@ -116,7 +116,6 @@ def main(job_path: str) -> int:
         cpu_percent=params["cpu_percent"],
         output_dir=params["output_dir"],
         include_required_fields_only=params["include_required_fields_only"],
-        background_type=params["background_type"],
         viewer=params["viewer"],
         feedback=feedback,
     )
