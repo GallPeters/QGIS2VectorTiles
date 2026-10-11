@@ -185,6 +185,62 @@
     }
   }
 
+  // --- Desktop: one wheel step glides to the next section ----------------
+  // With mandatory snapping, a wheel step first scrolls a little and the
+  // browser snaps the rest a moment later, which feels jerky. Here a wheel
+  // step scrolls straight to the next section in one smooth move, as Page
+  // Down does. A section taller than the window scrolls normally until its
+  // edge; a trackpad swipe and its fading momentum move one section only.
+  var snapScreens = window.matchMedia('(min-width: 1025px) and (min-height: 540px)');
+  var allSlides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  if (allSlides.length > 1) {
+    var gliding = false;
+    var glideTimer = 0;
+    var lastWheel = 0;
+    var lastDelta = 0;
+    var endGlide = function () { gliding = false; clearTimeout(glideTimer); };
+    window.addEventListener('scrollend', endGlide);
+    var pageTop = function (el) { return el.getBoundingClientRect().top + window.scrollY; };
+    var inScrollable = function (el) {
+      for (; el && el !== document.body; el = el.parentElement) {
+        if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return true;
+      }
+      return false;
+    };
+    window.addEventListener('wheel', function (e) {
+      if (!snapScreens.matches || e.ctrlKey || e.defaultPrevented) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || document.querySelector('dialog[open]')) return;
+      if (inScrollable(e.target)) return;
+      var now = Date.now();
+      var delta = Math.abs(e.deltaY);
+      // A new step: after a pause, or a full wheel-notch-sized one. Small,
+      // quick events are a trackpad swipe still going on.
+      var newStep = now - lastWheel > 150 || (delta >= 40 && delta >= lastDelta);
+      lastWheel = now;
+      lastDelta = delta;
+      if (gliding) {
+        e.preventDefault();
+        return;
+      }
+      var dir = e.deltaY > 0 ? 1 : -1;
+      var y = window.scrollY;
+      var current = 0;
+      allSlides.forEach(function (slide, i) { if (pageTop(slide) <= y + 4) current = i; });
+      var slideTop = pageTop(allSlides[current]);
+      var slideBottom = slideTop + allSlides[current].offsetHeight;
+      if (dir > 0 && slideBottom > y + window.innerHeight + 4) return;
+      if (dir < 0 && slideTop < y - 4) return;
+      var target = allSlides[current + dir];
+      if (!target) return;
+      e.preventDefault();
+      if (!newStep) return;
+      gliding = true;
+      // Browsers without the scrollend event end the glide by time.
+      glideTimer = setTimeout(endGlide, 900);
+      window.scrollTo({ top: pageTop(target), behavior: reduceMotion ? 'auto' : 'smooth' });
+    }, { passive: false });
+  }
+
   // --- Phones: feature and use-case cards open their full text -----------
   // On the one-screen phone layout the cards show only their title; a tap
   // opens a dialog with a copy of the whole card.
