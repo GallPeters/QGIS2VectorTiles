@@ -81,13 +81,12 @@ _REFERENCE_RADIUS = 8.0        # Mapbox/MapLibre reference generator (tiny-sdf) 
 # image size, blurry/rectangular halos). If _FONT_RENDER_SIZE ever needs
 # to change, _SDF_RADIUS and _BUFFER must be recomputed using the
 # formulas in the comments below — do not just edit the numbers.
-_FONT_RENDER_SIZE = 24         # Source rasterization point size
+_FONT_RENDER_SIZE = 24         # Source rasterization pixel size (= _REFERENCE_EM)
 _SDF_CUTOFF = 0.25             # MapLibre/Mapbox spec: outline lands at byte ~192
 _SUPERSAMPLE = 4               # Internal antialiasing supersample factor
 _SDF_RADIUS = 8.0              # = _REFERENCE_RADIUS * (_FONT_RENDER_SIZE / _REFERENCE_EM)
 _BUFFER = 10                   # = ceil(max(_REFERENCE_BUFFER * scale, _SDF_RADIUS + 2, _MAPLIBRE_GLYPH_BORDER))
 _SDF_COVERAGE_THRESHOLD = 127  # AA coverage midpoint used to binarize the glyph mask
-_MAPLIBRE_LABELS_FACTOR = 1.4   # Factor to decrease label size to match MapLibre GL JS's rendering to the original QGIS project.
 
 # =====================================================================
 # PyQt VERSION GUARD
@@ -137,7 +136,6 @@ __all__ = [
     "_SDF_RADIUS",
     "_BUFFER",
     "_SDF_COVERAGE_THRESHOLD",
-    "_MAPLIBRE_LABELS_FACTOR",
     # PyQt re-exports
     "Qt",
     "QDomDocument",

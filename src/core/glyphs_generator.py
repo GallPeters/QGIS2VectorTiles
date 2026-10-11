@@ -45,6 +45,8 @@ from ..utils.config import (
 
 logger = logging.getLogger(__name__)
 
+_SHAPING_OFFSET = 17  # MapLibre's SHAPING_DEFAULT_OFFSET (-17), in px of a 24 px em
+
 
 def _edt(mask: np.ndarray) -> np.ndarray:
     """Distance from each True pixel to the nearest False pixel.
@@ -251,9 +253,12 @@ class GlyphGenerator:
             fontstack_dir = self.output_dir / fontstack_name
             fontstack_dir.mkdir(exist_ok=True)
 
+            # MapLibre scales glyphs as if drawn with a 24 px em: a pixel
+            # size, not a point size (24 pt is 32 px).
             qfont = qfontdb.font(family, style, self.font_render_size)
+            qfont.setPixelSize(self.font_render_size)
             hi_font = QFont(qfont)
-            hi_font.setPointSizeF(qfont.pointSizeF() * self.supersample)
+            hi_font.setPixelSize(self.font_render_size * self.supersample)
             renderer = _GlyphRenderer(self, qfont, hi_font)
 
             self._generate_blocks_for_fontstack(renderer, fontstack_name, fontstack_dir, codepoints)
@@ -394,6 +399,11 @@ class _GlyphRenderer:
         self.scratch_image = QImage(self.scratch_w, self.scratch_h, QImage.Format.Format_Grayscale8)
         self.painter = QPainter()
 
+        # MapLibre puts a glyph's top at -17 - top in its 24 px line box, which
+        # is centred on the anchor. This top centres the font's ascent and
+        # descent there, as QGIS centres a label's text box on its point.
+        self.top_shift = _SHAPING_OFFSET + (fm.ascent() - fm.descent()) / 2
+
     def render(self, char_str: str, bounding_rect) -> Tuple[bytes, int, int, int, int]:
         render_buffer = self.buffer
         ss = self.ss
@@ -458,7 +468,12 @@ class _GlyphRenderer:
         width_field = max(0, bitmap_width - 2 * _MAPLIBRE_GLYPH_BORDER)
         height_field = max(0, bitmap_height - 2 * _MAPLIBRE_GLYPH_BORDER)
 
-        return sdf_bitmap.tobytes(), width_field, height_field, int(bounding_rect.left()), -int(bounding_rect.top())
+        # MapLibre places the bitmap assuming a 3 px border around the glyph;
+        # the extra border moves left/top back so the glyph lands in place.
+        extra_border = render_buffer - _MAPLIBRE_GLYPH_BORDER
+        left = int(bounding_rect.left()) - extra_border
+        top = round(-bounding_rect.top() - self.top_shift) + extra_border
+        return sdf_bitmap.tobytes(), width_field, height_field, left, top
 
 
 def main():

@@ -53,11 +53,13 @@ class TilesStyler:
         self.flattened_rules = flattened_rules
         self.output_dir = output_dir or QgsProcessingUtils.tempFolder()
         self.tiles_layer = self._create_tiles_layer()
+        self._draw_order: dict = {}
         self.renderer_styles: List[QgsVectorTileBasicRendererStyle] = []
         self.labeling_styles: List[QgsVectorTileBasicLabelingStyle] = []
 
     def apply_styling(self) -> QgsVectorTileLayer:
         """Apply all rule styles to the tiles layer and save the QLR definition."""
+        self._draw_order = self._get_draw_order()
         sorted_rules = reversed(sorted(self.flattened_rules, key=lambda x:self.get_label_priority(x)))
         for rule in sorted_rules:
             self._create_style_from_rule(rule)
@@ -65,10 +67,49 @@ class TilesStyler:
         # self._save_style()
         return self.tiles_layer
 
+    def _get_draw_order(self) -> dict:
+        """Each rule's position in the top-to-bottom drawing order.
+
+        The flattened rules are already top to bottom, but a layer drawn
+        with symbol levels draws all its lower rendering passes first (all
+        road casings below all road fills), so its renderer rules are
+        reordered by rendering pass.
+        """
+        order = []
+        done_layers = set()
+        for flat_rule in self.flattened_rules:
+            layer = flat_rule.layer
+            if flat_rule.get_attr("t") != 0 or not self._uses_symbol_levels(layer):
+                order.append(flat_rule)
+                continue
+            if layer.id() in done_layers:
+                continue
+            done_layers.add(layer.id())
+            layer_rules = [
+                r for r in self.flattened_rules
+                if r.get_attr("t") == 0 and r.layer.id() == layer.id()
+            ]
+            order.extend(sorted(layer_rules, key=lambda r: -self._rendering_pass(r)))
+        return {id(flat_rule): index for index, flat_rule in enumerate(order)}
+
+    @staticmethod
+    def _uses_symbol_levels(layer) -> bool:
+        try:
+            return bool(layer.renderer() and layer.renderer().usingSymbolLevels())
+        except (AttributeError, RuntimeError):
+            return False
+
+    @staticmethod
+    def _rendering_pass(flat_rule: FlattenedRule) -> int:
+        try:
+            return flat_rule.rule.symbol().symbolLayer(0).renderingPass()
+        except (AttributeError, RuntimeError):
+            return 0
+
     def get_label_priority(self, flat_rule: FlattenedRule):
         """Get the label priority value which being expressed in the rendering process"""
         if flat_rule.get_attr("t") == 0:
-            return self.flattened_rules.index(flat_rule) + 20
+            return self._draw_order.get(id(flat_rule), self.flattened_rules.index(flat_rule)) + 20
         label_settings = flat_rule.rule.settings()
         ddp = label_settings.dataDefinedProperties()
         if not ddp or not ddp.property(87).isActive():
@@ -127,7 +168,13 @@ class TilesStyler:
             else:
                 new_symbol = self._create_transformed_symbol(target_geom, symbol_layer, symbol)
 
-        style.setSymbol(new_symbol.clone())
+        new_symbol = new_symbol.clone()
+        # The source layer's opacity, which the tiles layer has no place for.
+        try:
+            new_symbol.setOpacity(new_symbol.opacity() * flat_rule.layer.opacity())
+        except (AttributeError, RuntimeError):
+            pass
+        style.setSymbol(new_symbol)
 
     def _create_transformed_symbol(self, target_geom: int, symbol_layer, orig_symbol):
         """Create a new symbol of the target geometry type from the given symbol layer."""

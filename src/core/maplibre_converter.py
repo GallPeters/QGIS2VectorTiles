@@ -1,6 +1,7 @@
 """Convert QGIS Vector Tile Layer styles to MapLibre GL JSON style format."""
 
 import json
+import math
 import os
 from os.path import join
 from typing import Any, Dict, List, Optional, Union
@@ -8,6 +9,11 @@ from typing import Any, Dict, List, Optional, Union
 from qgis.PyQt.QtGui import QColor
 from ..utils.config import Qt
 from qgis.core import (
+    Qgis,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsCsException,
+    QgsUnitTypes,
     QgsVectorTileLayer,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicLabeling,
@@ -25,9 +31,9 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
-from .sprite_generator import SpriteGenerator
+from .sprite_generator import FillPattern, SpriteGenerator
 from .rules_exporter import _TEMP_RULE_FORMAT
-from ..utils.config import _SPRITE_QUALITY, _MAPLIBRE_LABELS_FACTOR, _TILES_MAX_ZOOM
+from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 
 
 class PropertyExtractor:
@@ -48,6 +54,14 @@ class PropertyExtractor:
     }
     # QgsUnitTypes enum integer values → conversion factors.
     _UNIT_ENUMS: dict = {0: 3.78, 2: 1.0, 4: 96.0 / 72.0, 5: 96.0}
+    # Map-based units: a length on the ground, so its pixel size depends on the zoom.
+    _MAP_UNITS = 1
+    _METERS_IN_MAP_UNITS = 7
+    # EPSG:3857 metres per web map pixel at zoom 0 (MapLibre's 512 px tiles).
+    _MERCATOR_M_PER_PX_Z0 = 40075016.68557849 / 512
+    # EPSG:3857 metres per map unit / per ground metre at the data, set per export.
+    map_unit_m = 1.0
+    ground_m = 1.0
 
     @staticmethod
     def get_value_or_expression(value: Any, prop: QgsProperty) -> Union[Any, List]:
@@ -128,6 +142,54 @@ class PropertyExtractor:
         return value * 3.78  # Default: treat as millimetres
 
     @staticmethod
+    def enum_int(enum_obj) -> Optional[int]:
+        """A QGIS/Qt enum value as an integer (Qt5 gives ints, Qt6 enums)."""
+        try:
+            return int(getattr(enum_obj, "value", enum_obj))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def is_map_unit(cls, unit_obj) -> bool:
+        """Whether a length is on the ground (map units or metres) rather than on screen."""
+        return cls.enum_int(unit_obj) in (cls._MAP_UNITS, cls._METERS_IN_MAP_UNITS)
+
+    @classmethod
+    def length_to_style_value(cls, value: float, unit_obj=None) -> Union[float, List]:
+        """A length as a MapLibre value: pixels, or a zoom expression for ground lengths.
+
+        A ground length doubles in pixels with every zoom level, which an
+        exponential base-2 interpolation reproduces exactly.
+        """
+        if value is None or not cls.is_map_unit(unit_obj):
+            return cls.convert_length_to_pixels(value, unit_obj)
+        metres = cls.map_unit_m if cls.enum_int(unit_obj) == cls._MAP_UNITS else cls.ground_m
+        px_z0 = value * metres / cls._MERCATOR_M_PER_PX_Z0
+        return ["interpolate", ["exponential", 2], ["zoom"], 0, px_z0, 24, px_z0 * 2 ** 24]
+
+    @classmethod
+    def set_map_units(cls, crs, latitude: float) -> None:
+        """Set how many EPSG:3857 metres a map unit and a ground metre are at the data.
+
+        Web Mercator stretches ground lengths by 1/cos(latitude); a project
+        in Web Mercator already draws its map units stretched that way.
+        """
+        stretch = 1.0 / max(math.cos(math.radians(latitude)), 0.01)
+        cls.ground_m = stretch
+        cls.map_unit_m = stretch
+        try:
+            if crs.isGeographic():
+                cls.map_unit_m = 111319.49079327357  # 3857 metres per degree of longitude
+            elif crs.authid() in ("EPSG:3857", "EPSG:900913", "EPSG:3785"):
+                cls.map_unit_m = 1.0
+            else:
+                cls.map_unit_m = stretch * QgsUnitTypes.fromUnitToUnitFactor(
+                    crs.mapUnits(), Qgis.DistanceUnit.Meters
+                )
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    @staticmethod
     def get_attribute(obj: Any, *names) -> Any:
         """Fetch the first available attribute from ``obj`` matching any of ``names``.
 
@@ -168,7 +230,7 @@ class LinePropertyExtractor:
         width_unit = PropertyExtractor.get_attribute(
             symbol_layer, "widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"
         )
-        width_px = PropertyExtractor.convert_length_to_pixels(symbol_layer.width(), width_unit)
+        width_px = PropertyExtractor.length_to_style_value(symbol_layer.width(), width_unit)
         width_prop = symbol_layer.dataDefinedProperties().property(
             QgsSymbolLayer.Property.PropertyStrokeWidth
         )
@@ -203,13 +265,14 @@ class LinePropertyExtractor:
     def get_line_cap(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
         """Return ``line-cap`` mapped from the Qt pen-cap style."""
         cap_map = {0: "butt", 16: "square", 32: "round"}
-        return cap_map.get(symbol_layer.penCapStyle(), "round")
+        return cap_map.get(PropertyExtractor.enum_int(symbol_layer.penCapStyle()), "round")
 
     @staticmethod
     def get_line_join(symbol_layer: QgsSimpleLineSymbolLayer) -> str:
         """Return ``line-join`` mapped from the Qt pen-join style."""
-        join_map = {0: "miter", 64: "bevel", 128: "round"}
-        return join_map.get(symbol_layer.penJoinStyle(), "round")
+        # Qt's SvgMiterJoin (256) is a miter join too.
+        join_map = {0: "miter", 64: "bevel", 128: "round", 256: "miter"}
+        return join_map.get(PropertyExtractor.enum_int(symbol_layer.penJoinStyle()), "round")
 
     @staticmethod
     def get_line_miter_limit() -> float:
@@ -228,9 +291,10 @@ class LinePropertyExtractor:
         """Return ``line-dasharray`` from a custom dash vector or pen-style preset.
 
         Custom dash patterns take precedence over Qt's pen-style enum presets.
-        Lengths are converted to pixels using the dash unit if available,
-        falling back to the line-width unit. When no dashing is configured,
-        ``None`` is returned and ``line-dasharray`` should be omitted.
+        MapLibre dash lengths are multiples of the line width, so custom
+        lengths are converted to pixels and divided by ``width_px``. When no
+        dashing is configured, ``None`` is returned and ``line-dasharray``
+        should be omitted.
         """
         dash_vector = None
         try:
@@ -253,26 +317,30 @@ class LinePropertyExtractor:
 
         if custom_dash_enabled and dash_vector:
             dash_unit = PropertyExtractor.get_attribute(
-                symbol_layer, "dashUnit", "dashUnits", "customDashUnits"
+                symbol_layer, "customDashPatternUnit", "customDashVectorUnit"
             )
             width_unit = PropertyExtractor.get_attribute(
                 symbol_layer, "widthUnit", "widthUnits", "strokeWidthUnit", "strokeWidthUnits"
             )
+            unit = PropertyExtractor.enum_int(dash_unit or width_unit)
+            if PropertyExtractor.is_map_unit(width_unit) and unit == PropertyExtractor.enum_int(width_unit):
+                # Ground dashes on a ground width: the ratio holds at every zoom.
+                width = symbol_layer.width() or 1.0
+                return [d / width for d in dash_vector]
+            width = width_px if width_px and width_px > 0 else 1.0
             return [
-                PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit)
+                PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit) / width
                 for d in dash_vector
             ]
 
-        # Ratios are [dash_length, gap_length] as multiples of the line-width.
+        # Qt's own patterns, as [dash, gap, ...] multiples of the line width.
         fixed_presets = {
-            2: [3, 2],             # Dash: 3x width dash, 2x width gap
-            3: [1, 2],             # Dot: 1x width dash (looks like a square dot), 2x gap
-            4: [3, 2, 1, 2],       # Dash-Dot: Dash, gap, dot, gap
-            5: [3, 2, 1, 2, 1, 2], # Dash-Dot-Dot: Dash, gap, dot, gap, dot, gap
+            2: [4, 2],             # DashLine
+            3: [1, 2],             # DotLine
+            4: [4, 2, 1, 2],       # DashDotLine
+            5: [4, 2, 1, 2, 1, 2], # DashDotDotLine
         }
-        if pen_style and  hasattr(pen_style, "value") and pen_style.value in fixed_presets:
-            return fixed_presets[pen_style.value] 
-        return None
+        return fixed_presets.get(PropertyExtractor.enum_int(pen_style))
 
     @staticmethod
     def get_line_offset(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[float, List]:
@@ -290,7 +358,7 @@ class LinePropertyExtractor:
                 offset_unit = PropertyExtractor.get_attribute(
                     symbol_layer, "offsetUnit", "offsetUnits"
                 )
-                base_offset = PropertyExtractor.convert_length_to_pixels(offset, offset_unit)
+                base_offset = PropertyExtractor.length_to_style_value(offset, offset_unit)
         except (RuntimeError, AttributeError):
             pass
 
@@ -387,7 +455,7 @@ class LinePropertyExtractor:
         """
         placement = None
         try:
-            placement = int(symbol_layer.placement())
+            placement = PropertyExtractor.enum_int(symbol_layer.placement())
         except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
         # CentralPoint / SegmentCenter -> a single marker centred on the line.
@@ -407,7 +475,7 @@ class LinePropertyExtractor:
         vertex"; all other cases fall back to the MapLibre default (250px).
         """
         try:
-            placement = int(symbol_layer.placement())
+            placement = PropertyExtractor.enum_int(symbol_layer.placement())
         except (AttributeError, RuntimeError, TypeError, ValueError):
             placement = 0
 
@@ -548,6 +616,55 @@ class FillPropertyExtractor:
             "QgsRandomMarkerFillSymbolLayer",
         }
         return type(symbol_layer).__name__ in pattern_class_names
+
+    # Tile size of a non-repeating pattern (random markers), in pixels.
+    _RANDOM_PATTERN_TILE = 128.0
+
+    @staticmethod
+    def get_pattern_tile_size(symbol_layer: QgsSymbolLayer) -> tuple:
+        """The pattern's repeat (width, height) in pixels: one tile of ``fill-pattern``.
+
+        A tile of exactly one repeat makes MapLibre's repeated image seamless.
+        Point grids repeat every distance (twice that along a row
+        displacement); parallel lines every distance / sin or cos of their
+        angle; SVG and raster images every image width and its height.
+        """
+        px = PropertyExtractor.convert_length_to_pixels
+        get = PropertyExtractor.get_attribute
+        kind = type(symbol_layer).__name__
+        try:
+            if kind == "QgsPointPatternFillSymbolLayer":
+                width = px(symbol_layer.distanceX(), get(symbol_layer, "distanceXUnit"))
+                height = px(symbol_layer.distanceY(), get(symbol_layer, "distanceYUnit"))
+                if symbol_layer.displacementX():
+                    height *= 2
+                if symbol_layer.displacementY():
+                    width *= 2
+                return width, height
+            if kind == "QgsLinePatternFillSymbolLayer":
+                distance = px(symbol_layer.distance(), get(symbol_layer, "distanceUnit"))
+                angle = math.radians(symbol_layer.lineAngle())
+                sin, cos = abs(math.sin(angle)), abs(math.cos(angle))
+                # A tile edge parallel to the lines can be any length: use the distance.
+                width = distance / sin if sin > 1e-3 else distance
+                height = distance / cos if cos > 1e-3 else distance
+                return width, height
+            if kind == "QgsSVGFillSymbolLayer":
+                from qgis.PyQt.QtSvg import QSvgRenderer
+                width = px(symbol_layer.patternWidth(), get(symbol_layer, "patternWidthUnit"))
+                box = QSvgRenderer(symbol_layer.svgFilePath()).viewBoxF()
+                ratio = box.height() / box.width() if box.width() > 0 else 1.0
+                return width, width * ratio
+            if kind == "QgsRasterFillSymbolLayer":
+                from qgis.PyQt.QtGui import QImageReader
+                size = QImageReader(symbol_layer.imageFilePath()).size()
+                width = symbol_layer.width()
+                width = px(width, get(symbol_layer, "sizeUnit", "widthUnit")) if width > 0 else size.width()
+                ratio = size.height() / size.width() if size.width() > 0 else 1.0
+                return width, width * ratio
+        except (AttributeError, RuntimeError, TypeError, ValueError, ImportError):
+            pass
+        return FillPropertyExtractor._RANDOM_PATTERN_TILE, FillPropertyExtractor._RANDOM_PATTERN_TILE
 
     @staticmethod
     def get_fill_pattern_path(symbol_layer: QgsSymbolLayer) -> Optional[str]:
@@ -773,7 +890,7 @@ class IconPropertyExtractor:
         if label_settings is None:
             return "point"
         try:
-            placement = label_settings.placement
+            placement = PropertyExtractor.enum_int(label_settings.placement)
         except AttributeError:
             return "point"
         # QgsPalLayerSettings placement enum: 2=Line, 3=Curved, 7=PerimeterCurved, 8=OutsidePolygons
@@ -840,15 +957,20 @@ class TextPropertyExtractor:
         text_format: QgsTextFormat, label_settings: QgsPalLayerSettings, viewer: int
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
-        base_size = text_format.font().pointSizeF() * (96.0 / 72.0)
-        if base_size and viewer == 0:
-            # In MapLibe viewer texts are being displayed bigger then QGIS
-            # original project although when being read in QGIS canvas as vector tiles style
-            # they being displayed correctly. Because of that they being divided in this module
-            # and being increased later in server_initializer so the output qlr exts size will be valid.
-            base_size = base_size/_MAPLIBRE_LABELS_FACTOR
+        base_size = PropertyExtractor.length_to_style_value(text_format.size(), text_format.sizeUnit())
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Size)
         return PropertyExtractor.get_value_or_expression(base_size, size_prop)
+
+    @staticmethod
+    def get_text_size_px(text_format: QgsTextFormat) -> float:
+        """The label's font size in pixels, to turn pixel lengths into ems.
+
+        A size in map units has no single pixel size; 16 px stands in for it.
+        """
+        if PropertyExtractor.is_map_unit(text_format.sizeUnit()):
+            return 16.0
+        size = PropertyExtractor.convert_length_to_pixels(text_format.size(), text_format.sizeUnit())
+        return size if size and size > 0 else 16.0
 
     @staticmethod
     def get_text_color(
@@ -932,13 +1054,17 @@ class TextPropertyExtractor:
         buffer = text_format.buffer()
         if not buffer.enabled():
             return 0
+        # Both are the halo's width outside the letters.
         try:
-            base_width = PropertyExtractor.convert_length_to_pixels(
+            base_width = PropertyExtractor.length_to_style_value(
                 buffer.size(), buffer.sizeUnit()
             )
         except (AttributeError, RuntimeError):
             base_width = buffer.size()
-        base_width = base_width/(_MAPLIBRE_LABELS_FACTOR*2)
+        if isinstance(base_width, (int, float)):
+            # MapLibre draws halos up to about a quarter of the text size;
+            # wider ones fill the letter's whole box with a faint colour.
+            base_width = min(base_width, 0.2 * TextPropertyExtractor.get_text_size_px(text_format))
         if label_settings is None:
             return base_width
         try:
@@ -995,7 +1121,7 @@ class TextPropertyExtractor:
             3: "right",        4: "center",  5: "left",
             6: "top-right",    7: "top",     8: "top-left",
         }
-        return anchor_map.get(label_settings.quadOffset, "center")
+        return anchor_map.get(PropertyExtractor.enum_int(label_settings.quadOffset), "center")
 
     @staticmethod
     def get_text_justify(label_settings: QgsPalLayerSettings) -> Union[str, List]:
@@ -1015,7 +1141,7 @@ class TextPropertyExtractor:
             except AttributeError:
                 justification = 1
         justify_map = {0: "left", 1: "center", 2: "right", 3: "center"}
-        base_justify = justify_map.get(justification, "left")
+        base_justify = justify_map.get(PropertyExtractor.enum_int(justification), "left")
         try:
             justify_prop = label_settings.dataDefinedProperties().property(
                 QgsPalLayerSettings.Property.MultiLineAlignment
@@ -1024,18 +1150,22 @@ class TextPropertyExtractor:
         except (AttributeError, RuntimeError):
             return base_justify
 
+    # QGIS's "Offset from point" placement, the only one that uses xOffset/yOffset.
+    _OVER_POINT = 1
+
     @staticmethod
     def get_text_offset(label_settings: QgsPalLayerSettings) -> List[float]:
-        """Return ``text-offset`` ``[x, y]`` in ems-equivalent pixel units."""
+        """Return ``text-offset`` ``[x, y]`` in ems (y down, as in QGIS)."""
+        if PropertyExtractor.enum_int(label_settings.placement) != TextPropertyExtractor._OVER_POINT:
+            return [0, 0]
         x_offset = label_settings.xOffset
         y_offset = label_settings.yOffset
         if x_offset != 0 or y_offset != 0:
-            offset_unit = PropertyExtractor.get_attribute(
-                label_settings, "xOffsetUnit", "offsetUnit", "units"
-            )
+            offset_unit = PropertyExtractor.get_attribute(label_settings, "offsetUnits")
+            em = TextPropertyExtractor.get_text_size_px(label_settings.format())
             return [
-                PropertyExtractor.convert_length_to_pixels(x_offset, offset_unit),
-                PropertyExtractor.convert_length_to_pixels(y_offset, offset_unit),
+                PropertyExtractor.convert_length_to_pixels(x_offset, offset_unit) / em,
+                PropertyExtractor.convert_length_to_pixels(y_offset, offset_unit) / em,
             ]
         return [0, 0]
 
@@ -1089,9 +1219,15 @@ class TextPropertyExtractor:
         return 45.0
 
     @staticmethod
-    def get_text_allow_overlap() -> bool:
-        """Return ``text-allow-overlap`` (MapLibre default: ``False``)."""
-        return False
+    def get_text_allow_overlap(label_settings: QgsPalLayerSettings = None) -> bool:
+        """Return ``text-allow-overlap``: QGIS's "Allow overlaps without penalty"."""
+        try:
+            handling = label_settings.placementSettings().overlapHandling()
+            return PropertyExtractor.enum_int(handling) == PropertyExtractor.enum_int(
+                Qgis.LabelOverlapHandling.AllowOverlapAtNoCost
+            )
+        except (AttributeError, RuntimeError):
+            return False
 
     @staticmethod
     def get_text_ignore_placement() -> bool:
@@ -1105,12 +1241,26 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_padding() -> float:
-        """Return ``text-padding`` in pixels (MapLibre default: 2)."""
-        return 10
+        """Return ``text-padding`` in pixels (MapLibre default: 2).
+
+        QGIS lets labels touch, so the default keeps about as many labels.
+        """
+        return 2
 
     @staticmethod
-    def get_text_line_height() -> float:
-        """Return ``text-line-height`` (MapLibre default: 1.2)."""
+    def get_text_line_height(text_format: QgsTextFormat = None) -> float:
+        """Return ``text-line-height`` in ems.
+
+        QGIS's line height is a multiple of the font's own line spacing,
+        about 1.2 em: MapLibre's default.
+        """
+        try:
+            if PropertyExtractor.enum_int(text_format.lineHeightUnit()) == PropertyExtractor.enum_int(
+                Qgis.RenderUnit.Percentage
+            ):
+                return 1.2 * text_format.lineHeight()
+        except (AttributeError, RuntimeError, TypeError):
+            pass
         return 1.2
 
     @staticmethod
@@ -1143,11 +1293,12 @@ class TextPropertyExtractor:
     def get_text_max_width(label_settings: QgsPalLayerSettings) -> float:
         """Return ``text-max-width`` in ems.
 
-        Uses ``autoWrapLength`` when set; otherwise a very large value to
-        effectively disable wrapping.
+        QGIS's ``autoWrapLength`` counts characters; an average character is
+        about half an em wide. Without it, a very large value effectively
+        disables wrapping.
         """
         if label_settings.autoWrapLength > 0:
-            return label_settings.autoWrapLength
+            return label_settings.autoWrapLength * 0.5
         return 999
 
     @staticmethod
@@ -1286,6 +1437,7 @@ class QgisMapLibreStyleExporter:
             The complete MapLibre style dictionary.
         """
         self.layer.source()
+        self._set_map_units()
 
         renderer = self.layer.renderer()
         if isinstance(renderer, QgsVectorTileBasicRenderer):
@@ -1299,6 +1451,20 @@ class QgisMapLibreStyleExporter:
 
         self.save_to_file()
         return self.style
+
+    def _set_map_units(self) -> None:
+        """Size map-unit lengths for the project's CRS at the tiles' latitude."""
+        latitude = 0.0
+        try:
+            extent = self.layer.extent()
+            if not extent.isEmpty():
+                to_wgs84 = QgsCoordinateTransform(
+                    self.layer.crs(), QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance()
+                )
+                latitude = to_wgs84.transform(extent.center()).y()
+        except (QgsCsException, RuntimeError, AttributeError):  # Equator sizes then.
+            latitude = 0.0
+        PropertyExtractor.set_map_units(QgsProject.instance().crs(), latitude)
 
     def _convert_renderer_style(self, style):
         """Convert a single ``QgsVectorTileBasicRendererStyle`` into MapLibre layer(s)."""
@@ -1397,9 +1563,13 @@ class QgisMapLibreStyleExporter:
         pattern_name = f"pattern_{self.marker_counter}"
         self.marker_counter += 1
         try:
-            self.marker_symbols[pattern_name] = symbol_or_layer.clone()
+            symbol_or_layer = symbol_or_layer.clone()
         except (AttributeError, RuntimeError):
-            self.marker_symbols[pattern_name] = symbol_or_layer
+            pass
+        if FillPropertyExtractor.is_pattern_fill(symbol_or_layer):
+            width, height = FillPropertyExtractor.get_pattern_tile_size(symbol_or_layer)
+            symbol_or_layer = FillPattern(symbol_or_layer, width, height)
+        self.marker_symbols[pattern_name] = symbol_or_layer
         return pattern_name
 
     def _convert_marker_symbol(
@@ -1693,7 +1863,7 @@ class QgisMapLibreStyleExporter:
             pattern_name = self._register_pattern(symbol_layer)
             layer_def["paint"].update({
                 "fill-pattern": pattern_name,
-                "fill-opacity": 1.0,
+                "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
                 "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
                 "fill-translate": FillPropertyExtractor.get_fill_translate(),
                 "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
@@ -1736,12 +1906,11 @@ class QgisMapLibreStyleExporter:
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
             "text-offset": TextPropertyExtractor.get_text_offset(label_settings),
-            "text-radial-offset": TextPropertyExtractor.get_text_radial_offset(label_settings),
-            "text-allow-overlap": TextPropertyExtractor.get_text_allow_overlap(),
+            "text-allow-overlap": TextPropertyExtractor.get_text_allow_overlap(label_settings),
             "text-ignore-placement": TextPropertyExtractor.get_text_ignore_placement(),
             "text-optional": TextPropertyExtractor.get_text_optional(),
             "text-padding": TextPropertyExtractor.get_text_padding(),
-            "text-line-height": TextPropertyExtractor.get_text_line_height(),
+            "text-line-height": TextPropertyExtractor.get_text_line_height(text_format),
             "text-letter-spacing": TextPropertyExtractor.get_text_letter_spacing(),
             "text-transform": TextPropertyExtractor.get_text_transform(label_settings),
             "text-max-width": TextPropertyExtractor.get_text_max_width(label_settings),
@@ -1758,9 +1927,17 @@ class QgisMapLibreStyleExporter:
             "visibility": "visible",
         })
 
+        # Every placement but "Offset from point" lets QGIS choose the side.
+        # MapLibre uses a radial offset instead of text-offset, so it is set
+        # only with the variable anchors.
         variable_anchor = TextPropertyExtractor.get_text_variable_anchor()
-        if variable_anchor and label_settings.placement != 1:
+        if variable_anchor and (
+            PropertyExtractor.enum_int(label_settings.placement) != TextPropertyExtractor._OVER_POINT
+        ):
             layer_def["layout"]["text-variable-anchor"] = variable_anchor
+            layer_def["layout"]["text-radial-offset"] = TextPropertyExtractor.get_text_radial_offset(
+                label_settings
+            )
 
 
         #         "text-halo-blur": TextPropertyExtractor.get_text_halo_blur(
@@ -1920,8 +2097,9 @@ class QgisMapLibreStyleExporter:
             # Try converting strings, ints, floats, etc.
             num = float(obj)
 
-            # Keep integers as int if possible after rounding
-            rounded = round(num, 2)
+            # Keep integers as int if possible after rounding. Small values
+            # (a map-unit width at zoom 0) keep 3 significant digits instead.
+            rounded = round(num, 2) if abs(num) >= 0.1 or num == 0 else float(f"{num:.3g}")
             return int(rounded) if rounded.is_integer() else rounded
 
         except (ValueError, TypeError):

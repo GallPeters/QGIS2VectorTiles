@@ -15,41 +15,61 @@ from json import dumps
 from math import sqrt, ceil
 from os import makedirs
 from os.path import join
-from typing import Optional, TypeAlias
+from typing import Optional, TypeAlias, Union
 
 
 from PIL import Image
-from qgis.core import QgsSymbol
+from qgis.core import Qgis, QgsFillSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer
 from qgis.PyQt.QtCore import qVersion
 
 _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
-    from PyQt5.QtCore import QSize, QBuffer, QIODevice
-    from PyQt5.QtGui import QImage
+    from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, Qt
+    from PyQt5.QtGui import QImage, QPainter, QPolygonF
     _IO_READ_WRITE = QIODevice.ReadWrite
 else:
-    from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice
-    from PyQt6.QtGui import QImage
+    from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, Qt
+    from PyQt6.QtGui import QImage, QPainter, QPolygonF
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
 Img: TypeAlias = Image.Image
 MatrixShape: TypeAlias = tuple[int, int]
 ImgCoord: TypeAlias = tuple[float, float, float, float]
 
+_PX_PER_MM = 96 / 25.4
+_PATTERN_RENDER_PX = 1024  # Largest repeat drawn before downscaling to the tile
+
+
+@dataclass
+class FillPattern:
+    """A pattern fill symbol layer and its repeat (tile) size in pixels."""
+
+    symbol_layer: QgsSymbolLayer
+    width: float
+    height: float
+
 
 @dataclass
 class SymbolImage:
-    """Render a QGIS symbol as a cropped PIL image at the given scale factor."""
+    """Render a QGIS symbol as a cropped PIL image at the given scale factor.
 
-    symbol: QgsSymbol
+    A ``FillPattern`` becomes one seamless tile at 1x (``img``) and 2x
+    (``img2x``), since a pattern's image is shown at its own pixel size.
+    """
+
+    symbol: Union[QgsSymbol, FillPattern]
     name: str
     scale_factor: int = 1
     img: Img = field(init=False)
+    img2x: Optional[Img] = field(init=False, default=None)
     width: int = field(init=False)
     height: int = field(init=False)
 
     def __post_init__(self):
-        self._render()
+        if isinstance(self.symbol, FillPattern):
+            self._render_pattern()
+        else:
+            self._render()
 
     def _extract_markers(self, symbol: QgsSymbol, markers: list):
         """Recursively extract marker symbols from a symbol object"""
@@ -75,7 +95,11 @@ class SymbolImage:
             marker.bufferSettings().setSize(marker.bufferSettings().size() * scale_factor)
         
     def _render(self):
-        """Render symbol at 1000 px, scale its size, then crop transparent borders."""
+        """Render symbol at 1000 px, scale its size, then crop transparent borders.
+
+        The crop is centred on the point the marker is drawn at, so an
+        offset or lopsided marker keeps its place when MapLibre centres it.
+        """
         try:
             symbol = self.symbol.clone()
             markers = []
@@ -85,13 +109,66 @@ class SymbolImage:
             qt_img = symbol.asImage(QSize(1000, 1000))
             pil_img = self._qt_to_pil(qt_img)
             bbox = pil_img.getbbox()
-            self.img = pil_img.crop(bbox) if bbox else pil_img
-            self.img.name = self.name
+            if bbox:
+                cx, cy = pil_img.width // 2, pil_img.height // 2
+                half_w = max(cx - bbox[0], bbox[2] - cx)
+                half_h = max(cy - bbox[1], bbox[3] - cy)
+                pil_img = pil_img.crop((cx - half_w, cy - half_h, cx + half_w, cy + half_h))
+            self.img = pil_img
         except (RuntimeError, AttributeError):
             self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
 
         self.width = self.img.width
         self.height = self.img.height
+
+    def _render_pattern(self):
+        """Draw one repeat of the pattern as a tile that joins seamlessly.
+
+        The pattern fills a 3x3-repeat area at up to 8x scale and the middle
+        repeat is cut out, so the tile edges continue into each other; it is
+        then scaled to its pixel size.
+        """
+        pattern = self.symbol
+        try:
+            tile_w, tile_h = max(1, round(pattern.width)), max(1, round(pattern.height))
+            scale = max(1.0, min(8.0, _PATTERN_RENDER_PX / max(pattern.width, pattern.height)))
+            repeat_w, repeat_h = max(1, round(pattern.width * scale)), max(1, round(pattern.height * scale))
+            area_w, area_h = repeat_w * 3, repeat_h * 3
+
+            qt_img = QImage(area_w, area_h, QImage.Format.Format_ARGB32_Premultiplied)
+            qt_img.fill(0)
+            painter = QPainter(qt_img)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            context = QgsRenderContext.fromQPainter(painter)
+            context.setScaleFactor(_PX_PER_MM * scale)
+            context.setFlag(Qgis.RenderContextFlag.Antialiasing, True)
+            symbol = QgsFillSymbol([pattern.symbol_layer.clone()])
+            area = QPolygonF([QPointF(0, 0), QPointF(area_w, 0), QPointF(area_w, area_h),
+                              QPointF(0, area_h), QPointF(0, 0)])
+            symbol.startRender(context)
+            symbol.renderPolygon(area, None, None, context)
+            symbol.stopRender(context)
+            painter.end()
+
+            repeat = self._qt_to_pil(qt_img).crop((repeat_w, repeat_h, repeat_w * 2, repeat_h * 2))
+            self.img = self._resize_tile(repeat, tile_w, tile_h)
+            self.img2x = self._resize_tile(repeat, tile_w * 2, tile_h * 2)
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
+            self.img2x = None
+
+        self.width = self.img.width
+        self.height = self.img.height
+
+    @staticmethod
+    def _resize_tile(tile: Img, width: int, height: int) -> Img:
+        """Resize a repeating tile, sampling across its edges as if it were repeated."""
+        mosaic = Image.new("RGBA", (tile.width * 3, tile.height * 3))
+        for col in range(3):
+            for row in range(3):
+                mosaic.paste(tile, (col * tile.width, row * tile.height))
+        mosaic = mosaic.resize((width * 3, height * 3), Image.Resampling.LANCZOS)
+        return mosaic.crop((width, height, width * 2, height * 2))
 
     @staticmethod
     def _qt_to_pil(qt_img: QImage) -> Img:
@@ -197,15 +274,25 @@ class SpriteImage:
             y_offset = round((row_height - self.matrix.pixelspace - img.height) / 2)
             img_y = current_y + y_offset
             self.img.paste(img.img, (int(x), int(img_y)))
-            coords[img.name] = (x, img_y, img.width, img.height)
+            coords[img.name] = (int(x), int(img_y), img.width, img.height)
             x += img.width + self.matrix.pixelspace
         return coords
 
     def _build_highres(self):
-        """Generate a high-resolution version by upscaling with LANCZOS."""
+        """Generate a high-resolution version by upscaling with LANCZOS.
+
+        Pattern tiles drawn at 2x replace their upscaled copies.
+        """
         new_w = int(self.img.width * self.lowerfactor)
         new_h = int(self.img.height * self.lowerfactor)
         self.lowerimg = self.img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        for row in self.matrix.imgsmatrix:
+            for img in row:
+                if img.img2x is None or img.name not in self.imgscoords:
+                    continue
+                x, y, w, h = self.imgscoords[img.name]
+                if img.img2x.size == (w * self.lowerfactor, h * self.lowerfactor):
+                    self.lowerimg.paste(img.img2x, (int(x) * self.lowerfactor, int(y) * self.lowerfactor))
 
     def save(self, output_dir: str):
         """Save base and high-res sprite PNGs to output_dir."""
