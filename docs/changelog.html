@@ -14,8 +14,8 @@
 <meta property="og:description" content="Release notes for QGIS2VectorTiles, from the latest release back to the first.">
 <meta property="og:url" content="https://gallpeters.github.io/QGIS2VectorTiles/changelog.html">
 <meta property="og:image" content="https://gallpeters.github.io/QGIS2VectorTiles/og-image.jpg">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image:width" content="1400">
+<meta property="og:image:height" content="859">
 <meta name="twitter:card" content="summary_large_image">
 
 <link rel="icon" type="image/png" href="icons/icon.png">
@@ -140,7 +140,12 @@
       <li>Tiles are made up to <strong>zoom 15</strong> and enlarged by the viewers and QGIS beyond it: fewer tiles, faster generation, and maps no longer go blank beyond the last tiled zoom.</li>
       <li><strong>Temporary (memory) layers</strong> are now exported.</li>
       <li>Upgraded the web viewers to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
+      <li>New in both web viewers (MapLibre and OpenLayers): <strong>search</strong> across the fields of every exported feature.</li>
+      <li>New: <strong>draw</strong> points, lines, polygons, rectangles and circles; drawings are kept in the browser and can be <strong>downloaded as GeoJSON</strong>.</li>
+      <li>New: <strong>measure distances and areas</strong>, plus a <strong>scale bar</strong> and <strong>pointer coordinates</strong>.</li>
+      <li>New <strong>basemap switcher</strong> in the viewers (OpenStreetMap, NASA Blue Marble, project background), replacing the <strong>Background</strong> parameter.</li>
       <li><strong>Popups</strong> are off by default in both viewers, and the toggle button always shows their real state.</li>
+      <li>Fixed labels in fonts without a style name being drawn in a fallback font, and the <strong>zoom indicator</strong> showing 0 at startup.</li>
     </ul>
   </article>
   <article class="release" id="v3-7">
