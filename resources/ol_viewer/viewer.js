@@ -130,16 +130,20 @@ function scheduleClose() {
 /* ===================================================== */
 /* POPUP TOGGLE BUTTON                                   */
 /* ===================================================== */
+function updatePopupToggle() {
+    document.getElementById('popup-toggle').textContent =
+        popupsEnabled ? 'Popups: ON' : 'Popups: OFF';
+}
+
 document.getElementById('popup-toggle').addEventListener('click', () => {
     popupsEnabled = !popupsEnabled;
-
-    const btn = document.getElementById('popup-toggle');
-    btn.textContent = popupsEnabled ? 'Popups: ON' : 'Popups: OFF';
+    updatePopupToggle();
 
     if (!popupsEnabled) {
         hidePopup();
     }
 });
+updatePopupToggle();  // The page's initial label must match popupsEnabled.
 
 
 
