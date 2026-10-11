@@ -10,7 +10,7 @@ import { apply } from 'ol-mapbox-style';
 /* ===================================================== */
 /* STATE                                                 */
 /* ===================================================== */
-let popupsEnabled = true;
+let popupsEnabled = false;
 let rasterEnabled = false;
 let isOverPopup   = false;
 let closeTimeout  = null;
