@@ -133,20 +133,19 @@
       <span class="tag">Latest</span>
     </div>
     <ul>
-      <li>Removed the <strong>Polygon Labels Base</strong> parameter: polygon labels now follow each layer's own QGIS placement settings (<strong>centroid of whole or visible polygon</strong>, including data-defined, <strong>force point inside polygon</strong>, and <strong>horizontal / free</strong> placement inside the polygon).</li>
-      <li>Polygon labels placed <strong>using the perimeter</strong> now follow the polygon outline.</li>
-      <li><strong>Centroid fills</strong> follow their point-on-surface and clip-to-polygon settings.</li>
-      <li>Much <strong>faster export</strong> of projects with many categories or rules: each layer is read once for all its rules.</li>
-      <li>Tiles are made up to <strong>zoom 15</strong> and enlarged by the viewers and QGIS beyond it: fewer tiles, faster generation, and maps no longer go blank beyond the last tiled zoom.</li>
+      <li>New in both web viewers: <strong>search</strong>, <strong>drawing</strong> (download as GeoJSON), <strong>distance and area measuring</strong>, a <strong>scale bar</strong> and <strong>pointer coordinates</strong>.</li>
+      <li>New <strong>basemap switcher</strong> in the viewers; the <strong>Background</strong> parameter is removed.</li>
+      <li>New <strong>Visible Fields</strong> option in <strong>Included Fields</strong>.</li>
+      <li>Removed the <strong>Polygon Labels Base</strong> parameter: polygon labels follow their own QGIS placement settings.</li>
+      <li>Polygon labels placed <strong>using the perimeter</strong> follow the polygon outline.</li>
+      <li><strong>Centroid fills</strong> follow their QGIS settings.</li>
+      <li>Much <strong>faster export</strong> of projects with many rules or categories.</li>
+      <li>Tiles stop at <strong>zoom 15</strong> and are enlarged beyond it: smaller output and no more blank maps at high zoom.</li>
       <li><strong>Temporary (memory) layers</strong> are now exported.</li>
-      <li>Upgraded the web viewers to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
-      <li>New in both web viewers (MapLibre and OpenLayers): <strong>search</strong> every exported feature by its labels and the fields included in the output.</li>
-      <li>New <strong>Visible Fields</strong> option in <strong>Included Fields</strong>: exports the fields shown in QGIS (not hidden in the attribute form or attribute table).</li>
-      <li>New: <strong>draw</strong> points, lines, polygons, rectangles and circles; drawings are kept in the browser and can be <strong>downloaded as GeoJSON</strong>.</li>
-      <li>New: <strong>measure distances and areas</strong>, plus a <strong>scale bar</strong> and <strong>pointer coordinates</strong>.</li>
-      <li>New <strong>basemap switcher</strong> in the viewers (OpenStreetMap, NASA Blue Marble, project background), replacing the <strong>Background</strong> parameter.</li>
-      <li><strong>Popups</strong> are off by default in both viewers, and the toggle button always shows their real state.</li>
-      <li>Fixed labels in fonts without a style name being drawn in a fallback font, and the <strong>zoom indicator</strong> showing 0 at startup.</li>
+      <li>Upgraded to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
+      <li><strong>Popups</strong> are off by default in both viewers.</li>
+      <li>Fixed some <strong>label fonts</strong> not loading, and the <strong>zoom indicator</strong> showing 0 at startup.</li>
+      <li>Clearer description of the <strong>built-in local server</strong> that opens the viewer.</li>
     </ul>
   </article>
   <article class="release" id="v3-7">
