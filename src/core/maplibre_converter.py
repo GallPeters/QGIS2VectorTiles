@@ -570,10 +570,29 @@ class IconPropertyExtractor:
     def get_icon_size(
         symbol_layer: QgsSymbolLayer, default_size: float = 1.0
     ) -> Union[float, List]:
-        """Return ``icon-size`` honouring any data-defined override."""
+        """Return ``icon-size`` honouring any data-defined override.
+
+        The sprite draws the marker at its own size (times _SPRITE_QUALITY).
+        A data-defined size is a marker size, not a scale, so the icon is
+        scaled by its ratio to the marker's own size: a constant becomes a
+        number, a field a MapLibre expression.
+        """
         size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertySize)
         size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
-        return size_val / _SPRITE_QUALITY
+        if size_val is default_size:
+            return default_size / _SPRITE_QUALITY
+        try:
+            base = float(symbol_layer.size())
+        except (AttributeError, TypeError, ValueError):
+            base = 0.0
+        if base <= 0:
+            return default_size / _SPRITE_QUALITY
+        if isinstance(size_val, list):
+            return ["/", ["to-number", size_val, base], base * _SPRITE_QUALITY]
+        try:
+            return float(size_val) / base / _SPRITE_QUALITY
+        except (TypeError, ValueError):
+            return default_size / _SPRITE_QUALITY
 
     @staticmethod
     def get_icon_rotate(

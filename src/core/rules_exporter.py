@@ -356,6 +356,9 @@ class _Cancelled(Exception):
 # Marks a per-feature cache entry not computed yet.
 _MISSING = object()
 
+# Serialises each rule-export pass's setup (see _export_rule_pass_from).
+_PASS_SETUP_LOCK = threading.Lock()
+
 
 class _FilterMatcher:
     """Tells which of a pass's rule filters a feature passes.
@@ -1119,8 +1122,14 @@ class RulesExporter:
             max_workers=max_workers, thread_name_prefix="rules-export",
             initializer=_lower_thread_priority,
         ) as pool:
+            # Each pass's expression context (global and project scopes) is
+            # made here, on the caller thread: the project must not be read
+            # from the pass threads, where it corrupted the heap.
             futures: Dict[Future, List[_RuleGroupSnapshot]] = {
-                pool.submit(self._export_rule_pass, groups, src_path): groups
+                pool.submit(
+                    self._export_rule_pass, groups, src_path,
+                    QgsProject.instance().createExpressionContext(),
+                ): groups
                 for src_path, groups in tasks
             }
             for fut in self._iter_completed(futures):
@@ -1166,7 +1175,7 @@ class RulesExporter:
         return expr_str
 
     def _export_rule_pass(
-        self, groups: List[_RuleGroupSnapshot], source_path: str
+        self, groups: List[_RuleGroupSnapshot], source_path: str, context: QgsExpressionContext
     ) -> Dict[str, Optional[str]]:
         """Worker: export rule groups that share a base layer in a single
         streaming pass.
@@ -1180,20 +1189,20 @@ class RulesExporter:
         self._check_cancel()
         layer = QgsVectorLayer(source_path, "base", "ogr")
         try:
-            return self._export_rule_pass_from(groups, layer)
+            return self._export_rule_pass_from(groups, layer, context)
         finally:
             self._dispose_layer(layer)
 
     def _export_rule_pass_from(
-        self, groups: List[_RuleGroupSnapshot], layer: QgsVectorLayer
+        self, groups: List[_RuleGroupSnapshot], layer: QgsVectorLayer, context: QgsExpressionContext
     ) -> Dict[str, Optional[str]]:
-        """_export_rule_pass, once the base layer is open."""
+        """_export_rule_pass, once the base layer is open; ``context`` is this
+        pass's own expression context, made on the caller thread."""
         results: Dict[str, Optional[str]] = {grp.output_dataset: None for grp in groups}
         if not layer.isValid():
             return results
         src_fields = layer.fields()
 
-        context = QgsProject.instance().createExpressionContext()
         context.appendScope(QgsExpressionContextUtils.layerScope(layer))
         context.setFields(src_fields)
         # Planar measurements, as with a default QgsProcessingContext.
@@ -1215,21 +1224,26 @@ class RulesExporter:
         outputs: List[_RuleOutput] = []
         completed = False
         try:
-            for grp in groups:
-                output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
-                if exists(output_path):
-                    results[grp.output_dataset] = output_path
-                    continue
-                output = self._open_rule_output(grp, output_path, src_fields, layer.crs(), prepare)
-                if output is not None:
-                    outputs.append(output)
-            if not outputs:
-                return results
+            # One pass at a time parses its expressions and creates its
+            # output files: done by several passes at once, this corrupted
+            # the heap (Windows 0xC0000374) on projects with thousands of
+            # rules. Reading and writing features stays parallel.
+            with _PASS_SETUP_LOCK:
+                for grp in groups:
+                    output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
+                    if exists(output_path):
+                        results[grp.output_dataset] = output_path
+                        continue
+                    output = self._open_rule_output(grp, output_path, src_fields, layer.crs(), prepare)
+                    if output is not None:
+                        outputs.append(output)
+                if not outputs:
+                    return results
 
-            by_filter: Dict[Optional[str], List[_RuleOutput]] = {}
-            for output in outputs:
-                by_filter.setdefault(output.grp.filter_expression, []).append(output)
-            matcher = _FilterMatcher(list(by_filter), src_fields, prepare)
+                by_filter: Dict[Optional[str], List[_RuleOutput]] = {}
+                for output in outputs:
+                    by_filter.setdefault(output.grp.filter_expression, []).append(output)
+                matcher = _FilterMatcher(list(by_filter), src_fields, prepare)
             biggest_idx = src_fields.lookupField(_BIGGEST_FIELD)
             request = QgsFeatureRequest()
             request.setInvalidGeometryCheck(
