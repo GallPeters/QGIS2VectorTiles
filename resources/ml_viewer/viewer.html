@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MapLibre Viewer</title>
-    <script src="maplibre-gl.js"></script>
     <link href="maplibre-gl.css" rel="stylesheet">
 
     <style>
@@ -59,7 +58,10 @@
 
 <div id="map"></div>
 
-<script>
+<script type="module">
+// MapLibre 6 is an ES module; it loads maplibre-gl-worker.mjs from this folder.
+import * as maplibregl from './maplibre-gl.mjs';
+
 const map = new maplibregl.Map({
     container: 'map',
     style: 'http://localhost:18111991/style/style.json',
