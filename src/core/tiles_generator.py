@@ -14,11 +14,14 @@ import subprocess
 from os import cpu_count
 from os.path import join, basename
 from typing import List, Tuple
+from uuid import uuid4
 from xml.sax.saxutils import escape, quoteattr
 from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
-from ..utils.config import _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM
+from ..utils.config import (
+    _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
+)
 
 
 class GDALTilesGenerator:
@@ -62,11 +65,13 @@ class GDALTilesGenerator:
 
         Without it every layer is written to every zoom level of the
         dataset, although each style only shows it within its own range.
+        Tiles stop at _TILES_MAX_ZOOM, where viewers enlarge them, so a
+        layer shown only beyond it is written to that zoom's tiles.
         """
         conf = {
             self._layer_name(layer): {
-                "minzoom": self._parse_layer_zoom(layer, "o"),
-                "maxzoom": min(self._parse_layer_zoom(layer, "i"), 16),
+                "minzoom": min(self._parse_layer_zoom(layer, "o"), _TILES_MAX_ZOOM),
+                "maxzoom": min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM),
             }
             for layer in self.layers
         }
@@ -103,7 +108,7 @@ class GDALTilesGenerator:
         q2vt_orig_id only serves the rules export, and data-defined property
         fields matter only if the style references them.
         """
-        if field_name == f"{_FIELD_PREFIX}_orig_id":
+        if field_name in (f"{_FIELD_PREFIX}_orig_id", f"{_FIELD_PREFIX}_biggest"):
             return False
         if f"{_FIELD_PREFIX}_property_" in field_name:
             return field_name in style_text
@@ -144,11 +149,17 @@ class GDALTilesGenerator:
         env = os.environ.copy()
         env["GDAL_NUM_THREADS"] = cpu_num
 
+        # The temporary database is written heavily; keep it on local disk,
+        # not next to the output (which may be a synced or network folder).
+        temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{uuid4().hex}.temp.db")
         cmd = [
             "ogr2ogr", "-f", "MBTiles", output, vrt_path,
-            "-dsco", f"MINZOOM={min_zoom}",
-            "-dsco", f"MAXZOOM={max_zoom}",
+            # MAXZOOM also becomes the MBTiles metadata's maxzoom, from which
+            # QGIS enlarges the tiles beyond it.
+            "-dsco", f"MINZOOM={min(min_zoom, _TILES_MAX_ZOOM)}",
+            "-dsco", f"MAXZOOM={min(max_zoom, _TILES_MAX_ZOOM)}",
             "-dsco", f"CONF={conf_path}",
+            "-dsco", f"TEMPORARY_DB={temporary_db}",
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", "MAX_SIZE=5000000",
             "-dsco", "MAX_FEATURES=2000000",

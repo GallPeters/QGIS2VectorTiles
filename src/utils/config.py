@@ -39,6 +39,8 @@ _SPRITE_QUALITY = 3
 _FIELD_PREFIX = 'q2vt'    
 _SIMPLIFICATION=1
 _SIMPLIFICATION_MAX_ZOOM=0                   # Field name prefix
+_TILES_MAX_ZOOM = 15                      # Highest zoom tiles are made for; viewers
+                                          # enlarge them beyond (0.3 m precision)
 
 # =====================================================================
 # BASE-LAYER CACHE
@@ -108,6 +110,7 @@ __all__ = [
     "_FIELD_PREFIX",
     "_SIMPLIFICATION",
     "_SIMPLIFICATION_MAX_ZOOM",
+    "_TILES_MAX_ZOOM",
     # Base-layer cache
     "_CACHE_DIR_NAME",
     "_CACHE_MAX_MB",

@@ -27,7 +27,7 @@ from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
 from .sprite_generator import SpriteGenerator
 from .rules_exporter import _TEMP_RULE_FORMAT
-from ..utils.config import _SPRITE_QUALITY, _MAPLIBRE_LABELS_FACTOR
+from ..utils.config import _SPRITE_QUALITY, _MAPLIBRE_LABELS_FACTOR, _TILES_MAX_ZOOM
 
 
 class PropertyExtractor:
@@ -1241,6 +1241,9 @@ class QgisMapLibreStyleExporter:
                 self.source_name: {
                     "type": "vector",
                     "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf?v=10031993"],
+                    # The highest zoom with tiles; viewers enlarge its tiles
+                    # beyond it rather than request tiles that don't exist.
+                    "maxzoom": max(0, min(self.maxzoom, _TILES_MAX_ZOOM)),
                 }
             },
             "glyphs": "http://localhost:9000/style/glyphs/{fontstack}/{range}.pbf",

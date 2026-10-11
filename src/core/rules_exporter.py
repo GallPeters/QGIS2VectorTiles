@@ -106,6 +106,8 @@ from qgis.core import (
     QgsExpressionContext,
     QgsExpression,
     QgsExpressionContextUtils,
+    QgsExpressionNode,
+    QgsExpressionNodeBinaryOperator,
     QgsFeature,
     QgsFeatureSink,
     QgsField,
@@ -183,6 +185,16 @@ _FIELD_CONSTANT, _FIELD_COPY, _FIELD_EXPRESSION = range(3)
 # Expression fragments that read attributes dynamically, so their field
 # usage can't be determined statically by referencedColumns().
 _DYNAMIC_ATTRIBUTE_TOKENS = ("@feature", "$currentfeature")
+
+# Base-layer field flagging the largest part of each original feature (1),
+# for rules that show only that part.
+_BIGGEST_FIELD = f"{_FIELD_PREFIX}_biggest"
+
+# Field types whose values a filter like "field" = literal can be looked up
+# by (QMetaType codes): a dictionary matches exactly what the expression
+# engine does for them. 2-5: int, uint, long long, ulong long; 10: string.
+_LOOKUP_INT_TYPES = frozenset({2, 3, 4, 5})
+_LOOKUP_STRING_TYPE = 10
 
 # Polygon "using perimeter" placements (QgsPalLayerSettings.placement codes)
 # and the line placement each becomes on the polygon's boundary.
@@ -276,6 +288,7 @@ class _BaseBuild:
         self.path = path
         self.writer: Optional[QgsVectorFileWriter] = None
         self.orig_idx = -1
+        self.biggest_idx = -1
         self.pending = 0            # Batches submitted but not yet written.
         self.reading_done = False
         self.orig_id = 0
@@ -314,6 +327,134 @@ class _Cancelled(Exception):
 
 # Marks a per-feature cache entry not computed yet.
 _MISSING = object()
+
+
+class _FilterMatcher:
+    """Tells which of a pass's rule filters a feature passes.
+
+    A filter "field" = literal or "field" IN (literals), as categorized
+    renderers produce, alone or ANDed with other conditions, as for labels
+    split by such categories, is found by looking the feature's value up in
+    a dictionary instead of being evaluated; only its other conditions are
+    evaluated. A feature then costs one lookup per such field rather than
+    one evaluation per filter. Other filters are evaluated as they are.
+    Results are those of QgsFeatureRequest.setFilterExpression().
+    """
+
+    _Node = QgsExpressionNode.NodeType
+    _Op = QgsExpressionNodeBinaryOperator.BinaryOperator
+
+    def __init__(self, filters: List[Optional[str]], fields: QgsFields, prepare):
+        self._always: Set[Optional[str]] = set()
+        self._evaluated: List[Tuple[str, QgsExpression]] = []
+        # Per field index: {value: [(filter, its other conditions or None)]}.
+        self._lookups: Dict[int, Dict[Any, List[Tuple[str, Optional[QgsExpression]]]]] = {}
+        for filter_expression in filters:
+            if not filter_expression:
+                self._always.add(filter_expression)
+                continue
+            lookup = self._lookup_of(filter_expression, fields)
+            if lookup is None:
+                self._evaluated.append((filter_expression, prepare(filter_expression)))
+                continue
+            field_idx, values, remainder = lookup
+            condition = prepare(remainder) if remainder else None
+            table = self._lookups.setdefault(field_idx, {})
+            for value in set(values):
+                table.setdefault(value, []).append((filter_expression, condition))
+
+    def passed(self, attributes: List[Any], context: QgsExpressionContext) -> Set[Optional[str]]:
+        """The filters the feature in ``context`` passes."""
+        passed = set(self._always)
+        for field_idx, table in self._lookups.items():
+            try:
+                candidates = table.get(attributes[field_idx], ())
+            except TypeError:  # An unhashable value equals no literal.
+                continue
+            for filter_expression, condition in candidates:
+                if condition is None or self._is_true(condition.evaluate(context)):
+                    passed.add(filter_expression)
+        for filter_expression, expr in self._evaluated:
+            if self._is_true(expr.evaluate(context)):
+                passed.add(filter_expression)
+        return passed
+
+    @staticmethod
+    def _is_true(value) -> bool:
+        """QVariant::toBool(), which feature requests apply to filters."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.lower() not in ("", "0", "false")
+        try:
+            return bool(value)  # NULL is False.
+        except (TypeError, ValueError):
+            return False
+
+    @classmethod
+    def _lookup_of(
+        cls, filter_expression: str, fields: QgsFields
+    ) -> Optional[Tuple[int, List[Any], Optional[str]]]:
+        """(field index, values, other conditions) of a filter that can be
+        looked up; None if it must be evaluated."""
+        expr = QgsExpression(filter_expression)
+        root = expr.rootNode()
+        if expr.hasParserError() or root is None:
+            return None
+        conjuncts = list(cls._conjuncts(root))
+        for i, node in enumerate(conjuncts):
+            found = cls._field_values(node, fields)
+            if found is None:
+                continue
+            rest = conjuncts[:i] + conjuncts[i + 1:]
+            remainder = " AND ".join(f"({n.dump()})" for n in rest) or None
+            return found[0], found[1], remainder
+        return None
+
+    @classmethod
+    def _conjuncts(cls, node: QgsExpressionNode) -> Iterator[QgsExpressionNode]:
+        """The conditions ANDed together in ``node``."""
+        if node.nodeType() == cls._Node.ntBinaryOperator and node.op() == cls._Op.boAnd:
+            yield from cls._conjuncts(node.opLeft())
+            yield from cls._conjuncts(node.opRight())
+        else:
+            yield node
+
+    @classmethod
+    def _field_values(
+        cls, node: QgsExpressionNode, fields: QgsFields
+    ) -> Optional[Tuple[int, List[Any]]]:
+        """(field index, values) of "field" = literal or "field" IN
+        (literals), for fields and literals a dictionary compares exactly as
+        the expression engine does: both strings, or both integers."""
+        node_type = node.nodeType()
+        if node_type == cls._Node.ntBinaryOperator and node.op() == cls._Op.boEQ:
+            column, literal = node.opLeft(), node.opRight()
+            if column.nodeType() != cls._Node.ntColumnRef:
+                column, literal = literal, column
+            literals = [literal]
+        elif node_type == cls._Node.ntInOperator and not node.isNotIn():
+            column, literals = node.node(), node.list().list()
+        else:
+            return None
+        if column.nodeType() != cls._Node.ntColumnRef or not literals or any(
+            literal.nodeType() != cls._Node.ntLiteral for literal in literals
+        ):
+            return None
+        field_idx = fields.lookupField(column.name())
+        if field_idx < 0:
+            return None
+        field_type = int(getattr(fields.at(field_idx).type(), "value", fields.at(field_idx).type()))
+        values = [literal.value() for literal in literals]
+        if field_type == _LOOKUP_STRING_TYPE:
+            ok = all(isinstance(value, str) for value in values)
+        elif field_type in _LOOKUP_INT_TYPES:
+            ok = all(type(value) is int for value in values)  # Not bool or float.
+        else:
+            ok = False
+        return (field_idx, values) if ok else None
 
 
 # ============================================================================
@@ -668,7 +809,8 @@ class RulesExporter:
             subset = len(indices) != fields.count()
 
             # Output schema: the read fields + q2vt_orig_id, typed as
-            # fieldcalculator's FIELD_TYPE=0 (decimal, length 10, precision 3).
+            # fieldcalculator's FIELD_TYPE=0 (decimal, length 10, precision 3),
+            # + q2vt_biggest.
             out_fields = QgsFields()
             for idx in indices:
                 out_fields.append(fields.at(idx))
@@ -677,6 +819,10 @@ class RulesExporter:
             if build.orig_idx < 0:
                 out_fields.append(QgsField(orig_name, QMetaType.Type.Double, "", 10, 3))
                 build.orig_idx = out_fields.count() - 1
+            build.biggest_idx = out_fields.lookupField(_BIGGEST_FIELD)
+            if build.biggest_idx < 0:
+                out_fields.append(QgsField(_BIGGEST_FIELD, QMetaType.Type.Int))
+                build.biggest_idx = out_fields.count() - 1
 
             request = QgsFeatureRequest()
             request.setInvalidGeometryCheck(
@@ -720,7 +866,7 @@ class RulesExporter:
     ) -> None:
         """Hand a batch to the pool, then write whatever batches are ready."""
         pending.append((build, pool.submit(
-            self._prepare_base_batch, batch, source_crs, out_fields, build.orig_idx
+            self._prepare_base_batch, batch, source_crs, out_fields, build.biggest_idx
         )))
         build.pending += 1
         # Bounds the features held in memory while workers catch up.
@@ -731,12 +877,13 @@ class RulesExporter:
         batch: List[Tuple[List[Any], QgsGeometry]],
         source_crs: str,
         out_fields: QgsFields,
-        orig_idx: int,
+        biggest_idx: int,
     ) -> List[Optional[List[QgsFeature]]]:
         """Worker: fix → reproject → singleparts → simplify one batch.
 
-        Returns, per feature that survives, its output parts; q2vt_orig_id
-        is filled in by the writer, which knows the feature's position.
+        Returns, per feature that survives, its output parts, the largest
+        one flagged in q2vt_biggest; q2vt_orig_id is filled in by the
+        writer, which knows the feature's position.
 
         The CRS is rebuilt here from WKT, as each worker did when it read the
         CRS from a materialised file: a CRS object from another thread may
@@ -774,9 +921,25 @@ class RulesExporter:
                 out.setGeometry(
                     part if part.isNull() else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
                 )
+                out.setAttribute(biggest_idx, 0)
                 features.append(out)
+            biggest = max(features, key=lambda f: self._part_size(f.geometry()))
+            biggest.setAttribute(biggest_idx, 1)
             results.append(features)
         return results
+
+    @staticmethod
+    def _part_size(geometry: QgsGeometry) -> float:
+        """Area of a polygon, length of a line, 0 for a point, -1 for none;
+        the first of equal parts counts as the biggest."""
+        if geometry.isNull():
+            return -1.0
+        geometry_type = geometry.type()
+        if geometry_type == Qgis.GeometryType.Polygon:
+            return geometry.area()
+        if geometry_type == Qgis.GeometryType.Line:
+            return geometry.length()
+        return 0.0
 
     def _write_ready_batches(
         self, pending: "Deque[Tuple[_BaseBuild, Future]]", keep: int
@@ -869,20 +1032,19 @@ class RulesExporter:
         rule_groups: List[_RuleGroupSnapshot],
         base_layers: Dict[str, str],
     ) -> Dict[str, Optional[str]]:
-        """Export the rule groups in parallel, one pass per base layer and
-        filter: groups that read the same features share the read and the
-        expressions they have in common."""
+        """Export the rule groups in parallel, one pass per base layer: each
+        feature is read once for all the layer's groups, which share the
+        filters and other expressions they have in common."""
         outputs: Dict[str, Optional[str]] = {}
-        passes: Dict[Tuple[str, Optional[str], bool], List[_RuleGroupSnapshot]] = {}
+        passes: Dict[str, List[_RuleGroupSnapshot]] = {}
         for grp in rule_groups:
             src_path = base_layers.get(grp.layer_id)
             if not src_path or not exists(src_path):
                 outputs[grp.output_dataset] = None
                 continue
-            key = (grp.layer_id, grp.filter_expression, grp.keep_biggest_part)
-            passes.setdefault(key, []).append(grp)
+            passes.setdefault(grp.layer_id, []).append(grp)
         tasks: List[Tuple[str, List[_RuleGroupSnapshot]]] = []
-        for (layer_id, _, _), groups in passes.items():
+        for layer_id, groups in passes.items():
             for i in range(0, len(groups), _MAX_GROUPS_PER_PASS):
                 tasks.append((base_layers[layer_id], groups[i:i + _MAX_GROUPS_PER_PASS]))
         if not tasks:
@@ -945,8 +1107,8 @@ class RulesExporter:
     def _export_rule_pass(
         self, groups: List[_RuleGroupSnapshot], source_path: str
     ) -> Dict[str, Optional[str]]:
-        """Worker: export rule groups that share a base layer and a filter in
-        a single streaming pass.
+        """Worker: export rule groups that share a base layer in a single
+        streaming pass.
 
         Per group, equivalent to the chain extractbyexpression →
         refactorfields → [dissolve → keepnbiggestparts] →
@@ -1003,29 +1165,31 @@ class RulesExporter:
             if not outputs:
                 return results
 
-            # Every group of a pass has the same filter and biggest-part mode.
+            by_filter: Dict[Optional[str], List[_RuleOutput]] = {}
+            for output in outputs:
+                by_filter.setdefault(output.grp.filter_expression, []).append(output)
+            matcher = _FilterMatcher(list(by_filter), src_fields, prepare)
+            biggest_idx = src_fields.lookupField(_BIGGEST_FIELD)
             request = QgsFeatureRequest()
             request.setInvalidGeometryCheck(
                 QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
             )
-            if groups[0].filter_expression:
-                request.setFilterExpression(groups[0].filter_expression)
-                request.setExpressionContext(context)
-            # Read again in file order and skip the other parts, rather than
-            # fetching the biggest parts by id: base layers have no spatial
-            # index, so FlatGeobuf can only find a feature by id by reading
-            # from the start of the file.
-            biggest = (
-                self._biggest_part_ids(layer, request) if groups[0].keep_biggest_part else None
-            )
-
             for n, feature in enumerate(layer.getFeatures(request)):
                 if n % _WRITE_BATCH_SIZE == 0:
                     self._check_cancel()
-                if biggest is not None and feature.id() not in biggest:
-                    continue
                 context.setFeature(feature)
-                self._export_rule_feature(feature, context, outputs)
+                attributes = feature.attributes()
+                passed = matcher.passed(attributes, context)
+                if not passed:
+                    continue
+                is_biggest = biggest_idx < 0 or attributes[biggest_idx] == 1
+                selected = [
+                    output for filter_expression in passed
+                    for output in by_filter[filter_expression]
+                    if is_biggest or not output.grp.keep_biggest_part
+                ]
+                if selected:
+                    self._export_rule_feature(feature, context, selected)
             for output in outputs:
                 self._flush_rule_output(output)
             completed = True
@@ -1212,47 +1376,6 @@ class RulesExporter:
             output.batch.clear()
             self.feedback.pushWarning(f"A rule in the {output.grp.label} was skipped: {e}")
 
-    def _biggest_part_ids(
-        self, layer: QgsVectorLayer, request: QgsFeatureRequest
-    ) -> Optional[Set[int]]:
-        """Feature ids of the largest part of each original feature.
-
-        Base layers are exploded to single parts tagged with q2vt_orig_id, so
-        the biggest part is simply the max-area (polygons) / max-length
-        (lines) / first (points) feature per orig_id. Returns None if the
-        layer has no orig_id field.
-        """
-        orig_idx = layer.fields().lookupField(f"{_FIELD_PREFIX}_orig_id")
-        if orig_idx < 0:
-            return None
-        geometry_type = layer.geometryType()
-        if geometry_type == Qgis.GeometryType.Polygon:
-            measure = QgsGeometry.area
-        elif geometry_type == Qgis.GeometryType.Line:
-            measure = QgsGeometry.length
-        else:
-            measure = None
-
-        ids_request = QgsFeatureRequest(request)
-        # Filter-expression columns are added back automatically.
-        ids_request.setSubsetOfAttributes([orig_idx])
-        best: Dict[Any, Tuple[float, int]] = {}
-        for n, feature in enumerate(layer.getFeatures(ids_request)):
-            if n % _WRITE_BATCH_SIZE == 0:
-                self._check_cancel()
-            geometry = feature.geometry()
-            if geometry.isNull():
-                size = -1.0
-            elif measure is None:
-                size = 0.0
-            else:
-                size = measure(geometry)
-            key = feature.attribute(orig_idx)
-            current = best.get(key)
-            if current is None or size > current[0]:
-                best[key] = (size, feature.id())
-        return {fid for _, fid in best.values()}
-
     def _plan_field(
         self,
         field: QgsField,
@@ -1315,7 +1438,7 @@ class RulesExporter:
         mapping.extend(grp.expression_fields)
         if grp.include_required_fields_only != 0:
             for f in src_fields:
-                if 'ogc_fid' not in f.name().lower():
+                if 'ogc_fid' not in f.name().lower() and f.name() != _BIGGEST_FIELD:
                     mapping.append((f.type(), f'"{f.name()}"', f.name()))
 
         mapping.append(
@@ -1617,7 +1740,15 @@ class RulesExporter:
         return self._with_polygons(visible, point)
 
     def _visible_polygons_expression(self) -> str:
-        return f"intersection(@geometry, geom_from_wkt('{self.extent.asWktPolygon()}'))"
+        """The polygon clipped to the export extent; most lie wholly inside
+        it, and only those that cross it pay for the intersection."""
+        e = self.extent
+        return (
+            f"with_variable('box', bounds(@geometry), "
+            f"if(x_min(@box) >= {e.xMinimum()!r} and y_min(@box) >= {e.yMinimum()!r} "
+            f"and x_max(@box) <= {e.xMaximum()!r} and y_max(@box) <= {e.yMaximum()!r}, "
+            f"@geometry, intersection(@geometry, geom_from_wkt('{e.asWktPolygon()}'))))"
+        )
 
     @classmethod
     def _centroid_expression(cls, polygons: str, force_inside: bool) -> str:
