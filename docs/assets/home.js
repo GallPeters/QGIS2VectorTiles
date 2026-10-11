@@ -73,7 +73,7 @@
     },
     server: {
       file: 'core/server_initializer.py',
-      bullets: ['Bundles output formats and local resources.', 'Constructs isolated deployment environments.', 'Provides instant web preview frameworks.']
+      bullets: ['Copies the web viewer and a small local tile server into the output folder.', 'Starts the server on localhost at the end of each run and opens the viewer in your browser.', 'Adds the styled tiles to the QGIS project and saves them as a .qlr layer.']
     }
   };
   var repo = 'https://github.com/GallPeters/QGIS2VectorTiles/blob/main/src/';

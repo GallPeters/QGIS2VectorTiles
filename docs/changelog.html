@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.7</strong>, 08 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.8</strong>, 11 Oct 2026.</p>
     </div>
   </section>
 
@@ -86,6 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
+        <li><a href="#v3-8">v3.8<small>Oct 2026</small></a></li>
         <li><a href="#v3-7">v3.7<small>Oct 2026</small></a></li>
         <li><a href="#v3-6">v3.6<small>Aug 2026</small></a></li>
         <li><a href="#v3-5">v3.5<small>Jul 2026</small></a></li>
@@ -125,11 +126,27 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
-  <article class="release latest" id="v3-7">
+  <article class="release latest" id="v3-8">
+    <div class="release-meta">
+      <h2>v3.8</h2>
+      <time datetime="2026-10-11">11 Oct 2026</time>
+      <span class="tag">Latest</span>
+    </div>
+    <ul>
+      <li>Removed the <strong>Polygon Labels Base</strong> parameter: polygon labels now follow each layer's own QGIS placement settings (<strong>centroid of whole or visible polygon</strong>, including data-defined, <strong>force point inside polygon</strong>, and <strong>horizontal / free</strong> placement inside the polygon).</li>
+      <li>Polygon labels placed <strong>using the perimeter</strong> now follow the polygon outline.</li>
+      <li><strong>Centroid fills</strong> follow their point-on-surface and clip-to-polygon settings.</li>
+      <li>Much <strong>faster export</strong> of projects with many categories or rules: each layer is read once for all its rules.</li>
+      <li>Tiles are made up to <strong>zoom 15</strong> and enlarged by the viewers and QGIS beyond it: fewer tiles, faster generation, and maps no longer go blank beyond the last tiled zoom.</li>
+      <li><strong>Temporary (memory) layers</strong> are now exported.</li>
+      <li>Upgraded the web viewers to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
+      <li>The OpenLayers viewer's <strong>popup toggle</strong> shows its real state at startup.</li>
+    </ul>
+  </article>
+  <article class="release" id="v3-7">
     <div class="release-meta">
       <h2>v3.7</h2>
       <time datetime="2026-10-08">08 Oct 2026</time>
-      <span class="tag">Latest</span>
     </div>
     <ul>
       <li>Much <strong>faster conversion</strong>: sources are clipped to the <strong>export extent</strong> and read only once, and each rule is exported in a <strong>single pass</strong>.</li>

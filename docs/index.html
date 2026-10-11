@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QGIS2VectorTiles: QGIS projects to web maps in a single run</title>
-<meta name="description" content="A free QGIS plugin that turns styled QGIS projects into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer, with no server and no internet connection.">
+<meta name="description" content="A free QGIS plugin that turns styled QGIS projects into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required: a built-in local server opens the viewer at the end of each run.">
 <link rel="canonical" href="https://gallpeters.github.io/QGIS2VectorTiles/">
 <meta name="theme-color" content="#07080a">
 
@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=3.7.4">
+<link rel="stylesheet" href="assets/site.css?v=3.8.0">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -120,9 +120,9 @@
       <div class="hero-inner">
         <div class="screen">
           <div class="hero-copy">
-            <a class="pill" href="changelog.html" data-reveal><b>v3.7</b>Much faster conversion<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
+            <a class="pill" href="changelog.html" data-reveal><b>v3.8</b>Labels follow your QGIS placement<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
             <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
-            <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No server, no internet connection, nothing else to install.</p>
+            <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required: a built-in local server opens the viewer at the end of each run.</p>
             <div class="hero-actions" data-reveal style="--d:3">
               <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
               <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
@@ -211,12 +211,12 @@
           <article class="feature" data-reveal style="--d:1">
             <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
             <h3 class="h3">Client-side rendering</h3>
-            <p>The browser draws the tiles with MapLibre or OpenLayers. No map server, sharp at every zoom.</p>
+            <p>The browser draws the tiles with MapLibre or OpenLayers, sharp at every zoom. The local server only hands out ready-made tiles; it renders nothing.</p>
           </article>
           <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
             <h3 class="h3">No dependencies</h3>
-            <p>Runs on the Python and GDAL that ship with QGIS. No internet connection, nothing extra to install.</p>
+            <p>Runs on the Python and GDAL that ship with QGIS, and so does its local tile server. No internet connection, nothing extra to install.</p>
           </article>
           <article class="feature" data-reveal style="--d:3">
             <div class="feature-icon"><svg><use href="#i-globe"/></svg></div>
@@ -276,7 +276,7 @@
             </button>
             <button class="step" type="button" data-module="server">
               <span class="step-num" aria-hidden="true">06</span>
-              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc" title="Prepares ready-to-deploy web environments">Prepares ready-to-deploy web environments</span></span>
+              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc" title="Starts the local tile server and opens the viewer">Starts the local tile server and opens the viewer</span></span>
               <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
             </button>
           </div>
@@ -297,11 +297,11 @@
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-file"/></svg></span><span class="tree-name">Styled QGIS layer</span><span class="tree-ext">.qlr</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-globe"/></svg></span><span class="tree-name">MapLibre style sheet</span><span class="tree-ext">.json</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-image"/></svg></span><span class="tree-name">Icon sprites</span><span class="tree-ext">.png &amp; .json</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Standalone viewer</span><span class="tree-ext">index.html</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Web viewer &amp; local tile server</span><span class="tree-ext">.html &amp; .py</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-type"/></svg></span><span class="tree-name">Font glyphs</span><span class="tree-ext">.pbf</span></li>
             </ul>
           </div>
-          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it anywhere.</strong> A standalone web viewer and a <code>.qlr</code> layer are included, so the same tiles open in a browser and back in QGIS.</span></p>
+          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it in a browser or in QGIS.</strong> At the end of each run the included local server starts and opens the web viewer; a launcher in the folder starts it again later. The <code>.qlr</code> layer opens the same tiles back in QGIS.</span></p>
         </div>
       </div>
     </div>
@@ -387,7 +387,7 @@
         <article class="usecase" data-reveal>
           <span class="usecase-num">01</span>
           <h3 class="h3">Client-side rendering</h3>
-          <p>Drop the MapLibre style into your web map client. No server processing or on-the-fly rasterization, just fast, sharp, fully styled vector tiles rendered natively.</p>
+          <p>Drop the MapLibre style into your web map client. No server-side rendering or on-the-fly rasterization, just fast, sharp, fully styled vector tiles rendered natively.</p>
           <div class="chips">
             <a class="chip" href="https://www.mapbox.com/"><img src="icons/mapbox.png" alt="" width="26" height="26" loading="lazy">Mapbox</a>
             <a class="chip" href="https://www.maptiler.com/"><img src="icons/maptiler.png" alt="" width="26" height="26" loading="lazy">MapTiler</a>
@@ -497,7 +497,7 @@
 </dialog>
 
 
-<script src="assets/site.js?v=3.7.4" defer></script>
-<script src="assets/home.js?v=3.7.4" defer></script>
+<script src="assets/site.js?v=3.8.0" defer></script>
+<script src="assets/home.js?v=3.8.0" defer></script>
 </body>
 </html>
