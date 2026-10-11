@@ -15,6 +15,7 @@ the job's cancel file cancels the run.
 This file is a script: it must not be imported by the plugin.
 """
 
+import faulthandler
 import importlib
 import json
 import os
@@ -57,6 +58,11 @@ def main(job_path: str) -> int:
     from processing.core.Processing import Processing
 
     Processing.initialize()
+    # A native crash (e.g. an access violation inside QGIS) ends the process
+    # without a Python error; this prints where it happened to stderr, which
+    # the parent shows in its error message. Enabled after QGIS has started,
+    # whose own crash signal handlers would otherwise replace it.
+    faulthandler.enable()
 
     class Feedback(QgsProcessingFeedback):
         """Forwards everything the pipeline reports to the parent."""

@@ -29,6 +29,29 @@ from qgis.core import QgsApplication, QgsProcessingException, QgsProcessingUtils
 _WORKER = join(dirname(__file__), "worker.py")
 _MESSAGE_PREFIX = "\x1eQ2VT "            # Must match worker.MESSAGE_PREFIX.
 _CANCEL_GRACE_S = 30                     # Then the child is killed.
+_STDERR_LINES_KEPT = 400
+_STDERR_LINES_SHOWN = 60
+
+
+def _crash_report(lines) -> str:
+    """What to show of the child's stderr when it ended without a result.
+
+    After a native crash, the worker's faulthandler writes the fault and
+    every thread's stack; show the fault and the crashing thread's stack
+    ("Current thread"), which other threads' stacks can precede. Otherwise
+    show the end of stderr.
+    """
+    fault = next((i for i, line in enumerate(lines)
+                  if "fatal exception" in line.lower() or "Fatal Python error" in line), None)
+    current = next((i for i, line in enumerate(lines) if line.startswith("Current thread")), None)
+    if fault is not None and current is not None and current > fault:
+        stack = []
+        for line in lines[current:]:
+            if not line.strip():
+                break
+            stack.append(line)
+        return "".join([lines[fault]] + stack[:_STDERR_LINES_SHOWN]).strip()
+    return "".join(lines[-_STDERR_LINES_SHOWN:]).strip()
 
 
 def python_executable() -> Optional[str]:
@@ -88,7 +111,7 @@ def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedbac
     )
 
     lines: "queue.Queue[Optional[str]]" = queue.Queue()
-    stderr_tail: deque = deque(maxlen=60)
+    stderr_tail: deque = deque(maxlen=_STDERR_LINES_KEPT)
 
     def read_stdout():
         for line in process.stdout:
@@ -147,7 +170,7 @@ def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedbac
         return result
     if feedback.isCanceled():
         return {"temp_dir": None, "min_zoom": None, "canceled": True}
-    details = "\n".join(fatal_errors) or "".join(stderr_tail).strip() or "no output"
+    details = "\n".join(fatal_errors) or _crash_report(list(stderr_tail)) or "no output"
     raise QgsProcessingException(
         f"The conversion process failed (exit code {process.returncode}):\n{details}"
     )

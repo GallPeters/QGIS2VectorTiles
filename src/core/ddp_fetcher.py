@@ -25,12 +25,16 @@ def _to_color_hex_expr(inner_expr: str) -> str:
 class DataDefinedPropertiesFetcher:
     """Recursively fetch active data-defined properties from a QGIS symbol/label object."""
 
-    # Attribute name fragments whose getters are unsafe to call reflectively.
-    _SKIP_FRAGMENTS: frozenset = frozenset({
-        "_", "value", "index", "available", "config", "next", "attr",
-        "clone", "function", "flag", "capabil", "remove", "symbols",
-        "clear", "prepare", "dump", "copy", "create", "update", "replace",
-    })
+    # The accessors that lead from a rule to every object with data-defined
+    # properties: rule -> symbol / label settings -> symbol layers ->
+    # sub-symbols, text format, callouts and their symbols. Only these are
+    # followed (in alphabetical order, as the walk always did): calling
+    # other methods reflectively ran things like symbol preview rendering,
+    # which can crash QGIS outside its interface.
+    _CHILD_ACCESSORS: tuple = (
+        "callout", "fillSymbol", "format", "lineSymbol", "settings",
+        "subSymbol", "symbol", "symbolLayers", "textFormat",
+    )
 
     _DATA_TYPE_MAP: dict = {
         QgsPropertyDefinition.DataType.DataTypeString: QVariant.String,
@@ -51,22 +55,12 @@ class DataDefinedPropertiesFetcher:
         self._walk(self._root)
         return self._results
 
-    def _is_safe_attr(self, attr: str) -> bool:
-        lower = attr.lower()
-        return not (
-            any(frag in lower for frag in self._SKIP_FRAGMENTS)
-            or (attr.startswith("set") and attr != lower)
-            or attr[0].isupper()
-        )
-
     def _walk(self, obj):
-        """Recursively introspect obj's QGIS sub-objects for data-defined properties."""
-        for attr in dir(obj):
-            if not self._is_safe_attr(attr):
-                continue
+        """Recursively visit obj's QGIS sub-objects for data-defined properties."""
+        for attr in self._CHILD_ACCESSORS:
             try:
-                getter = getattr(obj, attr)
-                if not callable(getter):
+                getter = getattr(obj, attr, None)
+                if getter is None or not callable(getter):
                     continue
 
                 result = getter()
