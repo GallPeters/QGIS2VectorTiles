@@ -43,7 +43,7 @@ const map = new Map({
 /* ===================================================== */
 /* APPLY MAPLIBRE/MAPBOX STYLE                           */
 /* ===================================================== */
-apply(map, 'http://localhost:18111991/style/style.json')
+apply(map, '/style/style.json')
     .then(() => {
         const old = map.getView();
 
@@ -251,7 +251,7 @@ function buildPopupHtml(feature) {
     const props = {};
     for (const k in rawProps) {
         if (k === 'geometry') continue;     
-        if (k === 'layer')    continue;   // OL/MVT source-layer name; not user data
+        if (k === 'layer' || k === 'mvt:layer') continue;   // OL/MVT source-layer name; not user data
         props[k] = rawProps[k];
     }
 
