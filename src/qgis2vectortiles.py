@@ -50,7 +50,7 @@ class QGIS2VectorTiles:
         max_zoom: int = 5,
         extent=None,
         output_dir: str = None,
-        include_required_fields_only=0,
+        included_fields: int = 0,
         cpu_percent: int = 100,
         viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
@@ -60,7 +60,7 @@ class QGIS2VectorTiles:
         self.extent = extent or iface.mapCanvas().extent()
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir
-        self.include_required_fields_only = include_required_fields_only
+        self.included_fields = included_fields
         self.cpu_percent = min(cpu_percent, 90)
         self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
@@ -104,7 +104,7 @@ class QGIS2VectorTiles:
 
             index_time = perf_counter()
             self._log(". Building the search index...")
-            if self._build_search_index(rules, temp_dir):
+            if self._build_search_index(layers, rules, temp_dir):
                 self._log(f". Successfully built the search index "
                           f"({self._elapsed_minutes(index_time)} minutes).")
 
@@ -175,7 +175,7 @@ class QGIS2VectorTiles:
 
     def _export_rules(self, rules: List[FlattenedRule]):
         return RulesExporter(
-            rules, self.extent, self.include_required_fields_only,
+            rules, self.extent, self.included_fields,
             self.max_zoom, self.utils_dir, self.feedback,
         ).export()
 
@@ -195,9 +195,9 @@ class QGIS2VectorTiles:
     def _export_maplibre_style(self, temp_dir, styled_layer):
         return QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.viewer, self.min_zoom, self.max_zoom).export()
 
-    def _build_search_index(self, rules, temp_dir: str) -> Optional[str]:
+    def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(
-            rules, self.extent, join(temp_dir, "style", "search.json"), self.feedback
+            layers, rules, join(temp_dir, "style", "search.json"), self.feedback
         ).build()
 
     def _log(self, message: str):

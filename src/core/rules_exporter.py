@@ -126,7 +126,9 @@ from qgis.core import (
     QgsWkbTypes,
 )
 
-from ..utils.config import _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX
+from ..utils.config import (
+    _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX, _FIELDS_ALL, _FIELDS_VISIBLE,
+)
 from ..utils.flattened_rule import FlattenedRule
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
@@ -289,7 +291,8 @@ class _RuleGroupSnapshot:
     geometry_expression: str
     expression_fields: List[Tuple[int, str, str]]
     description: str
-    include_required_fields_only: int
+    # Source fields copied into the output: None = all of them.
+    copied_fields: Optional[Tuple[str, ...]]
     # Kept ONLY to drive the success/failure return value of export(); workers
     # MUST NOT read any live state from these.
     flat_rules: List[FlattenedRule]
@@ -504,7 +507,7 @@ class RulesExporter:
         self,
         flattened_rules: List[FlattenedRule],
         extent: QgsRectangle,
-        include_required_fields_only: int,
+        included_fields: int,
         max_zoom,
         utils_dir: str,
         feedback: QgsProcessingFeedback,
@@ -513,7 +516,7 @@ class RulesExporter:
         self.flattened_rules = flattened_rules
         # QgsRectangle is a value type — safe to share across threads.
         self.extent = extent
-        self.include_required_fields_only = include_required_fields_only
+        self.included_fields = included_fields
         self.max_zoom = max_zoom
         self.utils_dir = utils_dir
         self.feedback = feedback
@@ -632,7 +635,7 @@ class RulesExporter:
                 geometry_expression=geom_expr,
                 expression_fields=expr_fields,
                 description=primary.get_description(),
-                include_required_fields_only=self.include_required_fields_only,
+                copied_fields=self._copied_fields(primary.layer),
                 flat_rules=flat_rules,
                 keep_biggest_part=self._keeps_biggest_part(primary),
                 layer_name=primary.layer.name(),
@@ -691,13 +694,38 @@ class RulesExporter:
             return None
         return (rect.xMinimum(), rect.yMinimum(), rect.xMaximum(), rect.yMaximum())
 
+    def _copied_fields(self, layer: QgsVectorLayer) -> Optional[Tuple[str, ...]]:
+        """Source fields the Included Fields setting copies into the output;
+        None = all of them."""
+        if self.included_fields == _FIELDS_ALL:
+            return None
+        if self.included_fields == _FIELDS_VISIBLE:
+            return self._visible_fields(layer)
+        return ()
+
+    @staticmethod
+    def _visible_fields(layer: QgsVectorLayer) -> Tuple[str, ...]:
+        """Fields shown in QGIS: not "Hidden" in the attribute form and not a
+        hidden column of the attribute table."""
+        hidden_columns = {
+            column.name for column in layer.attributeTableConfig().columns()
+            if column.hidden
+        }
+        fields = layer.fields()
+        return tuple(
+            fields.at(i).name() for i in range(fields.count())
+            if layer.editorWidgetSetup(i).type() != "Hidden"
+            and fields.at(i).name() not in hidden_columns
+        )
+
     def _required_source_fields(
         self, groups: List[_RuleGroupSnapshot]
     ) -> Optional[Tuple[str, ...]]:
-        """Names of source fields any of ``groups`` evaluates; None = all."""
-        if self.include_required_fields_only != 0:
+        """Names of source fields any of ``groups`` evaluates or copies;
+        None = all."""
+        if groups[0].copied_fields is None:
             return None  # All source fields are exported.
-        names = set()
+        names = set(groups[0].copied_fields)
         for grp in groups:
             expressions = [grp.filter_expression, grp.geometry_expression]
             expressions.extend(expr for _, expr, _ in grp.expression_fields)
@@ -1469,10 +1497,12 @@ class RulesExporter:
             (10, grp.description, f"{_FIELD_PREFIX}_description")
         )
         mapping.extend(grp.expression_fields)
-        if grp.include_required_fields_only != 0:
-            for f in src_fields:
-                if 'ogc_fid' not in f.name().lower() and f.name() != _BIGGEST_FIELD:
-                    mapping.append((f.type(), f'"{f.name()}"', f.name()))
+        for f in src_fields:
+            name = f.name()
+            if 'ogc_fid' in name.lower() or name == _BIGGEST_FIELD:
+                continue
+            if grp.copied_fields is None or name in grp.copied_fields:
+                mapping.append((f.type(), f'"{name}"', name))
 
         mapping.append(
             (6, f'"{_FIELD_PREFIX}_orig_id"', f"{_FIELD_PREFIX}_orig_id")

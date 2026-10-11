@@ -2,12 +2,17 @@
 search_index.py
 
 SearchIndexBuilder — writes style/search.json, the index the web viewers
-search: every feature the exported rules show inside the export extent, with
-all its fields and its bounding box (WGS84, clipped to the extent).
+search. It is built from the exported rule datasets, so it holds exactly
+what the output package holds: the features the rules show inside the
+export extent, with the fields the Included Fields setting exports (all,
+visible, or none) and their label text.
 
     {"layers": [{"name": "...", "fields": ["...", ...]}, ...],
      "features": [[layer index, [value, ...], [west, south, east, north]], ...],
      "truncated": false}
+
+A source feature is in several datasets (fill, outline, label...) and, when
+multi-part, in several parts: they are merged by layer and q2vt_orig_id.
 
 Depends on: config, flattened_rule
 """
@@ -21,14 +26,10 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsCsException,
-    QgsExpression,
-    QgsExpressionContext,
-    QgsExpressionContextUtils,
     QgsFeatureRequest,
     QgsProject,
     QgsRectangle,
     QgsVectorLayer,
-    QgsVectorLayerFeatureSource,
 )
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime
 
@@ -39,159 +40,143 @@ from ..utils.flattened_rule import FlattenedRule
 _MAX_FEATURES = 200000
 # Longest field value kept, in characters.
 _MAX_VALUE_LENGTH = 120
-# Providers read from the project layer itself (as in the rules export).
-_LIVE_PROVIDERS = frozenset({"memory"})
-# Field types that can't be searched as text (binary, geometry, maps).
-_SKIPPED_TYPES = frozenset({12, 8})  # QMetaType ByteArray, QVariantMap
+_ORIG_ID = f"{_FIELD_PREFIX}_orig_id"
+_LABEL = f"{_FIELD_PREFIX}_label"
+
+
+class _IndexedLayer:
+    """One source layer's merged features while the index is built."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.fields: List[str] = []      # Output field names, in first-seen order.
+        self.features: Dict[Any, Tuple[Dict[str, Any], QgsRectangle]] = {}
 
 
 class SearchIndexBuilder:
-    """Build the viewers' search index from the exported rules' layers."""
+    """Build the viewers' search index from the exported rule datasets."""
 
-    def __init__(self, rules: List[FlattenedRule], extent: QgsRectangle, output_path: str, feedback):
+    def __init__(
+        self,
+        datasets: List[QgsVectorLayer],
+        rules: List[FlattenedRule],
+        output_path: str,
+        feedback,
+    ):
+        self.datasets = datasets
         self.rules = rules
-        self.extent = extent
         self.output_path = output_path
         self.feedback = feedback
-        self._extent_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
-        self._wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-        self._context = QgsProject.instance().transformContext()
 
     def build(self) -> Optional[str]:
         """Write the index; returns its path, or None if nothing was indexed."""
-        layers_out: List[Dict[str, Any]] = []
-        features_out: List[list] = []
+        source_of = {rule.output_dataset: rule.layer for rule in self.rules}
+        layers: Dict[str, _IndexedLayer] = {}
+        count = 0
         truncated = False
-        for layer, filter_expression in self._layers_and_filters():
-            if len(features_out) >= _MAX_FEATURES:
-                truncated = True
-                break
-            try:
-                fields, rows, cut = self._read_layer(
-                    layer, filter_expression, _MAX_FEATURES - len(features_out)
-                )
-            except Exception as e:  # noqa: BLE001  (one layer must not stop the export)
-                self.feedback.pushWarning(f'The "{layer.name()}" layer was left out of the search: {e}')
+        for dataset in self.datasets:
+            source = source_of.get(dataset.name())
+            if source is None:
                 continue
+            indexed = layers.setdefault(source.id(), _IndexedLayer(source.name()))
+            count, cut = self._read_dataset(dataset, indexed, count)
             truncated = truncated or cut
-            if not rows:
-                continue
-            index = len(layers_out)
-            layers_out.append({"name": layer.name(), "fields": fields})
-            features_out.extend([index, values, bbox] for values, bbox in rows)
-        if not features_out:
+            if self.feedback.isCanceled():
+                return None
+        if not count:
             return None
         if truncated:
             self.feedback.pushWarning(
                 f"The search index holds the first {_MAX_FEATURES} features only."
             )
+        self._write(list(layers.values()), truncated)
+        return self.output_path
+
+    def _read_dataset(self, dataset: QgsVectorLayer, indexed: _IndexedLayer, count: int) -> Tuple[int, bool]:
+        """Merge one rule dataset into its layer's features; returns the new
+        feature count and whether the cap cut it short."""
+        fields = dataset.fields()
+        orig_idx = fields.lookupField(_ORIG_ID)
+        if orig_idx < 0:
+            return count, False
+        searchable = [
+            (i, fields.at(i).name()) for i in range(fields.count())
+            if self._searchable(fields.at(i).name())
+        ]
+        for _, name in searchable:
+            if name not in indexed.fields:
+                indexed.fields.append(name)
+        request = QgsFeatureRequest()
+        request.setInvalidGeometryCheck(QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck)
+        truncated = False
+        for feature in dataset.getFeatures(request):
+            geometry = feature.geometry()
+            if geometry.isNull():
+                continue
+            key = feature.attribute(orig_idx)
+            entry = indexed.features.get(key)
+            if entry is None:
+                if count >= _MAX_FEATURES:
+                    truncated = True
+                    continue
+                entry = indexed.features[key] = ({}, QgsRectangle(geometry.boundingBox()))
+                count += 1
+            else:
+                entry[1].combineExtentWith(geometry.boundingBox())
+            values = entry[0]
+            for i, name in searchable:
+                if values.get(name) is None:
+                    value = self._value(feature.attribute(i))
+                    if value is not None:
+                        values[name] = value
+        return count, truncated
+
+    @staticmethod
+    def _searchable(name: str) -> bool:
+        """Output fields worth searching: the source's and the label text,
+        not the plugin's other internal fields."""
+        if name == _LABEL:
+            return True
+        return not name.startswith(f"{_FIELD_PREFIX}_") and name.lower() != "fid"
+
+    def _write(self, layers: List[_IndexedLayer], truncated: bool) -> None:
+        to_wgs84 = QgsCoordinateTransform(
+            QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
+            QgsCoordinateReferenceSystem("EPSG:4326"),
+            QgsProject.instance().transformContext(),
+        )
+        layers_out: List[Dict[str, Any]] = []
+        features_out: List[list] = []
+        for layer in layers:
+            if not layer.features:
+                continue
+            index = len(layers_out)
+            layers_out.append({
+                "name": layer.name,
+                "fields": ["label" if f == _LABEL else f for f in layer.fields],
+            })
+            for values, box in layer.features.values():
+                try:
+                    wgs = to_wgs84.transformBoundingBox(box)
+                except QgsCsException:
+                    continue
+                features_out.append([
+                    index,
+                    [values.get(f) for f in layer.fields],
+                    [round(wgs.xMinimum(), 6), round(wgs.yMinimum(), 6),
+                     round(wgs.xMaximum(), 6), round(wgs.yMaximum(), 6)],
+                ])
         makedirs(dirname(self.output_path), exist_ok=True)
         with open(self.output_path, "w", encoding="utf-8") as f:
             json.dump(
                 {"layers": layers_out, "features": features_out, "truncated": truncated},
                 f, ensure_ascii=False, separators=(",", ":"),
             )
-        return self.output_path
-
-    def _layers_and_filters(self) -> List[Tuple[QgsVectorLayer, Optional[str]]]:
-        """Each exported layer once, with the filter that selects the
-        features its rules show (None: all of them)."""
-        layers: Dict[str, QgsVectorLayer] = {}
-        filters: Dict[str, Optional[set]] = {}
-        for rule in self.rules:
-            layer_id = rule.layer.id()
-            layers.setdefault(layer_id, rule.layer)
-            expression = rule.rule.filterExpression()
-            if not expression:
-                filters[layer_id] = None  # A rule shows every feature.
-            elif filters.get(layer_id, set()) is not None:
-                filters.setdefault(layer_id, set()).add(expression)
-        result = []
-        for layer_id, layer in layers.items():
-            expressions = filters.get(layer_id)
-            combined = " OR ".join(f"({e})" for e in sorted(expressions)) if expressions else None
-            if combined and QgsExpression(combined).hasParserError():
-                combined = None
-            result.append((layer, combined))
-        return result
-
-    def _read_layer(
-        self, project_layer: QgsVectorLayer, filter_expression: Optional[str], limit: int
-    ) -> Tuple[List[str], List[Tuple[list, list]], bool]:
-        """(field names, [(values, bbox)], truncated) for one layer."""
-        if project_layer.providerType() in _LIVE_PROVIDERS:
-            reader, layer = QgsVectorLayerFeatureSource(project_layer), None
-        else:
-            layer = QgsVectorLayer(project_layer.source(), project_layer.name(), project_layer.providerType())
-            if not layer.isValid():
-                raise RuntimeError("the layer could not be opened")
-            reader = layer
-        fields = project_layer.fields()
-        indices = [
-            i for i in range(fields.count())
-            if self._type_code(fields.at(i).type()) not in _SKIPPED_TYPES
-            and not fields.at(i).name().startswith(f"{_FIELD_PREFIX}_")
-        ]
-        to_extent = QgsCoordinateTransform(project_layer.crs(), self._extent_crs, self._context)
-        to_wgs84 = QgsCoordinateTransform(self._extent_crs, self._wgs84, self._context)
-
-        request = QgsFeatureRequest()
-        request.setInvalidGeometryCheck(QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck)
-        try:
-            request.setFilterRect(
-                QgsCoordinateTransform(self._extent_crs, project_layer.crs(), self._context)
-                .transformBoundingBox(self.extent)
-            )
-        except QgsCsException:
-            pass  # Read everything; features are still checked against the extent.
-        if filter_expression:
-            context = QgsExpressionContext(
-                QgsExpressionContextUtils.globalProjectLayerScopes(project_layer)
-            )
-            request.setFilterExpression(filter_expression)
-            request.setExpressionContext(context)
-
-        rows: List[Tuple[list, list]] = []
-        truncated = False
-        for n, feature in enumerate(reader.getFeatures(request)):
-            if n % 1000 == 0 and self.feedback.isCanceled():
-                break
-            geometry = feature.geometry()
-            if geometry.isNull() or geometry.isEmpty():
-                continue
-            try:
-                box = to_extent.transformBoundingBox(geometry.boundingBox())
-            except QgsCsException:
-                continue
-            # Only what lies in the export extent is in the tiles.
-            if box.width() == 0 and box.height() == 0:
-                if not self.extent.contains(box.center()):
-                    continue
-            elif self.extent.intersects(box):
-                box = box.intersect(self.extent)
-            else:
-                continue
-            try:
-                wgs = to_wgs84.transformBoundingBox(box)
-            except QgsCsException:
-                continue
-            if len(rows) >= limit:
-                truncated = True
-                break
-            values = [self._value(feature.attribute(i)) for i in indices]
-            bbox = [round(wgs.xMinimum(), 6), round(wgs.yMinimum(), 6),
-                    round(wgs.xMaximum(), 6), round(wgs.yMaximum(), 6)]
-            rows.append((values, bbox))
-        return [fields.at(i).name() for i in indices], rows, truncated
-
-    @staticmethod
-    def _type_code(field_type) -> int:
-        return int(getattr(field_type, "value", field_type))
 
     @staticmethod
     def _value(value) -> Any:
         """A field value as JSON: numbers and booleans as they are, everything
-        else as (shortened) text; NULL and empty text as null."""
+        else as (shortened) text; NULL and empty text as None."""
         if value is None or (hasattr(value, "isNull") and value.isNull()):
             return None
         if isinstance(value, bool):

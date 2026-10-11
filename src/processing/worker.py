@@ -115,7 +115,7 @@ def main(job_path: str) -> int:
         extent=QgsRectangle(*params["extent"]),
         cpu_percent=params["cpu_percent"],
         output_dir=params["output_dir"],
-        include_required_fields_only=params["include_required_fields_only"],
+        included_fields=params["included_fields"],
         viewer=params["viewer"],
         feedback=feedback,
     )

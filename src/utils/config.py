@@ -39,6 +39,12 @@ _SPRITE_QUALITY = 3
 _FIELD_PREFIX = 'q2vt'    
 _SIMPLIFICATION=1
 _SIMPLIFICATION_MAX_ZOOM=0                   # Field name prefix
+# Included Fields parameter: which source fields the tiles (and the search
+# index) carry besides the ones the plugin computes (labels, data-defined
+# properties).
+_FIELDS_REQUIRED = 0                      # None
+_FIELDS_ALL = 1                           # Every field
+_FIELDS_VISIBLE = 2                       # Fields not hidden in the layer's form or attribute table
 _TILES_MAX_ZOOM = 15                      # Highest zoom tiles are made for; viewers
                                           # enlarge them beyond (0.3 m precision)
 
@@ -111,6 +117,9 @@ __all__ = [
     "_SIMPLIFICATION",
     "_SIMPLIFICATION_MAX_ZOOM",
     "_TILES_MAX_ZOOM",
+    "_FIELDS_REQUIRED",
+    "_FIELDS_ALL",
+    "_FIELDS_VISIBLE",
     # Base-layer cache
     "_CACHE_DIR_NAME",
     "_CACHE_MAX_MB",

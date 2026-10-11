@@ -43,7 +43,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     EXTENT = "EXTENT"
     CPU_PERCENT = "CPU_PERCENT"
     OUTPUT_DIR = "OUTPUT_DIR"
-    REQUIRED_FIELDS_ONLY = "FIELDS_INCLUDED"
+    INCLUDED_FIELDS = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     VIEWER = "VIEWER"
 
@@ -158,9 +158,11 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         )
         self.addParameter(
             QgsProcessingParameterEnum(
-                self.REQUIRED_FIELDS_ONLY,
+                self.INCLUDED_FIELDS,
                 self.tr("Included Fields"),
-                options=["Required Fields Only", "All Fields"],
+                # Indexes match _FIELDS_REQUIRED / _FIELDS_ALL / _FIELDS_VISIBLE;
+                # new options go last so saved models keep their choice.
+                options=["Required Fields Only", "All Fields", "Visible Fields"],
                 defaultValue=0,  # Default to Required Fields Only
                 optional=False,
             )
@@ -257,9 +259,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         )
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
-        include_required_fields_only = self.parameterAsBool(
-            parameters, self.REQUIRED_FIELDS_ONLY, context
-        )
+        included_fields = self.parameterAsEnum(parameters, self.INCLUDED_FIELDS, context)
         viewer = self.parameterAsInt(parameters, self.VIEWER, context)
 
         if self._project_path:
@@ -272,7 +272,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                                extent.xMaximum(), extent.yMaximum()],
                     "cpu_percent": cpu_percent,
                     "output_dir": output_dir,
-                    "include_required_fields_only": include_required_fields_only,
+                    "included_fields": included_fields,
                     "viewer": viewer,
                 },
             )
@@ -285,7 +285,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 extent=extent,
                 cpu_percent=cpu_percent,
                 output_dir=output_dir,
-                include_required_fields_only=include_required_fields_only,
+                included_fields=included_fields,
                 viewer=viewer,
                 feedback=feedback,
             )
