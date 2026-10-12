@@ -278,12 +278,13 @@ class GDALTilesGenerator:
         conn = sqlite3.connect(output)
         try:
             metadata = [dict(conn.execute("SELECT name, value FROM metadata"))]
-            for i, part in enumerate(parts[1:]):
-                conn.execute(f"ATTACH DATABASE ? AS part{i}", (part,))
-                conn.execute(f"INSERT INTO tiles SELECT * FROM part{i}.tiles")
-                metadata.append(dict(conn.execute(f"SELECT name, value FROM part{i}.metadata")))
+            # Attached one at a time, always under the same name.
+            for part in parts[1:]:
+                conn.execute("ATTACH DATABASE ? AS part", (part,))
+                conn.execute("INSERT INTO tiles SELECT * FROM part.tiles")
+                metadata.append(dict(conn.execute("SELECT name, value FROM part.metadata")))
                 conn.commit()
-                conn.execute(f"DETACH DATABASE part{i}")
+                conn.execute("DETACH DATABASE part")
             merged = cls._merged_metadata(metadata, first, last)
             conn.execute("DELETE FROM metadata")
             conn.executemany("INSERT INTO metadata (name, value) VALUES (?, ?)", merged.items())

@@ -1525,7 +1525,11 @@ class RulesExporter:
                 for name, field_type in columns
             )
             where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-            statements.append(f'SELECT {selected} FROM "{_sql_name(layer_name)}"{where}')
+            # OGR SQL over the plugin's own temporary base layer; every name
+            # and literal in it is quoted and escaped (_sql_name, _sql_string,
+            # _sql_number) by _OgrSqlCompiler and _gdal_column.
+            sql = f'SELECT {selected} FROM "{_sql_name(layer_name)}"{where}'  # nosec B608
+            statements.append(sql)
         return {"statements": statements, "geometry": output}
 
     @staticmethod

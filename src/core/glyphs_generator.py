@@ -2,7 +2,8 @@ import os
 import math
 import hashlib
 import logging
-import pickle
+import base64
+import json
 import tempfile
 import time
 import unicodedata
@@ -90,7 +91,14 @@ def _with_presentation_forms(codepoints: Set[int]) -> Set[int]:
 
 class _GlyphCache:
     """A fontstack's rendered glyphs, kept between runs in the system temp
-    folder (keyed by the font and the generation parameters)."""
+    folder (keyed by the font and the generation parameters).
+
+    Stored as JSON (bitmaps as base64), never pickled: reading the cache
+    can't run code, whatever the file holds.
+    """
+
+    # The fields of a glyph and their types; entries not matching are dropped.
+    _FIELDS = {"id": int, "width": int, "height": int, "left": int, "top": int, "advance": int}
 
     def __init__(self, family: str, style: str):
         self.enabled = _CACHE_MAX_MB > 0
@@ -99,7 +107,8 @@ class _GlyphCache:
             _GLYPH_CACHE_VERSION, family, style, _FONT_RENDER_SIZE, _SDF_CUTOFF, _SUPERSAMPLE,
             _SDF_RADIUS, _BUFFER, _SDF_COVERAGE_THRESHOLD, _MAPLIBRE_GLYPH_BORDER,
         ))
-        self.path = os.path.join(directory, hashlib.sha1(key.encode("utf-8")).hexdigest() + ".pkl")
+        digest = hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()
+        self.path = os.path.join(directory, digest + ".json")
         self.glyphs: Dict[int, Optional[dict]] = {}
         self._dirty = False
         if not self.enabled:
@@ -107,12 +116,35 @@ class _GlyphCache:
         try:
             os.makedirs(directory, exist_ok=True)
             self._prune(directory)
-            with open(self.path, "rb") as f:
-                loaded = pickle.load(f)
+            with open(self.path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
             if isinstance(loaded, dict):
-                self.glyphs = loaded
-        except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ValueError):
+                self.glyphs = {
+                    int(codepoint): self._decode(glyph) for codepoint, glyph in loaded.items()
+                    if glyph is None or self._decode(glyph) is not None
+                }
+        except (OSError, ValueError, TypeError):
             self.glyphs = {}
+
+    @classmethod
+    def _decode(cls, glyph) -> Optional[dict]:
+        """A glyph read from JSON, or None if it isn't a valid glyph."""
+        if not isinstance(glyph, dict) or not isinstance(glyph.get("bitmap"), str):
+            return None
+        if not all(isinstance(glyph.get(k), t) for k, t in cls._FIELDS.items()):
+            return None
+        try:
+            bitmap = base64.b64decode(glyph["bitmap"], validate=True)
+        except ValueError:
+            return None
+        return {**{k: glyph[k] for k in cls._FIELDS}, "bitmap": bitmap}
+
+    @classmethod
+    def _encode(cls, glyph: Optional[dict]) -> Optional[dict]:
+        if glyph is None:
+            return None
+        return {**{k: int(glyph[k]) for k in cls._FIELDS},
+                "bitmap": base64.b64encode(glyph["bitmap"]).decode("ascii")}
 
     def put(self, codepoint: int, glyph: Optional[dict]) -> None:
         self.glyphs[codepoint] = glyph
@@ -123,10 +155,11 @@ class _GlyphCache:
             return
         temp = f"{self.path}.{os.getpid()}.tmp"
         try:
-            with open(temp, "wb") as f:
-                pickle.dump(self.glyphs, f, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(temp, "w", encoding="utf-8") as f:
+                json.dump({str(cp): self._encode(g) for cp, g in self.glyphs.items()}, f,
+                          separators=(",", ":"))
             os.replace(temp, self.path)
-        except OSError:
+        except (OSError, TypeError, ValueError, KeyError):
             try:
                 os.remove(temp)
             except OSError:

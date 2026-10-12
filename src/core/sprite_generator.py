@@ -158,7 +158,7 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
     except (OSError, RuntimeError, AttributeError, TypeError):
         return None
     text = f"{_RENDER_VERSION}|{scale_factor!r}|{definition}"
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+    return hashlib.sha1(text.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 @dataclass
