@@ -1054,7 +1054,7 @@ class RulesExporter:
         }
         reused = sum(1 for lid in sources if cached[lid] and lid not in todo)
         if reused:
-            self.feedback.pushInfo(
+            self.feedback.pushDebugInfo(
                 f". Reused {reused} of {len(sources)} prepared layers from the cache."
             )
         if not todo:
@@ -1401,7 +1401,7 @@ class RulesExporter:
         if not gdal_tasks and not pass_tasks:
             return outputs
         if gdal_tasks:
-            self.feedback.pushInfo(
+            self.feedback.pushDebugInfo(
                 f". {len(gdal_tasks)} of {len(gdal_tasks) + sum(len(g) for _, g in pass_tasks)} "
                 "datasets are written directly by GDAL."
             )

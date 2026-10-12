@@ -54,12 +54,19 @@ const adapter = {
     setCursor: (css) => { map.getCanvas().style.cursor = css; },
     showPopup: (lngLat, element) => popup.setLngLat(lngLat).setDOMContent(element).addTo(map),
     hidePopup: () => popup.remove(),
-    fitBounds([west, south, east, north]) {
+    // A found feature is shown at the closest zoom at which its layer is
+    // still drawn: a point at its layer's highest zoom, an area fitted to
+    // the view but kept within the layer's zoom levels.
+    fitBounds([west, south, east, north], zooms = {}) {
+        const max = Math.min(zooms.max ?? 16, map.getMaxZoom());
+        const min = Math.min(zooms.min ?? 0, max);
         if (west === east && south === north) {
-            map.flyTo({ center: [west, south], zoom: Math.max(map.getZoom(), 15) });
-        } else {
-            map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 16 });
+            map.flyTo({ center: [west, south], zoom: max });
+            return;
         }
+        const camera = map.cameraForBounds([[west, south], [east, north]], { padding: 60, maxZoom: max });
+        const zoom = Math.min(Math.max(camera?.zoom ?? max, min), max);
+        map.flyTo({ center: camera?.center ?? [(west + east) / 2, (south + north) / 2], zoom });
     },
     setHighlight(lngLat) {
         const data = {

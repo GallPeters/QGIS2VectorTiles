@@ -77,10 +77,10 @@ class QGIS2VectorTiles:
         """
         try:
             temp_dir = self._create_temp_directory()
-            self._log(". Starting conversion process...")
+            self._log(". Starting vector tiles package generation process...")
             start_time = perf_counter()
 
-            self._log(". Flattening rules...")
+            self._log(". Extracting rules...")
             rules = self._flatten_rules()
             if not rules:
                 self._log(". No visible vector layers found in project.")
@@ -88,34 +88,39 @@ class QGIS2VectorTiles:
             self._log(f". Successfully extracted {len(rules)} rules "
                       f"({self._elapsed_minutes(start_time)} minutes).")
 
-            flatten_time = perf_counter()
+            step_time = perf_counter()
             self._log(". Exporting rules to datasets...")
             layers, rules = self._export_rules(rules)
-            self._log(f". Successfully exported {len(layers)} layers "
-                      f"({self._elapsed_minutes(flatten_time)} minutes).")
+            self._log(f". Successfully exported {len(rules)} rules "
+                      f"({self._elapsed_minutes(step_time)} minutes).")
 
+            step_time = perf_counter()
             self._log(". Styling tiles...")
             styled_layer = self._style_tiles(rules, temp_dir)
-            self._log(". Successfully styled tiles.")
+            self._log(f". Successfully styled tiles "
+                      f"({self._elapsed_minutes(step_time)} minutes).")
 
-            self._log(". Exporting tiles style to client-side style package...")
+            step_time = perf_counter()
+            self._log(". Exporting style to client-side style package...")
             style = self._export_maplibre_style(temp_dir, styled_layer)
-            self._log(". Successfully exported client-side style package.")
+            self._log(f". Successfully exported client-side style package "
+                      f"({self._elapsed_minutes(step_time)} minutes).")
 
-            index_time = perf_counter()
+            step_time = perf_counter()
             self._log(". Building the search index...")
             if self._build_search_index(layers, rules, temp_dir):
                 self._log(f". Successfully built the search index "
-                          f"({self._elapsed_minutes(index_time)} minutes).")
+                          f"({self._elapsed_minutes(step_time)} minutes).")
 
-            export_time = perf_counter()
+            step_time = perf_counter()
             if self._has_features(layers):
                 self._log(". Generating tiles...")
                 self._generate_tiles(layers, temp_dir, style)
                 self._log(f". Successfully generated tiles "
-                          f"({self._elapsed_minutes(export_time)} minutes).")
-            self._log(f". Process completed successfully "
+                          f"({self._elapsed_minutes(step_time)} minutes).")
+            self._log(f". Vector tiles package generation completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
+            self._log("")
             self.temp_dir = temp_dir
             self.serve_tiles(temp_dir)
 

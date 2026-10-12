@@ -50,6 +50,9 @@ class _IndexedLayer:
     def __init__(self, name: str):
         self.name = name
         self.fields: List[str] = []      # Output field names, in first-seen order.
+        # Zoom levels (the style's) at which the layer's rules draw it.
+        self.minzoom: Optional[int] = None
+        self.maxzoom: Optional[int] = None
         self.features: Dict[Any, Tuple[Dict[str, Any], QgsRectangle]] = {}
 
 
@@ -72,6 +75,13 @@ class SearchIndexBuilder:
         """Write the index; returns its path, or None if nothing was indexed."""
         source_of = {rule.output_dataset: rule.layer for rule in self.rules}
         layers: Dict[str, _IndexedLayer] = {}
+        for rule in self.rules:
+            indexed = layers.setdefault(rule.layer.id(), _IndexedLayer(rule.layer.name()))
+            low, high = rule.get_attr("o"), rule.get_attr("i")
+            if low is not None:
+                indexed.minzoom = low if indexed.minzoom is None else min(indexed.minzoom, low)
+            if high is not None:
+                indexed.maxzoom = high if indexed.maxzoom is None else max(indexed.maxzoom, high)
         count = 0
         truncated = False
         for dataset in self.datasets:
@@ -154,6 +164,9 @@ class SearchIndexBuilder:
             layers_out.append({
                 "name": layer.name,
                 "fields": ["label" if f == _LABEL else f for f in layer.fields],
+                # The viewers zoom to a found feature within these levels.
+                "minzoom": layer.minzoom,
+                "maxzoom": layer.maxzoom,
             })
             for values, box in layer.features.values():
                 try:

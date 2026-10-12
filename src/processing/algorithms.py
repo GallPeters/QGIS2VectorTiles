@@ -294,7 +294,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             # project is changed afterwards, in postProcessAlgorithm).
             self._runner = tiles_generator
             tiles_generator.convert_project_to_vector_tiles()
-            feedback.pushInfo(". Vector tiles package generation completed successfully")
 
         except (NameError, ValueError, AttributeError, TypeError) as e:
             feedback.reportError(f"Error during Vector tiles package generation: {str(e)}")
@@ -305,7 +304,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
     def _process_in_worker(self, feedback, extent, viewer, params: dict) -> dict:
         """Run the conversion in a separate process (see subprocess_runner)."""
-        feedback.pushInfo(". Running the conversion in a separate process...")
         try:
             result = run_in_subprocess(self._project_path, _PACKAGE_DIR, params, feedback)
         finally:
@@ -319,7 +317,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         # The tile server touches no project state, so it starts here.
         ServerInitializer(extent, result["min_zoom"], viewer, result["temp_dir"]).serve_tiles()
         self._finish_args = (extent, result["min_zoom"], viewer, result["temp_dir"])
-        feedback.pushInfo(". Vector tiles package generation completed successfully")
         return {}
 
     def postProcessAlgorithm(self, context, feedback):

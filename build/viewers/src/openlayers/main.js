@@ -12,6 +12,7 @@ import VectorSource from 'ol/source/Vector.js';
 import XYZ from 'ol/source/XYZ.js';
 import Projection from 'ol/proj/Projection.js';
 import { fromLonLat, getUserProjection, toLonLat, transformExtent } from 'ol/proj.js';
+import { getCenter } from 'ol/extent.js';
 import { Circle, Fill, Icon, Stroke, Style } from 'ol/style.js';
 import { defaults as defaultControls } from 'ol/control/defaults.js';
 import ScaleLine from 'ol/control/ScaleLine.js';
@@ -96,14 +97,23 @@ const adapter = {
         popup.setPosition(fromLonLat(lngLat));
     },
     hidePopup: () => popup.setPosition(undefined),
-    fitBounds([west, south, east, north]) {
+    // A found feature is shown at the closest zoom at which its layer is
+    // still drawn: a point at its layer's highest zoom, an area fitted to
+    // the view but kept within the layer's zoom levels. OpenLayers' zoom is
+    // the style's plus one (its tiles are 256 px, the style's 512 px).
+    fitBounds([west, south, east, north], zooms = {}) {
         const view = map.getView();
+        const max = Math.min((zooms.max ?? 16) + 1, view.getMaxZoom());
+        const min = Math.min((zooms.min ?? 0) + 1, max);
         if (west === east && south === north) {
-            view.animate({ center: fromLonLat([west, south]), zoom: Math.max(view.getZoom(), 16), duration: 500 });
-        } else {
-            view.fit(transformExtent([west, south, east, north], 'EPSG:4326', 'EPSG:3857'),
-                { padding: [60, 60, 60, 60], maxZoom: 17, duration: 500 });
+            view.animate({ center: fromLonLat([west, south]), zoom: max, duration: 500 });
+            return;
         }
+        const extent = transformExtent([west, south, east, north], 'EPSG:4326', 'EPSG:3857');
+        const [width, height] = map.getSize() || [800, 600];
+        const resolution = view.getResolutionForExtent(extent, [Math.max(width - 120, 1), Math.max(height - 120, 1)]);
+        const zoom = Math.min(Math.max(view.getZoomForResolution(resolution), min), max);
+        view.animate({ center: getCenter(extent), zoom, duration: 500 });
     },
     setHighlight(lngLat) {
         const source = highlight.getSource();

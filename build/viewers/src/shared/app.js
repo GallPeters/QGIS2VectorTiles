@@ -10,7 +10,9 @@
 //   setCursor(css)             the map's cursor
 //   showPopup(lngLat, el)      show el in a popup at lngLat
 //   hidePopup()
-//   fitBounds(bbox)            zoom to [west, south, east, north]
+//   fitBounds(bbox, zooms)     zoom to [west, south, east, north], within
+//                              zooms {min, max} (the style's zoom levels
+//                              showing the feature; null if unknown)
 //   setHighlight(lngLat|null)  mark a found feature
 //   setBasemap(basemap)        show a BASEMAPS entry under the tiles
 //   createDrawAdapter()        a Terra Draw adapter for the map
@@ -45,8 +47,8 @@ export async function startViewer(map, config) {
 
     const search = createSearch({
         url: config.searchUrl,
-        onSelect: (bbox) => {
-            map.fitBounds(bbox);
+        onSelect: (bbox, zooms) => {
+            map.fitBounds(bbox, zooms);
             map.setHighlight([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]);
         },
         onClear: () => map.setHighlight(null),

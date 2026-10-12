@@ -49,7 +49,10 @@ class SearchIndex {
     describe({ index, field }) {
         const [layerIndex, values, bbox] = this.features[index];
         const layer = this.layers[layerIndex] || { name: '', fields: [] };
-        return { value: String(values[field]), layer: layer.name, field: layer.fields[field], bbox };
+        return {
+            value: String(values[field]), layer: layer.name, field: layer.fields[field], bbox,
+            zooms: { min: layer.minzoom ?? null, max: layer.maxzoom ?? null },
+        };
     }
 }
 
@@ -62,8 +65,9 @@ function highlight(text, query) {
 }
 
 /**
- * The search box. ``onSelect(bbox)`` is called with the chosen feature's
- * [west, south, east, north]; ``onClear()`` when the search is cleared.
+ * The search box. ``onSelect(bbox, zooms)`` is called with the chosen
+ * feature's [west, south, east, north] and the style zoom levels {min, max}
+ * its layer is drawn at; ``onClear()`` when the search is cleared.
  */
 export function createSearch({ url, onSelect, onClear }) {
     let index = null;
@@ -110,7 +114,7 @@ export function createSearch({ url, onSelect, onClear }) {
         const item = index.describe(results[i]);
         input.value = item.value;
         list.hidden = true;
-        onSelect(item.bbox);
+        onSelect(item.bbox, item.zooms);
     }
 
     function render() {
