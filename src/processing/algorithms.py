@@ -203,6 +203,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
 
     def prepareAlgorithm(self, parameters, context, feedback):
         """Runs on QGIS's main thread before processAlgorithm."""
+        # The first message, shown as soon as the tool runs.
+        feedback.pushInfo(". Starting vector tiles package generation process...")
         QGIS2VectorTiles.clear_project()
         self._project_path = self._project_for_worker(feedback)
         return super().prepareAlgorithm(parameters, context, feedback)

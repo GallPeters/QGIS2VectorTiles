@@ -154,7 +154,7 @@ def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedbac
         elif kind == "warning":
             feedback.pushWarning(message["text"])
         elif kind == "debug":
-            feedback.pushDebugInfo(message["text"])
+            pass  # Not shown: the log keeps to the steps, warnings and errors.
         elif kind == "progress":
             feedback.setProgress(message["value"])
         elif kind == "progress_text":

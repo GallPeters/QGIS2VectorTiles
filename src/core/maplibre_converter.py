@@ -1475,6 +1475,17 @@ class TextPropertyExtractor:
         return anchors or list(TextPropertyExtractor._AROUND_POINT_ANCHORS)
 
     @staticmethod
+    def radial_to_offset(anchor: str, radial: float) -> List[float]:
+        """``text-offset`` [x, y] (ems, y down) placing a label with this
+        anchor ``radial`` ems from its point, as MapLibre's radial offset
+        does: along the axis for a side, split over both for a corner."""
+        x = 1 if "left" in anchor else -1 if "right" in anchor else 0
+        y = 1 if "top" in anchor else -1 if "bottom" in anchor else 0
+        if x and y:
+            radial /= math.sqrt(2)
+        return [x * radial, y * radial]
+
+    @staticmethod
     def get_text_sort_key(label_settings: QgsPalLayerSettings) -> Union[float, List]:
         """Return ``symbol-sort-key`` from the label priority.
 
@@ -2353,9 +2364,16 @@ class QgisMapLibreStyleExporter:
         # uses a radial offset instead of text-offset with them.
         variable_anchor = TextPropertyExtractor.get_text_variable_anchor(label_settings)
         if variable_anchor:
+            radial = TextPropertyExtractor.get_text_radial_offset(label_settings)
             layer_def["layout"]["text-variable-anchor"] = variable_anchor
-            layer_def["layout"]["text-radial-offset"] = TextPropertyExtractor.get_text_radial_offset(
-                label_settings
+            layer_def["layout"]["text-radial-offset"] = radial
+            # Renderers without variable anchors (OpenLayers' ol-mapbox-style,
+            # QGIS's style converter) read text-anchor and text-offset
+            # instead: the first position, at the same distance. MapLibre
+            # ignores both when the variable anchors are set.
+            layer_def["layout"]["text-anchor"] = variable_anchor[0]
+            layer_def["layout"]["text-offset"] = TextPropertyExtractor.radial_to_offset(
+                variable_anchor[0], radial
             )
 
 

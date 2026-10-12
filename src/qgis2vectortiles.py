@@ -77,7 +77,7 @@ class QGIS2VectorTiles:
         """
         try:
             temp_dir = self._create_temp_directory()
-            self._log(". Starting vector tiles package generation process...")
+            # The processing algorithm logs the start as soon as it runs.
             start_time = perf_counter()
 
             self._log(". Extracting rules...")
@@ -223,6 +223,7 @@ class QGIS2VectorTiles:
         ServerInitializer(self.extent, self.min_zoom, self.viewer, temp_dir).serve_tiles()
 
 if __name__ == "__console__":
+    print(". Starting vector tiles package generation process...")
     QGIS2VectorTiles.clear_project()
     adapter = QGIS2VectorTiles(output_dir=QgsProcessingUtils.tempFolder())
     adapter.convert_project_to_vector_tiles()

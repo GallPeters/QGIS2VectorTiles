@@ -94,7 +94,6 @@ QgsTask. This is intentional:
 
 import os
 import threading
-import traceback
 import platform
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -1052,11 +1051,6 @@ class RulesExporter:
             lid: src for lid, src in sources.items()
             if not (cache.hit(target_paths[lid]) if cached[lid] else exists(target_paths[lid]))
         }
-        reused = sum(1 for lid in sources if cached[lid] and lid not in todo)
-        if reused:
-            self.feedback.pushDebugInfo(
-                f". Reused {reused} of {len(sources)} prepared layers from the cache."
-            )
         if not todo:
             return target_paths
 
@@ -1318,9 +1312,6 @@ class RulesExporter:
         build.failed = True
         self._close_base_build(build, remove=True)
         self.feedback.pushWarning(f'The "{build.src.name}" layer was skipped: {error}')
-        self.feedback.pushDebugInfo(
-            f"Base-layer build failed for '{build.src.name}':\n{traceback.format_exc()}"
-        )
 
     def _finish_base_build(self, build: _BaseBuild) -> None:
         if build.failed or build.finished:
@@ -1400,11 +1391,6 @@ class RulesExporter:
             ))
         if not gdal_tasks and not pass_tasks:
             return outputs
-        if gdal_tasks:
-            self.feedback.pushDebugInfo(
-                f". {len(gdal_tasks)} of {len(gdal_tasks) + sum(len(g) for _, g in pass_tasks)} "
-                "datasets are written directly by GDAL."
-            )
         # Largest first, so that no big task starts last and holds up the end.
         gdal_tasks.sort(key=lambda task: self._file_size(task[0]), reverse=True)
         pass_tasks.sort(key=lambda task: self._file_size(task[0]) * len(task[1]), reverse=True)
@@ -1452,10 +1438,6 @@ class RulesExporter:
                     except Exception as e:  # noqa: BLE001
                         if kind == "gdal":
                             # Redo it the general way.
-                            self.feedback.pushDebugInfo(
-                                f"GDAL export of {groups[0].output_dataset} failed, "
-                                f"using the Python export: {e}"
-                            )
                             submit_pass(src_path, groups)
                             continue
                         for grp in groups:
@@ -1463,11 +1445,6 @@ class RulesExporter:
                                 f"A rule in the {grp.label} was skipped: {e}"
                             )
                             outputs[grp.output_dataset] = None
-                        self.feedback.pushDebugInfo(
-                            f"Rule export failed for "
-                            f"{', '.join(grp.output_dataset for grp in groups)}:\n"
-                            f"{traceback.format_exc()}"
-                        )
                         continue
                     if kind == "gdal":
                         outputs[groups[0].output_dataset] = result
