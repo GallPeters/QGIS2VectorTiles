@@ -4,24 +4,40 @@
 
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // The element that scrolls: on the home page on phones and tablets it is
+  // <body> (see the phone layout in site.css), otherwise the window.
+  function scroller() {
+    var root = document.documentElement;
+    return root.classList.contains('snap-page') &&
+      getComputedStyle(root).overflowY === 'hidden' ? document.body : null;
+  }
+  function scrollTop() {
+    var el = scroller();
+    return el ? el.scrollTop : window.scrollY;
+  }
+
   // Header: solid background once the page scrolls.
   var header = document.querySelector('.site-header');
   var toTop = document.querySelector('.to-top');
   var ticking = false;
   function onScroll() {
-    var y = window.scrollY;
+    var y = scrollTop();
     if (header) header.classList.toggle('is-scrolled', y > 8);
     if (toTop) toTop.classList.toggle('is-visible', y > 900);
     ticking = false;
   }
-  window.addEventListener('scroll', function () {
+  function queueScroll() {
     if (!ticking) { ticking = true; window.requestAnimationFrame(onScroll); }
-  }, { passive: true });
+  }
+  // Scroll events of <body> as a scroller don't reach the window.
+  window.addEventListener('scroll', queueScroll, { passive: true });
+  document.body.addEventListener('scroll', queueScroll, { passive: true });
+  window.addEventListener('resize', queueScroll, { passive: true });
   onScroll();
 
   if (toTop) {
     toTop.addEventListener('click', function () {
-      window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+      (scroller() || window).scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
     });
   }
 

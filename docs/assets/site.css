@@ -1515,17 +1515,40 @@ td.prop { color: var(--text); font-weight: 500; }
   .slide-inner.gallery { --gallery-h: 480px; }
 }
 
-/* Phones and tablets: every .screen is exactly one screen tall (the small
-   viewport, so the browser's toolbars never cover it) and is a snap stop.
-   Each screen starts with its section heading at the same height. */
+/* Phones and tablets: every .screen is exactly one screen tall and is a
+   snap stop. Each screen starts with its section heading at the same height.
+
+   The page scrolls inside <body>, fixed below the header, not the document
+   itself. Mobile browsers hide their address bar only when the document
+   scrolls, and that changes the visible height mid-scroll, so a screen
+   sized for one height showed the next section's title at the bottom when
+   scrolling down. With the bar never hiding, the height stays the box's.
+   The box is shorter than the window by the header on purpose: Chrome lets
+   a scroller that fills the whole window act as the page, bar hiding and
+   all. */
 @media (max-width: 1024px) and (min-height: 480px) {
   :root {
     --header-h: 60px;
     --screen: calc(100svh - var(--header-h));
+    --screen: calc(100dvh - var(--header-h));
   }
-  .snap-page { scroll-snap-type: y mandatory; scroll-padding-top: var(--header-h); }
+  html.snap-page { height: 100%; overflow: hidden; }
+  .snap-page body {
+    position: fixed;
+    top: var(--header-h);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    scroll-snap-type: y mandatory;
+    scroll-padding-top: 0;
+  }
   .slide { scroll-snap-align: none; }
-  .snap-page .hero { padding: var(--header-h) 0 0; }
+  .snap-page .hero { padding: 0; }
   .slide > .slide-inner,
   .hero-inner { display: block; }
   .screen,
@@ -1728,7 +1751,7 @@ td.prop { color: var(--text); font-weight: 500; }
 .js [data-reveal].is-in { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
+  html, .snap-page body { scroll-behavior: auto; }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
