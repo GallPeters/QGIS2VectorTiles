@@ -28,11 +28,17 @@ from qgis.core import (
     QgsLayerDefinition,
     QgsLabelThinningSettings,
     QgsProcessingUtils,
+    QgsProperty,
+    QgsSymbolLayer,
     Qgis,
 )
 
 from ..utils.config import _REMOVE_DUPLICATES_DISTANCE
-from ..utils.flattened_rule import FlattenedRule
+from ..utils.flattened_rule import (
+    FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX,
+    marker_angle_field,
+)
+from .rules_exporter import RULE_FIELD
 
 
 class TilesStyler:
@@ -106,23 +112,27 @@ class TilesStyler:
         except (AttributeError, RuntimeError):
             return 0
 
-    def get_label_priority(self, flat_rule: FlattenedRule):
-        """Get the label priority value which being expressed in the rendering process"""
+    def get_label_priority(self, flat_rule: FlattenedRule) -> float:
+        """A rule's sort key: renderer rules by drawing order, label rules by
+        their (static) label priority, so higher-priority labels come later
+        in the list and so above (and placed before) the others.
+
+        Always a number: a priority read from a field or an expression is
+        applied per feature by the style (symbol-sort-key), and the rule
+        sorts by its static priority.
+        """
         if flat_rule.get_attr("t") == 0:
             return self._draw_order.get(id(flat_rule), self.flattened_rules.index(flat_rule)) + 20
         label_settings = flat_rule.rule.settings()
-        ddp = label_settings.dataDefinedProperties()
-        if not ddp or not ddp.property(87).isActive():
-            return 11 - label_settings.priority  
-        prop = ddp.property(87)
-        if prop.field():
-            return ["get", prop.field()]
-        if prop.expressionString():
+        priority = label_settings.priority
+        prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Priority)
+        if prop and prop.isActive():
             try:
-                return 11 -round(float(prop.expressionString()), 2)
+                priority = round(float(prop.staticValue() if prop.propertyType() == 1
+                                       else prop.expressionString().strip("'")), 2)
             except (ValueError, TypeError):
                 pass
-        return 11 -label_settings.priority  
+        return 11 - priority
 
     def _create_tiles_layer(self) -> QgsVectorTileLayer:
         """Create a vector tile layer and insert it at the top of the project legend."""
@@ -161,10 +171,13 @@ class TilesStyler:
         target_geom = int(flat_rule.get_attr("c"))
 
         if source_geom != target_geom:
-            if sub_symbol and symbol_layer.layerType() in ("GeometryGenerator", "CentroidFill"):
+            if sub_symbol and symbol_layer.layerType() in (
+                    "GeometryGenerator", "CentroidFill", "MarkerLine"):
                 self._copy_data_driven_properties(symbol, sub_symbol)
                 self._copy_data_driven_properties(symbol_layer, sub_symbol_layer)
                 new_symbol = sub_symbol
+                if symbol_layer.layerType() == "MarkerLine":
+                    new_symbol = self._marker_line_points_symbol(flat_rule, symbol_layer, sub_symbol)
             else:
                 new_symbol = self._create_transformed_symbol(target_geom, symbol_layer, symbol)
 
@@ -175,6 +188,18 @@ class TilesStyler:
         except (AttributeError, RuntimeError):
             pass
         style.setSymbol(new_symbol)
+
+    @staticmethod
+    def _marker_line_points_symbol(flat_rule: FlattenedRule, symbol_layer, sub_symbol):
+        """The marker of a marker line drawn at points, turned with the line
+        by the exported rotation field when its markers follow the line."""
+        marker = sub_symbol.clone()
+        if (flat_rule.get_attr("p") in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT)
+                and symbol_layer.rotateSymbols()):
+            angle = QgsProperty.fromExpression(f'"{marker_angle_field(flat_rule.get_attr("s") or 0)}"')
+            for marker_layer in marker.symbolLayers():
+                marker_layer.setDataDefinedProperty(QgsSymbolLayer.Property.PropertyAngle, angle)
+        return marker
 
     def _create_transformed_symbol(self, target_geom: int, symbol_layer, orig_symbol):
         """Create a new symbol of the target geometry type from the given symbol layer."""
@@ -212,6 +237,9 @@ class TilesStyler:
         style.setStyleName(flat_rule.rule.description())
         style.setMinZoomLevel(flat_rule.get_attr("o"))
         style.setMaxZoomLevel(flat_rule.get_attr("i"))
+        if flat_rule.member is not None:
+            # A dataset shared by rules differing by filter: this rule's rows.
+            style.setFilterExpression(f'"{RULE_FIELD}" = {flat_rule.member}')
         geom_code = flat_rule.get_attr("c")
         style.setGeometryType(
             self._GEOM_TYPE_MAP.get(geom_code, QgsWkbTypes.PointGeometry)

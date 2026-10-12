@@ -18,8 +18,10 @@ Directory layout assumed:
 
 import argparse
 import hashlib
+import queue
 import sqlite3
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -33,6 +35,13 @@ ROOT_DIR    = HERE.parent
 STYLE_DIR   = ROOT_DIR / "style"
 VIEWER_DIR  = HERE / "viewer"
 
+
+# Read connections per .mbtiles file: tiles are read this many at a time.
+CONNECTIONS = 8
+
+# Tiles requested with a version (?v=..., unique per export) never change
+# under that URL, so browsers may keep them; others are revalidated.
+VERSIONED_CACHE = "public, max-age=31536000, immutable"
 
 # Pre-built mime map — avoids per-request mimetypes.guess_type() overhead
 MIME_TYPES = {
@@ -62,30 +71,60 @@ def xyz_y_to_tms(zoom: int, y: int) -> int:
     return (1 << zoom) - 1 - y
 
 
+def _connect(path: Path) -> sqlite3.Connection:
+    """A read-only, memory-mapped connection with a generous page cache."""
+    conn = sqlite3.connect(
+        f"file:{path}?mode=ro&immutable=1",
+        uri=True,
+        check_same_thread=False,
+        isolation_level=None,
+    )
+    conn.execute("PRAGMA query_only   = ON")
+    conn.execute("PRAGMA temp_store   = MEMORY")
+    conn.execute("PRAGMA mmap_size    = 268435456")   # 256 MB
+    conn.execute("PRAGMA cache_size   = -16384")      # 16 MB per connection
+    conn.execute("PRAGMA journal_mode = OFF")
+    conn.execute("PRAGMA synchronous  = OFF")
+    return conn
+
+
+class ConnectionPool:
+    """A few connections to one .mbtiles file, so that the server's threads
+    read tiles in parallel instead of one at a time."""
+
+    def __init__(self, path: Path, size: int):
+        self._idle: "queue.Queue[sqlite3.Connection]" = queue.Queue()
+        self._all = [_connect(path) for _ in range(size)]
+        for conn in self._all:
+            self._idle.put(conn)
+
+    @contextmanager
+    def connection(self):
+        conn = self._idle.get()
+        try:
+            yield conn
+        finally:
+            self._idle.put(conn)
+
+    def close(self):
+        for conn in self._all:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+
+
 def load_mbtiles(directory: Path) -> dict:
     """Open every .mbtiles in *directory* read-only with aggressive SQLite tuning."""
     layers = {}
     for f in directory.glob("*.mbtiles"):
         try:
-            conn = sqlite3.connect(
-                f"file:{f}?mode=ro&immutable=1",
-                uri=True,
-                check_same_thread=False,
-                isolation_level=None,
-            )
-            # Read-only, memory-mapped, generous page cache — best read perf
-            conn.execute("PRAGMA query_only   = ON")
-            conn.execute("PRAGMA temp_store   = MEMORY")
-            conn.execute("PRAGMA mmap_size    = 268435456")   # 256 MB
-            conn.execute("PRAGMA cache_size   = -65536")      # 64 MB
-            conn.execute("PRAGMA journal_mode = OFF")
-            conn.execute("PRAGMA synchronous  = OFF")
-
-            meta = dict(conn.execute("SELECT name, value FROM metadata").fetchall())
+            pool = ConnectionPool(f, CONNECTIONS)
+            with pool.connection() as conn:
+                meta = dict(conn.execute("SELECT name, value FROM metadata").fetchall())
 
             layers[f.stem] = {
-                "conn":    conn,
-                "lock":    threading.Lock(),
+                "pool":    pool,
                 "minzoom": int(meta.get("minzoom", 0)),
                 "maxzoom": int(meta.get("maxzoom", 14)),
             }
@@ -160,7 +199,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- routing ----
     def do_GET(self):
-        path = unquote(self.path).lstrip("/").split("?", 1)[0]
+        path, _, query = unquote(self.path).lstrip("/").partition("?")
 
         # Root / bare /viewer  → viewer home page
         if path in ("", "viewer", "viewer/"):
@@ -172,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # Tiles
         if path.startswith("tiles/"):
-            return self._serve_tile(path)
+            return self._serve_tile(path, versioned="v=" in query)
 
         # Style + sprites
         if path == "style" or path.startswith("style/"):
@@ -181,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_status(404)
 
     # ---- tiles ----
-    def _serve_tile(self, path: str):
+    def _serve_tile(self, path: str, versioned: bool = False):
         parts = path.split("/")
         if len(parts) < 5:
             return self._send_status(400)
@@ -199,15 +238,21 @@ class Handler(BaseHTTPRequestHandler):
 
         tms_y = xyz_y_to_tms(z, y)
 
-        with layer["lock"]:
-            row = layer["conn"].execute(
+        with layer["pool"].connection() as conn:
+            row = conn.execute(
                 "SELECT tile_data FROM tiles "
                 "WHERE zoom_level=? AND tile_column=? AND tile_row=?",
                 (z, x, tms_y),
             ).fetchone()
 
+        cache_control = VERSIONED_CACHE if versioned else "no-cache"
         if row is None:
-            return self._send_status(204)
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", cache_control)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            return
 
         data = row[0]
 
@@ -216,7 +261,7 @@ class Handler(BaseHTTPRequestHandler):
         if data[:2] == b"\x1f\x8b":
             self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control",  "no-cache")
+        self.send_header("Cache-Control",  cache_control)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
@@ -289,10 +334,7 @@ def run(port: int = 18111991):
         print("\nShutting down...")
     finally:
         for layer in layers.values():
-            try:
-                layer["conn"].close()
-            except sqlite3.Error:
-                pass
+            layer["pool"].close()
         server.server_close()
 
 

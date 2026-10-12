@@ -12,6 +12,7 @@ Depends on: config, zoom_levels, flattened_rule
 from typing import List, Optional, Union
 
 from qgis.core import (
+    Qgis,
     QgsProject,
     QgsVectorLayer,
     QgsRuleBasedRenderer,
@@ -32,7 +33,10 @@ from qgis.core import (
 
 from ..utils.config import Qt
 from ..utils.config import QDomDocument
-from ..utils.flattened_rule import FlattenedRule
+from ..utils.flattened_rule import (
+    FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX,
+)
 from ..utils.zoom_levels import ZoomLevels
 
 
@@ -434,6 +438,9 @@ class RulesFlattener:
 
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]
+            if layer_type == "MarkerLine":
+                split_rules.extend(self._split_marker_line(rule_clone, flat_rule.layer))
+                continue
             if rule_clone and layer_type == "SimpleFill":
                 if clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
                     outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
@@ -450,6 +457,47 @@ class RulesFlattener:
                 split_rules.append(rule_clone)
 
         return split_rules
+
+    # Marker line placements drawn at points (exported as point rules), and
+    # the "p" attribute of each.
+    _POINT_PLACEMENTS = (
+        (Qgis.MarkerLinePlacement.FirstVertex, MARKER_FIRST_VERTEX),
+        (Qgis.MarkerLinePlacement.LastVertex, MARKER_LAST_VERTEX),
+        (Qgis.MarkerLinePlacement.CentralPoint, MARKER_CENTRAL_POINT),
+        (Qgis.MarkerLinePlacement.Vertex, MARKER_ALL_VERTICES),
+        (Qgis.MarkerLinePlacement.InnerVertices, MARKER_INNER_VERTICES),
+    )
+
+    def _split_marker_line(self, rule_clone: FlattenedRule, layer) -> List[FlattenedRule]:
+        """A marker line rule as one point rule per vertex-like placement
+        (first / last vertex, central point, vertices), whose markers are
+        then drawn exactly at those points, plus a line rule for the
+        remaining placements (interval, segment centres, curve points),
+        which follow the line.
+        """
+        symbol_layer = rule_clone.rule.symbol().symbolLayers()[0]
+        try:
+            placements = symbol_layer.placements()
+        except AttributeError:
+            return [rule_clone]
+        rules = []
+        remaining = placements
+        for flag, code in self._POINT_PLACEMENTS:
+            if not placements & flag:
+                continue
+            remaining &= ~flag
+            if code == MARKER_INNER_VERTICES and placements & Qgis.MarkerLinePlacement.Vertex:
+                continue  # Already drawn on every vertex.
+            point_rule = FlattenedRule(rule_clone.rule.clone(), layer)
+            point_rule.set_attr("c", 0)
+            point_rule.set_attr("p", code)
+            point_symbol_layer = point_rule.rule.symbol().symbolLayers()[0]
+            point_symbol_layer.setPlacements(flag)
+            rules.append(point_rule)
+        if remaining:
+            symbol_layer.setPlacements(remaining)
+            rules.append(rule_clone)
+        return rules
 
     @staticmethod
     def _convert_fill_outline_to_line_symbol(fill_symbol: QgsFillSymbol) -> QgsFillSymbol | None:
@@ -554,18 +602,82 @@ class RulesFlattener:
         return a_min <= b_max and b_min <= a_max
 
     def _split_by_scale_expressions(self, flat_rule: FlattenedRule) -> List[FlattenedRule]:
-        """Split a rule per zoom level when it contains @map_scale-dependent expressions."""
+        """Split a rule by zoom level when it contains @map_scale-dependent
+        expressions.
+
+        Consecutive zoom levels at which every such expression gives the
+        same result share one rule (and one dataset): e.g. a width of
+        "CASE WHEN @map_scale > 50000 THEN 1 ELSE 2 END" needs two rules,
+        not one per zoom level.
+        """
         if not self._has_scale_dependencies(flat_rule):
             return [flat_rule]
 
         min_zoom = flat_rule.get_attr("o")
         max_zoom = min(self.max_zoom, flat_rule.get_attr("i") + 1)
-        split_rules = []
+        document = self._rule_document(flat_rule).toString()
+        # [first zoom, last zoom, signature, rule] per run of equal zooms.
+        runs: list = []
         for zoom in range(min_zoom, max_zoom + 1):
             clone = self._create_zoom_specific_rule(flat_rule, zoom)
-            if flat_rule.get_attr("t") == 1 or self._symbol_layer_visible_at_zoom(clone):
-                split_rules.append(clone)
+            if flat_rule.get_attr("t") != 1 and not self._symbol_layer_visible_at_zoom(clone):
+                continue
+            signature = self._scale_signature(document, zoom)
+            last = runs[-1] if runs else None
+            if last is not None and last[1] == zoom - 1 and last[2] == signature:
+                last[1] = zoom
+            else:
+                runs.append([zoom, zoom, signature, clone])
+        split_rules = []
+        for first, last, _, clone in runs:
+            clone.set_attr("o", first)
+            clone.set_attr("i", last)
+            split_rules.append(clone)
         return split_rules
+
+    def _scale_signature(self, document: str, zoom: int) -> tuple:
+        """What a rule's @map_scale expressions give at a zoom level.
+
+        Each expression (an attribute or text of the rule's XML) with
+        @map_scale replaced by the zoom's scale is, if it reads no feature,
+        evaluated to its value; otherwise kept as written, which differs
+        from every other zoom's.
+        """
+        scale = str(ZoomLevels.zoom_to_scale(zoom))
+        doc = QDomDocument()
+        doc.setContent(document)
+        tokens: list = []
+
+        def visit(node):
+            if node.isElement():
+                attributes = node.toElement().attributes()
+                for i in range(attributes.count()):
+                    self._scale_token(attributes.item(i).nodeValue(), scale, tokens)
+            elif node.isText():
+                self._scale_token(node.nodeValue(), scale, tokens)
+            child = node.firstChild()
+            while not child.isNull():
+                visit(child)
+                child = child.nextSibling()
+
+        visit(doc.documentElement())
+        return tuple(tokens)
+
+    @staticmethod
+    def _scale_token(text: str, scale: str, tokens: list) -> None:
+        if not text or "@map_scale" not in text:
+            return
+        replaced = text.replace("@map_scale", scale)
+        expr = QgsExpression(replaced)
+        if (expr.hasParserError() or expr.referencedColumns() or expr.needsGeometry()
+                or expr.referencedVariables()):
+            tokens.append(("expression", replaced))
+            return
+        value = expr.evaluate()
+        if expr.hasEvalError():
+            tokens.append(("expression", replaced))
+            return
+        tokens.append(("value", repr(value)))
 
     def _symbol_layer_visible_at_zoom(self, flat_rule: FlattenedRule) -> bool:
         """Return False if the symbol layer's visibility DDP evaluates to falsy at the zoom."""
@@ -584,6 +696,11 @@ class RulesFlattener:
 
     def _has_scale_dependencies(self, flat_rule: FlattenedRule) -> bool:
         """Return True if the rule's serialized XML contains @map_scale."""
+        return "@map_scale" in self._rule_document(flat_rule).toString()
+
+    @staticmethod
+    def _rule_document(flat_rule: FlattenedRule) -> QDomDocument:
+        """The rule, saved as a renderer or labeling XML document."""
         doc = QDomDocument("style")
         context = QgsReadWriteContext()
         rule_clone = flat_rule.rule.clone()
@@ -598,7 +715,7 @@ class RulesFlattener:
             elem = QgsRuleBasedRenderer(root).save(doc, context)
 
         doc.appendChild(elem)
-        return "@map_scale" in doc.toString()
+        return doc
 
     def _create_zoom_specific_rule(self, flat_rule: FlattenedRule, zoom: int) -> FlattenedRule:
         """Clone a rule with @map_scale replaced by the exact scale for the given zoom."""

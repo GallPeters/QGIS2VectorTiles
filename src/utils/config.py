@@ -35,10 +35,20 @@ _EPSG_CRS = 3857                          # Output projection (Web Mercator)
 _DATA_SIMPLIFICATION_TOLERANCE = 1        # Geometry simplification, in CRS units
 _REMOVE_DUPLICATES_DISTANCE = 300         # Minimum spacing between points, in points
 _TOP_SCALE = 419311712                    # Max zoomed-out map scale
-_SPRITE_QUALITY = 3
-_FIELD_PREFIX = 'q2vt'    
-_SIMPLIFICATION=1
-_SIMPLIFICATION_MAX_ZOOM=0                   # Field name prefix
+_SPRITE_QUALITY = 1                       # Pixel ratio of sprite.png (sprite@2x.png: twice it);
+                                          # sprites are drawn at their real size at each ratio
+_FIELD_PREFIX = 'q2vt'                    # Field name prefix
+# Tile geometry simplification below the highest tile zoom, in tile units
+# (a 512 px tile has 4096 units: 4 units = half a screen pixel, too small to
+# see, but it shrinks low-zoom tiles considerably). None at the highest
+# zoom, where viewers enlarge the tiles.
+_SIMPLIFICATION = 4
+_SIMPLIFICATION_MAX_ZOOM = 0
+# Largest tile (bytes) and most features per tile. Beyond them GDAL writes a
+# tile with less precision or leaves features out; tiles this big already
+# load and draw slowly.
+_TILE_MAX_SIZE = 1000000
+_TILE_MAX_FEATURES = 500000
 # Included Fields parameter: which source fields the tiles (and the search
 # index) carry besides the ones the plugin computes (labels, data-defined
 # properties).
@@ -115,6 +125,8 @@ __all__ = [
     "_FIELD_PREFIX",
     "_SIMPLIFICATION",
     "_SIMPLIFICATION_MAX_ZOOM",
+    "_TILE_MAX_SIZE",
+    "_TILE_MAX_FEATURES",
     "_TILES_MAX_ZOOM",
     "_FIELDS_REQUIRED",
     "_FIELDS_ALL",

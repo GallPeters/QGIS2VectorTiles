@@ -1,6 +1,7 @@
 // Builds both web viewers into resources/:
 //   ml_viewer/  bundle.js + bundle.css (shared controls + MapLibre adapter),
-//               maplibre-gl.mjs, maplibre-gl-worker.mjs, maplibre-gl.css
+//               maplibre-gl.mjs, maplibre-gl-worker.mjs, maplibre-gl.css,
+//               mapbox-gl-rtl-text.js (right-to-left labels)
 //   ol_viewer/  bundle.js + bundle.css (shared controls + OpenLayers), ol.css
 // Each folder's viewer.html loads them.
 //
@@ -46,6 +47,8 @@ const copies = [
     ['maplibre-gl/dist/maplibre-gl.mjs', 'ml_viewer/maplibre-gl.mjs'],
     ['maplibre-gl/dist/maplibre-gl-worker.mjs', 'ml_viewer/maplibre-gl-worker.mjs'],
     ['maplibre-gl/dist/maplibre-gl.css', 'ml_viewer/maplibre-gl.css'],
+    ['@mapbox/mapbox-gl-rtl-text/dist/mapbox-gl-rtl-text.js', 'ml_viewer/mapbox-gl-rtl-text.js'],
+    ['@mapbox/mapbox-gl-rtl-text/LICENSE.md', 'ml_viewer/mapbox-gl-rtl-text.LICENSE.md'],
     ['ol/ol.css', 'ol_viewer/ol.css'],
 ];
 for (const [from, to] of copies) {

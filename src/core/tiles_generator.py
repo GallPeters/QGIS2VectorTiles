@@ -2,18 +2,26 @@
 tiles_generator.py
 
 GDALTilesGenerator — builds a multi-layer OGR VRT from the exported
-GeoParquet datasets and calls ogr2ogr to produce MVT (Mapbox Vector Tiles)
-in MBTiles format.
+datasets and calls ogr2ogr to produce MVT (Mapbox Vector Tiles) in MBTiles
+format.
+
+The MVT driver works a run's zoom levels one after another and gains
+nothing from GDAL_NUM_THREADS (measured slower), so the zoom levels are
+split into parallel ogr2ogr runs, one process each, whose MBTiles are then
+merged into one (zoom levels never share a tile).
 
 Depends on: config (for constants only — no custom class dependencies)
 """
 
 import json
 import os
+import shutil
+import sqlite3
 import subprocess
+import time
 from os import cpu_count
 from os.path import join, basename
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from uuid import uuid4
 from xml.sax.saxutils import escape, quoteattr
 from osgeo import ogr
@@ -21,7 +29,10 @@ from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
+    _TILE_MAX_FEATURES, _TILE_MAX_SIZE,
 )
+
+_CREATE_NO_WINDOW = 0x08000000
 
 
 class GDALTilesGenerator:
@@ -44,48 +55,89 @@ class GDALTilesGenerator:
         self.feedback = feedback
 
     def generate(self) -> Tuple[str, int]:
-        """Build VRT, run ogr2ogr, return (mbtiles URI, min_zoom)."""
+        """Build the VRTs, run ogr2ogr, return (mbtiles URI, min_zoom)."""
         output, uri = self._prepare_output_paths()
-        vrt_path = join(QgsProcessingUtils.tempFolder(), "layers.vrt")
-        conf_path = join(QgsProcessingUtils.tempFolder(), "layers_conf.json")
-
         min_zoom = self._get_global_min_zoom()
         max_zoom = self._get_global_max_zoom()
-
-        self._build_vrt(vrt_path)
-        self._build_layer_conf(conf_path)
-        self._run_ogr2ogr(vrt_path, conf_path, output, min_zoom, max_zoom)
-
+        first = min(min_zoom, _TILES_MAX_ZOOM)
+        last = min(max_zoom, _TILES_MAX_ZOOM)
+        self._last_zoom = last
+        runs = [
+            run for run in self._zoom_runs(first, last, self._worker_count())
+            if self._run_layers(*run)
+        ] or [(first, last)]
+        if len(runs) == 1:
+            self._run_ogr2ogr_runs([(output, first, last)])
+        else:
+            parts = [
+                (join(QgsProcessingUtils.tempFolder(), f"tiles_{lo}_{hi}_{uuid4().hex}.mbtiles"), lo, hi)
+                for lo, hi in runs
+            ]
+            try:
+                self._run_ogr2ogr_runs(parts)
+                self._merge(output, [path for path, _, _ in parts], first, last)
+            finally:
+                for path, _, _ in parts:
+                    self._remove(path)
         return uri, min_zoom
+
+    def _worker_count(self) -> int:
+        return max(1, int((cpu_count() or 1) * self.cpu_percent / 100))
+
+    @staticmethod
+    def _zoom_runs(first: int, last: int, workers: int) -> List[Tuple[int, int]]:
+        """Zoom ranges of the parallel runs: one zoom level each, as many as
+        there are workers; the lowest levels, which have the fewest tiles,
+        share one run when there are more levels than workers."""
+        zooms = list(range(first, last + 1))
+        if workers <= 1 or len(zooms) <= 1:
+            return [(first, last)]
+        if len(zooms) <= workers:
+            return [(z, z) for z in zooms]
+        single = zooms[len(zooms) - (workers - 1):]
+        return [(first, single[0] - 1)] + [(z, z) for z in single]
 
     # --- Per-layer zoom configuration ---
 
-    def _build_layer_conf(self, conf_path: str):
+    def _layer_zooms(self, layer: QgsVectorLayer) -> Tuple[int, int]:
+        """The layer's tile zoom range. Tiles stop at _TILES_MAX_ZOOM, where
+        viewers enlarge them, so a layer shown only beyond it is written to
+        that zoom's tiles."""
+        return (min(self._parse_layer_zoom(layer, "o"), _TILES_MAX_ZOOM),
+                min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM))
+
+    def _run_layers(self, lo: int, hi: int) -> Dict[str, Tuple[QgsVectorLayer, int, int]]:
+        """The layers a run of zooms lo..hi writes, with their zoom range
+        within it. A layer not configured for a run would be written at all
+        its zooms, so each run gets only its own layers."""
+        result = {}
+        for layer in self.layers:
+            minzoom, maxzoom = self._layer_zooms(layer)
+            if minzoom <= hi and maxzoom >= lo:
+                result[self._layer_name(layer)] = (layer, max(minzoom, lo), min(maxzoom, hi))
+        return result
+
+    def _build_layer_conf(self, conf_path: str, run_layers: dict):
         """Write the MVT driver's CONF file: each layer's own zoom range.
 
         Without it every layer is written to every zoom level of the
         dataset, although each style only shows it within its own range.
-        Tiles stop at _TILES_MAX_ZOOM, where viewers enlarge them, so a
-        layer shown only beyond it is written to that zoom's tiles.
         """
         conf = {
-            self._layer_name(layer): {
-                "minzoom": min(self._parse_layer_zoom(layer, "o"), _TILES_MAX_ZOOM),
-                "maxzoom": min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM),
-            }
-            for layer in self.layers
+            name: {"minzoom": minzoom, "maxzoom": maxzoom}
+            for name, (_, minzoom, maxzoom) in run_layers.items()
         }
         with open(conf_path, "w", encoding="utf-8") as f:
             json.dump(conf, f)
 
     # --- VRT construction ---
 
-    def _build_vrt(self, vrt_path: str):
+    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None):
         """Write an OGR VRT containing one entry per layer."""
         style_text = str(self.style)
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
-            for layer in self.layers:
+            for layer in (self.layers if layers is None else layers):
                 f.write(self._vrt_layer_block(layer, style_text))
             f.write("</OGRVRTDataSource>\n")
 
@@ -141,53 +193,149 @@ class GDALTilesGenerator:
 
     # --- ogr2ogr execution ---
 
-    def _run_ogr2ogr(
-        self, vrt_path: str, conf_path: str, output: str, min_zoom: int, max_zoom: int
-    ):
-        """Execute ogr2ogr to convert the VRT to MBTiles."""
-        cpu_num = str(max(1, int(cpu_count() * self.cpu_percent / 100)))
-        env = os.environ.copy()
-        env["GDAL_NUM_THREADS"] = cpu_num
-
+    def _ogr2ogr_command(self, output: str, lo: int, hi: int) -> List[str]:
+        """The ogr2ogr command of one run (zooms lo..hi), writing its VRT and
+        CONF next to the temporary files."""
+        run_layers = self._run_layers(lo, hi)
+        tag = f"{lo}_{hi}_{uuid4().hex}"
+        vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
+        conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
+        self._build_vrt(vrt_path, [layer for layer, _, _ in run_layers.values()])
+        self._build_layer_conf(conf_path, run_layers)
         # The temporary database is written heavily; keep it on local disk,
         # not next to the output (which may be a synced or network folder).
-        temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{uuid4().hex}.temp.db")
-        cmd = [
+        temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
+        # The driver applies SIMPLIFICATION_MAX_ZOOM at a run's last zoom:
+        # only the tiles' real last zoom is left unsimplified.
+        last_zoom_simplification = (
+            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else _SIMPLIFICATION
+        )
+        return [
             "ogr2ogr", "-f", "MBTiles", output, vrt_path,
             # MAXZOOM also becomes the MBTiles metadata's maxzoom, from which
             # QGIS enlarges the tiles beyond it.
-            "-dsco", f"MINZOOM={min(min_zoom, _TILES_MAX_ZOOM)}",
-            "-dsco", f"MAXZOOM={min(max_zoom, _TILES_MAX_ZOOM)}",
+            "-dsco", f"MINZOOM={lo}",
+            "-dsco", f"MAXZOOM={hi}",
             "-dsco", f"CONF={conf_path}",
             "-dsco", f"TEMPORARY_DB={temporary_db}",
             "-t_srs", f"EPSG:{_EPSG_CRS}",
-            "-dsco", "MAX_SIZE=5000000",
-            "-dsco", "MAX_FEATURES=2000000",
+            "-dsco", f"MAX_SIZE={_TILE_MAX_SIZE}",
+            "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
             "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
-            "-dsco", f"SIMPLIFICATION_MAX_ZOOM={_SIMPLIFICATION_MAX_ZOOM}"
-            
+            "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
         ]
 
+    def _run_ogr2ogr_runs(self, runs: List[Tuple[str, int, int]]):
+        """Run ogr2ogr once per (output, lo, hi), all at once, each on one
+        thread; raises RuntimeError if any fails, and stops them all if the
+        conversion is cancelled."""
+        env = os.environ.copy()
+        env["GDAL_NUM_THREADS"] = "1"
         startupinfo = None
         creationflags = 0
         if os.name == "nt":
-            creationflags = 0x08000000  # CREATE_NO_WINDOW
+            creationflags = _CREATE_NO_WINDOW
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0
 
+        processes = []
         try:
-            subprocess.run(
-                cmd, env=env, check=True, capture_output=True, text=True,
-                startupinfo=startupinfo, creationflags=creationflags,
-            )
-        except subprocess.CalledProcessError as e:
-            error_msg = f"ogr2ogr failed.\nError: {e.stderr}"
-            if self.feedback:
-                self.feedback.reportError(error_msg)
-            raise RuntimeError(error_msg) from e
+            for output, lo, hi in runs:
+                stderr_path = f"{output}.log"
+                with open(stderr_path, "w", encoding="utf-8") as stderr:
+                    processes.append((subprocess.Popen(
+                        self._ogr2ogr_command(output, lo, hi), env=env,
+                        stdout=subprocess.DEVNULL, stderr=stderr,
+                        startupinfo=startupinfo, creationflags=creationflags,
+                    ), stderr_path))
+            while any(process.poll() is None for process, _ in processes):
+                if self.feedback is not None and self.feedback.isCanceled():
+                    raise RuntimeError("Tile generation cancelled.")
+                time.sleep(0.25)
+            for process, stderr_path in processes:
+                if process.returncode != 0:
+                    with open(stderr_path, encoding="utf-8", errors="replace") as f:
+                        error_msg = f"ogr2ogr failed.\nError: {f.read()[-4000:]}"
+                    if self.feedback:
+                        self.feedback.reportError(error_msg)
+                    raise RuntimeError(error_msg)
+        finally:
+            for process, stderr_path in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                self._remove(stderr_path)
+
+    # --- Merging the runs' MBTiles ---
+
+    @classmethod
+    def _merge(cls, output: str, parts: List[str], first: int, last: int):
+        """Merge the runs' MBTiles (disjoint zoom levels) into ``output``:
+        all tiles, and metadata covering all zooms and layers."""
+        cls._remove(output)
+        shutil.copyfile(parts[0], output)
+        conn = sqlite3.connect(output)
+        try:
+            metadata = [dict(conn.execute("SELECT name, value FROM metadata"))]
+            for i, part in enumerate(parts[1:]):
+                conn.execute(f"ATTACH DATABASE ? AS part{i}", (part,))
+                conn.execute(f"INSERT INTO tiles SELECT * FROM part{i}.tiles")
+                metadata.append(dict(conn.execute(f"SELECT name, value FROM part{i}.metadata")))
+                conn.commit()
+                conn.execute(f"DETACH DATABASE part{i}")
+            merged = cls._merged_metadata(metadata, first, last)
+            conn.execute("DELETE FROM metadata")
+            conn.executemany("INSERT INTO metadata (name, value) VALUES (?, ?)", merged.items())
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _merged_metadata(parts: List[dict], first: int, last: int) -> dict:
+        """One metadata table for the merged tiles: the zoom range, the
+        bounds and the vector layers (zoom ranges, fields) of all runs."""
+        merged = dict(parts[0])
+        merged["name"] = "tiles"
+        merged["minzoom"] = str(first)
+        merged["maxzoom"] = str(last)
+        boxes = []
+        for meta in parts:
+            try:
+                boxes.append([float(v) for v in meta["bounds"].split(",")])
+            except (KeyError, ValueError):
+                continue
+        if boxes:
+            west, south = min(b[0] for b in boxes), min(b[1] for b in boxes)
+            east, north = max(b[2] for b in boxes), max(b[3] for b in boxes)
+            merged["bounds"] = f"{west},{south},{east},{north}"
+            merged["center"] = f"{(west + east) / 2},{(south + north) / 2},{first}"
+        layers: Dict[str, dict] = {}
+        for meta in parts:
+            try:
+                vector_layers = json.loads(meta.get("json", "{}")).get("vector_layers", [])
+            except ValueError:
+                continue
+            for layer in vector_layers:
+                known = layers.get(layer.get("id"))
+                if known is None:
+                    layers[layer.get("id")] = dict(layer)
+                    continue
+                known["minzoom"] = min(known.get("minzoom", first), layer.get("minzoom", first))
+                known["maxzoom"] = max(known.get("maxzoom", last), layer.get("maxzoom", last))
+                known.setdefault("fields", {}).update(layer.get("fields", {}))
+        merged["json"] = json.dumps({"vector_layers": list(layers.values())})
+        return merged
 
     # --- Helpers ---
+
+    @staticmethod
+    def _remove(path: str):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
 
     def _prepare_output_paths(self) -> Tuple[str, str]:
         output = join(self.output_dir, "tiles.mbtiles")

@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.8</strong>, 11 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.9</strong>, 12 Oct 2026.</p>
     </div>
   </section>
 
@@ -86,6 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
+        <li><a href="#v3-9">v3.9<small>Oct 2026</small></a></li>
         <li><a href="#v3-8">v3.8<small>Oct 2026</small></a></li>
         <li><a href="#v3-7">v3.7<small>Oct 2026</small></a></li>
         <li><a href="#v3-6">v3.6<small>Aug 2026</small></a></li>
@@ -126,11 +127,31 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
-  <article class="release latest" id="v3-8">
+  <article class="release latest" id="v3-9">
+    <div class="release-meta">
+      <h2>v3.9</h2>
+      <time datetime="2026-10-12">12 Oct 2026</time>
+      <span class="tag">Latest</span>
+    </div>
+    <ul>
+      <li><strong>Faster runs</strong>: tiles are made for all zoom levels at once, and simple rules are written directly by GDAL (about 3 times faster on large projects).</li>
+      <li>Rules that draw the same features <strong>share their data</strong> in the tiles, and categories share one map layer: <strong>smaller tiles</strong> and a <strong>smoother map</strong>.</li>
+      <li>Repeated runs <strong>reuse the glyphs and symbols</strong> drawn before.</li>
+      <li>Rules that change with the scale (<code>@map_scale</code>) are split only where their result changes.</li>
+      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills, <strong>hashed lines</strong>, <strong>raster lines</strong> and other unsupported lines are drawn in their own colours instead of black.</li>
+      <li>Markers on a line's <strong>first, last or middle point</strong> or on its <strong>vertices</strong> are drawn exactly there, turned with the line.</li>
+      <li><strong>Data-defined</strong> widths, sizes, offsets and opacities keep their QGIS units.</li>
+      <li>Markers sized in <strong>map units</strong> scale with the zoom; map-unit sizes now use the map's latitude.</li>
+      <li>Rotated markers are no longer <strong>turned twice</strong>; symbols are drawn sharp on every screen.</li>
+      <li>Labels follow their <strong>placement</strong> (around point, cartographic order, above or below lines), <strong>distance</strong>, <strong>letter spacing</strong> and <strong>priority</strong>.</li>
+      <li><strong>Hebrew and Arabic</strong> labels read right to left with joined letters; characters missing from a font come from another font, as in QGIS.</li>
+      <li>The web viewers keep the <strong>tiles in the browser cache</strong>, read tiles in parallel, and respond faster on hover.</li>
+    </ul>
+  </article>
+  <article class="release" id="v3-8">
     <div class="release-meta">
       <h2>v3.8</h2>
       <time datetime="2026-10-11">11 Oct 2026</time>
-      <span class="tag">Latest</span>
     </div>
     <ul>
       <li>New in both web viewers: <strong>search</strong>, <strong>drawing</strong> (download as GeoJSON), <strong>distance and area measuring</strong>, a <strong>scale bar</strong> and <strong>pointer coordinates</strong>.</li>

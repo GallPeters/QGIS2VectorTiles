@@ -3,8 +3,10 @@
 
 import { escapeHtml } from './dom.js';
 
-// Properties the map libraries add to features; not user data.
-const LIBRARY_PROPERTIES = new Set(['geometry', 'layer', 'mvt:layer']);
+// Properties the map libraries add to features, and the plugin's own
+// bookkeeping (which rule of a shared dataset a feature is drawn by); not
+// user data.
+const LIBRARY_PROPERTIES = new Set(['geometry', 'layer', 'mvt:layer', 'q2vt_rule']);
 
 // "{key: value, key: value}" strings, as the plugin writes descriptions.
 function parsePseudoDict(text) {

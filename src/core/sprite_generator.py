@@ -2,13 +2,22 @@
 sprite_generator.py
 
 Generates MapLibre-compatible sprite sheets from QGIS marker symbols.
-Output includes sprite.png, sprite.json and high-resolution (@2x) versions.
+Output includes sprite.png / sprite.json (pixel ratio 1) and
+sprite@2x.png / sprite@2x.json (pixel ratio 2), each drawn by QGIS at its
+own resolution rather than scaled from the other.
 
 scale_factor multiplies symbol sizes before rendering:
   - 1: native size    - 2: 2× larger    - 4: 4× larger
 Larger scale_factor → larger sprites and larger file size (quadratically).
+
+Rendered images are cached between runs (see _RenderCache), keyed by the
+symbol's definition, so unchanged symbols are not drawn again.
 """
 
+import hashlib
+import os
+import tempfile
+import time
 from io import BytesIO
 from dataclasses import dataclass, field
 from json import dumps
@@ -19,8 +28,13 @@ from typing import Optional, TypeAlias, Union
 
 
 from PIL import Image
-from qgis.core import Qgis, QgsFillSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer
+from qgis.core import (
+    Qgis, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
+    QgsSymbolLayerUtils,
+)
 from qgis.PyQt.QtCore import qVersion
+
+from ..utils.config import _CACHE_DIR_NAME, _CACHE_MAX_AGE_DAYS, _CACHE_MAX_MB
 
 _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
@@ -38,6 +52,10 @@ ImgCoord: TypeAlias = tuple[float, float, float, float]
 
 _PX_PER_MM = 96 / 25.4
 _PATTERN_RENDER_PX = 1024  # Largest repeat drawn before downscaling to the tile
+# Pixel ratios of the sprite sheets written, and their file name suffixes.
+_SHEETS = ((1, ""), (2, "@2x"))
+# Bump when rendering changes, so cached images drawn the old way are not reused.
+_RENDER_VERSION = "2"
 
 
 @dataclass
@@ -50,26 +68,130 @@ class FillPattern:
 
 
 @dataclass
+class LinePattern:
+    """A raster line's image, drawn along the line at ``height`` pixels
+    (the line's width)."""
+
+    path: str
+    height: float
+
+
+@dataclass
+class HashMark:
+    """One stroke of a hashed line: its line sub-symbol drawn ``length``
+    pixels long, across the line (vertical in the image, whose x axis
+    follows the line)."""
+
+    symbol: QgsLineSymbol
+    length: float
+
+
+SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark]
+
+
+class _RenderCache:
+    """Rendered sprite images kept between runs, in the system temp folder,
+    keyed by a hash of what is drawn and how."""
+
+    def __init__(self):
+        self.directory = join(tempfile.gettempdir(), _CACHE_DIR_NAME, "sprites")
+        self.enabled = _CACHE_MAX_MB > 0
+        if self.enabled:
+            try:
+                makedirs(self.directory, exist_ok=True)
+                self._prune()
+            except OSError:
+                self.enabled = False
+
+    def get(self, key: Optional[str]) -> Optional[Img]:
+        if not self.enabled or key is None:
+            return None
+        path = join(self.directory, f"{key}.png")
+        try:
+            with Image.open(path) as img:
+                img.load()
+                os.utime(path)
+                return img.copy()
+        except (OSError, ValueError):
+            return None
+
+    def put(self, key: Optional[str], img: Img) -> None:
+        if not self.enabled or key is None:
+            return
+        path = join(self.directory, f"{key}.png")
+        temp = f"{path}.{os.getpid()}.tmp"
+        try:
+            img.save(temp, "PNG")
+            os.replace(temp, path)
+        except (OSError, ValueError):
+            try:
+                os.remove(temp)
+            except OSError:
+                pass
+
+    def _prune(self) -> None:
+        """Remove images unused for _CACHE_MAX_AGE_DAYS."""
+        limit = time.time() - _CACHE_MAX_AGE_DAYS * 86400
+        for entry in os.scandir(self.directory):
+            try:
+                if entry.is_file() and entry.stat().st_mtime < limit:
+                    os.remove(entry.path)
+            except OSError:
+                continue
+
+
+def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
+    """A hash identifying what ``source`` draws at ``scale_factor``; None if
+    it can't be identified (then it is drawn every time)."""
+    try:
+        if isinstance(source, FillPattern):
+            definition = "pattern" + QgsSymbolLayerUtils.symbolProperties(
+                QgsFillSymbol([source.symbol_layer.clone()])
+            ) + f"{source.width!r}x{source.height!r}"
+        elif isinstance(source, LinePattern):
+            stat = os.stat(source.path)
+            definition = f"line{source.path}|{stat.st_mtime_ns}|{stat.st_size}|{source.height!r}"
+        elif isinstance(source, HashMark):
+            definition = "hash" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(source.length)
+        else:
+            definition = "symbol" + QgsSymbolLayerUtils.symbolProperties(source)
+    except (OSError, RuntimeError, AttributeError, TypeError):
+        return None
+    text = f"{_RENDER_VERSION}|{scale_factor!r}|{definition}"
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+@dataclass
 class SymbolImage:
-    """Render a QGIS symbol as a cropped PIL image at the given scale factor.
+    """Render a QGIS symbol (or pattern) as a cropped PIL image at the given
+    scale factor (the sheet's pixel ratio times the sprite's base scale)."""
 
-    A ``FillPattern`` becomes one seamless tile at 1x (``img``) and 2x
-    (``img2x``), since a pattern's image is shown at its own pixel size.
-    """
-
-    symbol: Union[QgsSymbol, FillPattern]
+    symbol: SpriteSource
     name: str
-    scale_factor: int = 1
+    scale_factor: float = 1
+    cache: Optional[_RenderCache] = None
     img: Img = field(init=False)
-    img2x: Optional[Img] = field(init=False, default=None)
     width: int = field(init=False)
     height: int = field(init=False)
 
     def __post_init__(self):
-        if isinstance(self.symbol, FillPattern):
-            self._render_pattern()
+        key = _source_key(self.symbol, self.scale_factor) if self.cache else None
+        cached = self.cache.get(key) if self.cache else None
+        if cached is not None:
+            self.img = cached
         else:
-            self._render()
+            if isinstance(self.symbol, FillPattern):
+                self._render_pattern()
+            elif isinstance(self.symbol, LinePattern):
+                self._render_line_pattern()
+            elif isinstance(self.symbol, HashMark):
+                self._render_hash()
+            else:
+                self._render()
+            if self.cache:
+                self.cache.put(key, self.img)
+        self.width = self.img.width
+        self.height = self.img.height
 
     def _extract_markers(self, symbol: QgsSymbol, markers: list):
         """Recursively extract marker symbols from a symbol object"""
@@ -80,7 +202,7 @@ class SymbolImage:
                 sub_symbol = sym_layer.subSymbol()
                 if sub_symbol:
                     self._extract_markers(sub_symbol, markers)
-        
+
     def _set_symbol_size(self, marker, scale_factor):
         """Set marker symbol size including outlines and buffer width"""
         # Set marker size
@@ -93,7 +215,7 @@ class SymbolImage:
         # Set buffer size
         if hasattr(marker, "bufferSettings") and marker.bufferSettings():
             marker.bufferSettings().setSize(marker.bufferSettings().size() * scale_factor)
-        
+
     def _render(self):
         """Render symbol at 1000 px, scale its size, then crop transparent borders.
 
@@ -107,30 +229,32 @@ class SymbolImage:
             for marker in markers:
                 self._set_symbol_size(marker, self.scale_factor)
             qt_img = symbol.asImage(QSize(1000, 1000))
-            pil_img = self._qt_to_pil(qt_img)
-            bbox = pil_img.getbbox()
-            if bbox:
-                cx, cy = pil_img.width // 2, pil_img.height // 2
-                half_w = max(cx - bbox[0], bbox[2] - cx)
-                half_h = max(cy - bbox[1], bbox[3] - cy)
-                pil_img = pil_img.crop((cx - half_w, cy - half_h, cx + half_w, cy + half_h))
-            self.img = pil_img
+            self.img = self._crop_centred(self._qt_to_pil(qt_img))
         except (RuntimeError, AttributeError):
             self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
 
-        self.width = self.img.width
-        self.height = self.img.height
+    @staticmethod
+    def _crop_centred(pil_img: Img) -> Img:
+        """Crop transparent borders, keeping the image's centre at the centre."""
+        bbox = pil_img.getbbox()
+        if not bbox:
+            return pil_img
+        cx, cy = pil_img.width // 2, pil_img.height // 2
+        half_w = max(cx - bbox[0], bbox[2] - cx, 1)
+        half_h = max(cy - bbox[1], bbox[3] - cy, 1)
+        return pil_img.crop((cx - half_w, cy - half_h, cx + half_w, cy + half_h))
 
     def _render_pattern(self):
         """Draw one repeat of the pattern as a tile that joins seamlessly.
 
         The pattern fills a 3x3-repeat area at up to 8x scale and the middle
         repeat is cut out, so the tile edges continue into each other; it is
-        then scaled to its pixel size.
+        then scaled to its pixel size (times the scale factor).
         """
         pattern = self.symbol
         try:
-            tile_w, tile_h = max(1, round(pattern.width)), max(1, round(pattern.height))
+            tile_w = max(1, round(pattern.width * self.scale_factor))
+            tile_h = max(1, round(pattern.height * self.scale_factor))
             scale = max(1.0, min(8.0, _PATTERN_RENDER_PX / max(pattern.width, pattern.height)))
             repeat_w, repeat_h = max(1, round(pattern.width * scale)), max(1, round(pattern.height * scale))
             area_w, area_h = repeat_w * 3, repeat_h * 3
@@ -152,13 +276,43 @@ class SymbolImage:
 
             repeat = self._qt_to_pil(qt_img).crop((repeat_w, repeat_h, repeat_w * 2, repeat_h * 2))
             self.img = self._resize_tile(repeat, tile_w, tile_h)
-            self.img2x = self._resize_tile(repeat, tile_w * 2, tile_h * 2)
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
-            self.img2x = None
 
-        self.width = self.img.width
-        self.height = self.img.height
+    def _render_line_pattern(self):
+        """A raster line's image at the line's width (times the scale factor)."""
+        try:
+            with Image.open(self.symbol.path) as source:
+                source = source.convert("RGBA")
+                height = max(1, round(self.symbol.height * self.scale_factor))
+                width = max(1, round(source.width * height / max(1, source.height)))
+                self.img = source.resize((width, height), Image.Resampling.LANCZOS)
+        except (OSError, ValueError):
+            self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
+
+    def _render_hash(self):
+        """One stroke of a hashed line, drawn vertically and cropped centred."""
+        mark = self.symbol
+        try:
+            length = mark.length * self.scale_factor
+            size = int(ceil(length)) + 64
+            qt_img = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+            qt_img.fill(0)
+            painter = QPainter(qt_img)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            context = QgsRenderContext.fromQPainter(painter)
+            context.setScaleFactor(_PX_PER_MM * self.scale_factor)
+            context.setFlag(Qgis.RenderContextFlag.Antialiasing, True)
+            centre = size / 2
+            line = QPolygonF([QPointF(centre, centre - length / 2), QPointF(centre, centre + length / 2)])
+            symbol = mark.symbol.clone()
+            symbol.startRender(context)
+            symbol.renderPolyline(line, None, context)
+            symbol.stopRender(context)
+            painter.end()
+            self.img = self._crop_centred(self._qt_to_pil(qt_img))
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
 
     @staticmethod
     def _resize_tile(tile: Img, width: int, height: int) -> Img:
@@ -234,16 +388,12 @@ class SpriteImage:
 
     matrix: SpriteMatrix
     pixelspace: int = 20
-    lowerfactor: int = 2
-    scale_factor: int = 1
     img: Img = field(init=False)
-    lowerimg: Img = field(init=False)
     imgscoords: dict = field(init=False)
 
     def __post_init__(self):
         self._build()
         self._populate()
-        self._build_highres()
 
     def _build(self):
         """Create a blank RGBA canvas sized from the matrix rows."""
@@ -278,80 +428,47 @@ class SpriteImage:
             x += img.width + self.matrix.pixelspace
         return coords
 
-    def _build_highres(self):
-        """Generate a high-resolution version by upscaling with LANCZOS.
-
-        Pattern tiles drawn at 2x replace their upscaled copies.
-        """
-        new_w = int(self.img.width * self.lowerfactor)
-        new_h = int(self.img.height * self.lowerfactor)
-        self.lowerimg = self.img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        for row in self.matrix.imgsmatrix:
-            for img in row:
-                if img.img2x is None or img.name not in self.imgscoords:
-                    continue
-                x, y, w, h = self.imgscoords[img.name]
-                if img.img2x.size == (w * self.lowerfactor, h * self.lowerfactor):
-                    self.lowerimg.paste(img.img2x, (int(x) * self.lowerfactor, int(y) * self.lowerfactor))
-
-    def save(self, output_dir: str):
-        """Save base and high-res sprite PNGs to output_dir."""
+    def save(self, output_dir: str, suffix: str):
+        """Save the sheet as sprite{suffix}.png in output_dir."""
         try:
             makedirs(output_dir, exist_ok=True)
-            self.img.save(join(output_dir, "sprite.png"))
-            self.lowerimg.save(join(output_dir, f"sprite@{self.lowerfactor}x.png"))
+            self.img.save(join(output_dir, f"sprite{suffix}.png"))
         except (OSError, RuntimeError):
             pass
 
 
 @dataclass
 class SpriteJSON:
-    """Generate MapLibre JSON metadata for 1x and Nx sprite sheets."""
+    """MapLibre JSON metadata for one sprite sheet."""
 
     spriteimg: SpriteImage
-    lowerfactor: int = 2
-    scale_factor: int = 1
+    pixel_ratio: int = 1
     jsondict: dict = field(init=False)
-    lowerjsondict: dict = field(init=False)
 
     def __post_init__(self):
-        self._generate()
-
-    def _generate(self):
-        """Build coordinate dicts for both base and high-res sprite sheets."""
         self.jsondict = {
-            name: {"x": int(x), "y": int(y), "width": int(w), "height": int(h), "pixelRatio": 1}
+            name: {"x": int(x), "y": int(y), "width": int(w), "height": int(h),
+                   "pixelRatio": self.pixel_ratio}
             for name, (x, y, w, h) in self.spriteimg.imgscoords.items()
         }
-        self.lowerjsondict = {
-            name: {
-                "x": int(c["x"] * self.lowerfactor),
-                "y": int(c["y"] * self.lowerfactor),
-                "width": int(c["width"] * self.lowerfactor),
-                "height": int(c["height"] * self.lowerfactor),
-                "pixelRatio": self.lowerfactor,
-            }
-            for name, c in self.jsondict.items()
-        }
 
-    def save(self, output_dir: str):
-        """Save base and high-res sprite JSON files to output_dir."""
+    def save(self, output_dir: str, suffix: str):
+        """Save the metadata as sprite{suffix}.json in output_dir."""
         try:
             makedirs(output_dir, exist_ok=True)
-            with open(join(output_dir, "sprite.json"), "w", encoding="utf8") as f:
+            with open(join(output_dir, f"sprite{suffix}.json"), "w", encoding="utf8") as f:
                 f.write(dumps(self.jsondict, indent=2))
-            with open(join(output_dir, f"sprite@{self.lowerfactor}x.json"), "w", encoding="utf8") as f:
-                f.write(dumps(self.lowerjsondict, indent=2))
         except (OSError, RuntimeError):
             pass
 
 
 class SpriteGenerator:
-    """Orchestrate the full sprite pipeline: render → arrange → JSON → save."""
+    """Orchestrate the full sprite pipeline: render → arrange → JSON → save,
+    once per sheet (pixel ratio 1 and 2)."""
 
     def __init__(
         self,
-        symbols_dict: dict[str, QgsSymbol],
+        symbols_dict: dict[str, SpriteSource],
         output_dir: str,
         scale_factor: int = 1,
         test_mode: bool = False,
@@ -359,7 +476,6 @@ class SpriteGenerator:
         self.symbols_dict = symbols_dict
         self.output_dir = output_dir
         self.scale_factor = scale_factor
-        self.lower_factor = 2
         self.test_mode = test_mode
 
     def generate(self) -> Optional[str]:
@@ -367,42 +483,37 @@ class SpriteGenerator:
         if not self.symbols_dict:
             return None
         try:
-            imgs = [
-                SymbolImage(sym, name, self.scale_factor)
-                for name, sym in self.symbols_dict.items()
-            ]
-            matrix = SpriteMatrix(imgs)
-            sprite_img = SpriteImage(matrix, lowerfactor=self.lower_factor, scale_factor=self.scale_factor)
-            sprite_json = SpriteJSON(sprite_img, lowerfactor=self.lower_factor, scale_factor=self.scale_factor)
-
+            cache = _RenderCache()
             sprite_dir = join(self.output_dir, "sprite")
-            sprite_img.save(sprite_dir)
-            sprite_json.save(sprite_dir)
-
-            if self.test_mode:
-                self._verify_coordinates(sprite_img, sprite_json)
-
+            for pixel_ratio, suffix in _SHEETS:
+                imgs = [
+                    SymbolImage(sym, name, self.scale_factor * pixel_ratio, cache)
+                    for name, sym in self.symbols_dict.items()
+                ]
+                sprite_img = SpriteImage(SpriteMatrix(imgs))
+                sprite_json = SpriteJSON(sprite_img, pixel_ratio * self.scale_factor)
+                sprite_img.save(sprite_dir, suffix)
+                sprite_json.save(sprite_dir, suffix)
+                if self.test_mode:
+                    self._verify_coordinates(sprite_img, sprite_json, suffix or "@1x")
             return self.output_dir
         except (RuntimeError, AttributeError, KeyError, ValueError, OSError):
             return None
 
-    def _verify_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON):
+    def _verify_coordinates(self, sprite_img: SpriteImage, sprite_json: SpriteJSON, res_name: str):
         """Extract and save individual symbol crops to verify sprite coordinates."""
-        for res_name, sprite, coords in [
-            ("1x", sprite_img.img, sprite_json.jsondict),
-            (f"{self.lower_factor}x", sprite_img.lowerimg, sprite_json.lowerjsondict),
-        ]:
-            test_dir = join(self.output_dir, f"test_{res_name}")
-            makedirs(test_dir, exist_ok=True)
-            for name, c in coords.items():
-                try:
-                    x, y, w, h = int(c["x"]), int(c["y"]), int(c["width"]), int(c["height"])
-                    if x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= sprite.width and y + h <= sprite.height:
-                        crop = sprite.crop((x, y, x + w, y + h))
-                        safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)
-                        crop.save(join(test_dir, f"{safe_name}.png"))
-                except (KeyError, ValueError, OSError):
-                    pass
+        sprite, coords = sprite_img.img, sprite_json.jsondict
+        test_dir = join(self.output_dir, f"test_{res_name}")
+        makedirs(test_dir, exist_ok=True)
+        for name, c in coords.items():
+            try:
+                x, y, w, h = int(c["x"]), int(c["y"]), int(c["width"]), int(c["height"])
+                if x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= sprite.width and y + h <= sprite.height:
+                    crop = sprite.crop((x, y, x + w, y + h))
+                    safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)
+                    crop.save(join(test_dir, f"{safe_name}.png"))
+            except (KeyError, ValueError, OSError):
+                pass
 
 
 if __name__ == "__console__":

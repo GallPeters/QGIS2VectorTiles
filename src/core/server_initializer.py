@@ -178,6 +178,9 @@ Set WshShell = Nothing
         python_exe: str,
     ):
         """Replace template placeholders in server, viewer, and launcher files."""
+        # The URLs' version: unique per export (its folder) and viewer, so
+        # browsers may keep the tiles and never show an earlier export's.
+        version = f"{self.viewer + 1}_{basename(normpath(output_folder))}"
         # Both viewers read their settings from viewer.html; the output
         # folder's name keys the drawings the browser keeps for this map.
         viewer = join(utils_dir, "viewer", 'viewer.html')
@@ -202,13 +205,13 @@ Set WshShell = Nothing
                 "18111991": str(self.port),
                 "_Q2VT_PYTHON": python_exe,
                 "_Q2VT_UTILS": join(utils_dir, "tiles_server.py"),
-                "10031993": str(self.viewer + 1),
+                "10031993": version,
             },
         )
         self.replace_in_file(
             join(output_folder, 'style', 'style.json'),
             {
-                "10031993": str(self.viewer + 1),
+                "10031993": version,
             },
         )
 

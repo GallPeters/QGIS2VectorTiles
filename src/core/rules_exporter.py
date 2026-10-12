@@ -56,10 +56,17 @@ The redesign separates the export pipeline into clearly typed phases:
    │     copy of the source is written.                                   │
    ├──────────────────────────────────────────────────────────────────────┤
    │ Phase 3 — Rule export (PARALLEL, file → file)                        │
-   │   * Rule groups of one base layer that share a filter are exported   │
-   │     in ONE streaming pass: filter → geometry transform → clip to the │
+   │   * Rules that would write the same rows (the symbol layers of one   │
+   │     rule) share one dataset, and rules that differ only by filter    │
+   │     (categories, labels split by category) share one dataset too,    │
+   │     each rule's rows tagged with its q2vt_rule number.               │
+   │   * Datasets whose filters and fields translate to OGR SQL, and      │
+   │     whose geometry is the feature's own, are written by GDAL in C++  │
+   │     (no Python per feature, so they run truly in parallel).          │
+   │   * The others: datasets of one base layer are exported in ONE       │
+   │     streaming pass: filter → geometry transform → clip to the        │
    │     extent → drop null / empty → explode multiparts → field          │
-   │     expressions, written straight to each group's output file.       │
+   │     expressions, written straight to each dataset's output file.     │
    │     Expressions shared by several groups (typically the geometry     │
    │     transform) are evaluated once per feature.                       │
    │   * "Keep biggest part" groups first pick the largest part per       │
@@ -91,10 +98,12 @@ import traceback
 import platform
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
-from os.path import exists, join, splitext
+from dataclasses import dataclass, field as dataclass_field
+from os.path import basename, exists, join, splitext
 from typing import Any, Deque, Dict, Iterator, List, Optional, Set, Tuple
 from uuid import uuid4
+from xml.sax.saxutils import escape as xml_escape
+from osgeo import gdal, ogr
 from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QMetaType, QVariant
 from processing import run as run_processing
@@ -129,7 +138,10 @@ from qgis.core import (
 from ..utils.config import (
     _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX, _FIELDS_ALL, _FIELDS_VISIBLE,
 )
-from ..utils.flattened_rule import FlattenedRule
+from ..utils.flattened_rule import (
+    FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_INNER_VERTICES,
+    MARKER_LAST_VERTEX, marker_angle_field,
+)
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import DataDefinedPropertiesFetcher
@@ -196,6 +208,34 @@ _DYNAMIC_ATTRIBUTE_TOKENS = ("@feature", "$currentfeature")
 # Base-layer field flagging the largest part of each original feature (1),
 # for rules that show only that part.
 _BIGGEST_FIELD = f"{_FIELD_PREFIX}_biggest"
+
+# Dataset field holding, in a dataset shared by several rules that differ by
+# filter, the number of the rule each row belongs to; styles filter on it.
+RULE_FIELD = f"{_FIELD_PREFIX}_rule"
+
+# Most rules one shared dataset holds.
+_MAX_MEMBERS = 250
+
+# Set Q2VT_NO_GDAL_EXPORT=1 to export every dataset with the Python pass
+# (for comparing the two paths).
+_GDAL_EXPORT = os.environ.get("Q2VT_NO_GDAL_EXPORT") != "1"
+
+# Output geometry per geometrybyexpression OUTPUT_GEOMETRY code, as OGR names:
+# the geometry type GDAL writes and the source geometries it keeps.
+_OGR_OUTPUT = {
+    0: ("POLYGON", ("POLYGON", "MULTIPOLYGON", "CURVEPOLYGON", "MULTISURFACE",
+                    "GEOMETRYCOLLECTION")),
+    1: ("LINESTRING", ("LINESTRING", "MULTILINESTRING", "CIRCULARSTRING", "COMPOUNDCURVE",
+                       "MULTICURVE", "GEOMETRYCOLLECTION")),
+    2: ("POINT", ("POINT", "MULTIPOINT", "GEOMETRYCOLLECTION")),
+}
+
+# QMetaType codes of the field types the GDAL export writes, and their OGR SQL
+# CAST types: int, long long, double, string.
+_OGR_CAST_TYPES = {2: "integer", 4: "integer64", 6: "float", 10: "character"}
+# Casts GDAL makes exactly as QGIS's field conversion does: integers to text
+# or to decimals.
+_OGR_SAFE_CASTS = {(2, 10), (4, 10), (2, 6), (4, 6), (2, 4)}
 
 # Field types whose values a filter like "field" = literal can be looked up
 # by (QMetaType codes): a dictionary matches exactly what the expression
@@ -277,8 +317,24 @@ class _SourceSnapshot:
 
 
 @dataclass
+class _MemberSnapshot:
+    """The rows one rule (or several rules writing the same rows) adds to a
+    dataset: its filter, its calculated fields and its description."""
+    filter_expression: Optional[str]
+    expression_fields: List[Tuple[int, str, str]]
+    description: str
+    # Kept ONLY to drive the success/failure return value of export(); workers
+    # MUST NOT read any live state from these.
+    flat_rules: List[FlattenedRule]
+
+
+@dataclass
 class _RuleGroupSnapshot:
     """Everything a worker needs to export one output dataset.
+
+    A dataset holds the rows of one or more members, which share the base
+    layer, geometry transform and zoom range; with several, each row carries
+    its member's number in q2vt_rule.
 
     Every field is a primitive type, string, list or dataclass — no
     QObjects, no QgsVectorLayer references. Safe to consume from any thread.
@@ -286,21 +342,27 @@ class _RuleGroupSnapshot:
     output_dataset: str
     layer_id: str
     rule_type: int
-    filter_expression: Optional[str]
     geometry_target: int
     geometry_expression: str
-    expression_fields: List[Tuple[int, str, str]]
-    description: str
     # Source fields copied into the output: None = all of them.
     copied_fields: Optional[Tuple[str, ...]]
-    # Kept ONLY to drive the success/failure return value of export(); workers
-    # MUST NOT read any live state from these.
-    flat_rules: List[FlattenedRule]
+    members: List[_MemberSnapshot] = dataclass_field(default_factory=list)
     # Export only the largest part of each original feature (labels without
     # "label every part", centroid fills without "point on all parts").
     keep_biggest_part: bool = False
     # Source layer name, for user-facing messages.
     layer_name: str = ""
+    # Whether rules differing by filter may join this dataset.
+    shareable: bool = True
+
+    @property
+    def tagged(self) -> bool:
+        """Whether rows carry their member's number (several members)."""
+        return len(self.members) > 1
+
+    @property
+    def flat_rules(self) -> List[FlattenedRule]:
+        return [rule for member in self.members for rule in member.flat_rules]
 
     @property
     def label(self) -> str:
@@ -334,7 +396,8 @@ class _RuleOutput:
         self.wkb_type = wkb_type
         self.geometry_type = QgsWkbTypes.geometryType(wkb_type)
         self.fields = QgsFields()
-        self.plan: List[Tuple[int, QgsField, Any, bool]] = []
+        # Per member: how each output field's value is produced.
+        self.plans: List[List[Tuple[int, QgsField, Any, bool]]] = []
         self.geometry: Optional[QgsExpression] = None
         self.writer: Optional[QgsVectorFileWriter] = None
         self.batch: List[QgsFeature] = []
@@ -488,6 +551,144 @@ class _FilterMatcher:
         return (field_idx, values) if ok else None
 
 
+class _NotCompilable(Exception):
+    """An expression OGR SQL can't compute exactly as QGIS does."""
+
+
+def _sql_name(name: str) -> str:
+    """A name for inside an OGR SQL double-quoted identifier."""
+    return name.replace('"', '""')
+
+
+def _sql_string(value: str) -> str:
+    """An OGR SQL string literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _sql_number(value) -> str:
+    """An OGR SQL numeric literal."""
+    if isinstance(value, int):
+        return str(value)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise _NotCompilable(repr(value))
+    text = repr(float(value))
+    return text if "e" not in text else f"{value:.17f}"
+
+
+class _OgrSqlCompiler:
+    """Translates a QGIS filter expression to an OGR SQL WHERE clause that
+    selects exactly the features QGIS's filter selects.
+
+    Only constructs whose OGR SQL results match QGIS's are accepted:
+    comparisons of a field with a literal of its own kind (=, <, <=, >, >=
+    for numbers; = for text), IN lists, IS [NOT] NULL, AND and OR. Without
+    NOT, a comparison with a NULL field is false in both (QGIS's NULL result
+    counts as false), so AND / OR combine them alike. Anything else raises
+    _NotCompilable.
+
+    OGR SQL compares text with = ignoring case, unlike QGIS, so text
+    equality becomes LIKE (case-sensitive since GDAL 3.1) with its
+    wildcards escaped.
+    """
+
+    _Node = QgsExpressionNode.NodeType
+    _Op = QgsExpressionNodeBinaryOperator.BinaryOperator
+    # QMetaType codes: int, uint, long long, ulong long, double; string.
+    _NUMERIC = frozenset({2, 3, 4, 5, 6})
+    _STRING = 10
+
+    def __init__(self, fields: QgsFields):
+        self.fields = fields
+        self._comparisons = {
+            self._Op.boEQ: "=", self._Op.boLT: "<", self._Op.boLE: "<=",
+            self._Op.boGT: ">", self._Op.boGE: ">=",
+        }
+        # The operator with its operands swapped (literal first).
+        self._swapped = {
+            self._Op.boEQ: self._Op.boEQ, self._Op.boLT: self._Op.boGT,
+            self._Op.boLE: self._Op.boGE, self._Op.boGT: self._Op.boLT,
+            self._Op.boGE: self._Op.boLE,
+        }
+
+    def compile(self, expression: str) -> str:
+        expr = QgsExpression(expression)
+        if expr.hasParserError() or expr.rootNode() is None:
+            raise _NotCompilable(expression)
+        return self._node(expr.rootNode())
+
+    def _node(self, node) -> str:
+        node_type = node.nodeType()
+        if node_type == self._Node.ntBinaryOperator:
+            op = node.op()
+            if op in (self._Op.boAnd, self._Op.boOr):
+                joiner = "AND" if op == self._Op.boAnd else "OR"
+                return f"({self._node(node.opLeft())}) {joiner} ({self._node(node.opRight())})"
+            if op in (self._Op.boIs, self._Op.boIsNot):
+                column, literal = node.opLeft(), node.opRight()
+                if (literal.nodeType() != self._Node.ntLiteral
+                        or literal.value() is not None
+                        or column.nodeType() != self._Node.ntColumnRef):
+                    raise _NotCompilable(node.dump())
+                name, _ = self._column(column)
+                return f"{name} IS {'NOT ' if op == self._Op.boIsNot else ''}NULL"
+            if op in self._comparisons:
+                column, literal = node.opLeft(), node.opRight()
+                if column.nodeType() != self._Node.ntColumnRef:
+                    column, literal, op = literal, column, self._swapped[op]
+                name, kind = self._column(column)
+                if kind == self._STRING:
+                    if op != self._Op.boEQ:
+                        raise _NotCompilable(node.dump())  # Text order differs.
+                    return self._text_equals(name, literal)
+                return f"{name} {self._comparisons[op]} {self._literal(literal, kind)}"
+            raise _NotCompilable(node.dump())
+        if node_type == self._Node.ntInOperator and not node.isNotIn():
+            name, kind = self._column(node.node())
+            items = node.list().list()
+            if not items:
+                raise _NotCompilable(node.dump())
+            if kind == self._STRING:
+                return " OR ".join(f"({self._text_equals(name, item)})" for item in items)
+            return f"{name} IN ({', '.join(self._literal(item, kind) for item in items)})"
+        raise _NotCompilable(node.dump())
+
+    def _column(self, node) -> Tuple[str, int]:
+        """(quoted name, kind) of a field reference to a number or text field."""
+        if node.nodeType() != self._Node.ntColumnRef:
+            raise _NotCompilable(node.dump())
+        idx = self.fields.lookupField(node.name())
+        if idx < 0:
+            raise _NotCompilable(node.name())
+        field = self.fields.at(idx)
+        field_type = int(getattr(field.type(), "value", field.type()))
+        if field_type in self._NUMERIC:
+            kind = 6
+        elif field_type == self._STRING:
+            kind = self._STRING
+        else:
+            raise _NotCompilable(node.name())
+        return f'"{_sql_name(field.name())}"', kind
+
+    def _text_equals(self, name: str, literal) -> str:
+        """Case-sensitive equality of a text field with a text literal."""
+        self._literal(literal, self._STRING)  # Checks it is a text literal.
+        pattern = literal.value()
+        for char in ("\\", "%", "_"):
+            pattern = pattern.replace(char, "\\" + char)
+        return f"{name} LIKE {_sql_string(pattern)} ESCAPE '\\'"
+
+    def _literal(self, node, kind: int) -> str:
+        """A literal of the field's kind, in OGR SQL."""
+        if node.nodeType() != self._Node.ntLiteral:
+            raise _NotCompilable(node.dump())
+        value = node.value()
+        if kind == self._STRING and isinstance(value, str):
+            return _sql_string(value)
+        if kind != self._STRING and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return _sql_number(value)
+        raise _NotCompilable(node.dump())
+
+
 # ============================================================================
 # RulesExporter
 # ============================================================================
@@ -607,7 +808,8 @@ class RulesExporter:
         for r in self.flattened_rules:
             rules_by_dataset.setdefault(r.output_dataset, []).append(r)
 
-        # Snapshot rule groups.
+        # Snapshot rule groups, then gather them into shared datasets.
+        datasets: Dict[tuple, List[_RuleGroupSnapshot]] = {}
         rule_groups: List[_RuleGroupSnapshot] = []
         for output_dataset, flat_rules in rules_by_dataset.items():
             primary = flat_rules[0]
@@ -628,21 +830,46 @@ class RulesExporter:
                 expr_fields = self._add_label_expression_field(
                     primary, expr_fields
                 )
+            expr_fields.extend(self._marker_angle_fields(primary))
 
-            rule_groups.append(_RuleGroupSnapshot(
-                output_dataset=primary.output_dataset,
-                layer_id=primary.layer.id(),
-                rule_type=primary.get_attr("t"),
+            member = _MemberSnapshot(
                 filter_expression=primary.rule.filterExpression() or None,
-                geometry_target=geom_target,
-                geometry_expression=geom_expr,
                 expression_fields=expr_fields,
                 description=primary.get_description(),
-                copied_fields=self._copied_fields(primary.layer),
                 flat_rules=flat_rules,
-                keep_biggest_part=self._keeps_biggest_part(primary),
-                layer_name=primary.layer.name(),
-            ))
+            )
+            rule_type = primary.get_attr("t")
+            keep_biggest = self._keeps_biggest_part(primary)
+            key = (
+                primary.layer.id(), rule_type, self._enum_int(geom_target), geom_expr,
+                keep_biggest, primary.get_attr("o"), primary.get_attr("i"),
+            )
+            # Rules drawn by symbol levels keep their own datasets: QGIS draws
+            # them level by level, not feature by feature.
+            shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
+            group = self._dataset_for(datasets.setdefault(key, []), member, shareable)
+            if group is None:
+                group = _RuleGroupSnapshot(
+                    output_dataset=primary.output_dataset,
+                    layer_id=primary.layer.id(),
+                    rule_type=rule_type,
+                    geometry_target=geom_target,
+                    geometry_expression=geom_expr,
+                    copied_fields=self._copied_fields(primary.layer),
+                    members=[member],
+                    keep_biggest_part=keep_biggest,
+                    layer_name=primary.layer.name(),
+                    shareable=shareable,
+                )
+                datasets[key].append(group)
+                rule_groups.append(group)
+
+        # Point every rule at its dataset (and, if shared, its member number).
+        for group in rule_groups:
+            for index, member in enumerate(group.members):
+                for flat_rule in member.flat_rules:
+                    flat_rule.output_dataset = group.output_dataset
+                    flat_rule.member = index if group.tagged else None
 
         # Snapshot unique sources — only those feeding an exportable group.
         groups_by_layer: Dict[str, List[_RuleGroupSnapshot]] = {}
@@ -663,6 +890,50 @@ class RulesExporter:
             )
 
         return sources, rule_groups
+
+    @staticmethod
+    def _dataset_for(
+        candidates: List[_RuleGroupSnapshot], member: _MemberSnapshot, shareable: bool
+    ) -> Optional[_RuleGroupSnapshot]:
+        """Add ``member`` to one of the datasets it can share; return that
+        dataset, or None if it needs its own.
+
+        A member writing the same rows as an existing one (the symbol layers
+        of one rule: same filter and description) joins it, adding its
+        fields; one differing by filter becomes another member if both sides
+        allow sharing and their field types agree.
+        """
+        for group in candidates:
+            for existing in group.members:
+                if (existing.filter_expression == member.filter_expression
+                        and existing.description == member.description):
+                    names = {name for _, _, name in existing.expression_fields}
+                    existing.expression_fields.extend(
+                        f for f in member.expression_fields if f[2] not in names
+                    )
+                    existing.flat_rules.extend(member.flat_rules)
+                    return group
+        if not shareable:
+            return None
+        for group in candidates:
+            if not group.shareable or len(group.members) >= _MAX_MEMBERS:
+                continue
+            types = {
+                name: field_type for m in group.members
+                for field_type, _, name in m.expression_fields
+            }
+            if all(types.get(name, field_type) == field_type
+                   for field_type, _, name in member.expression_fields):
+                group.members.append(member)
+                return group
+        return None
+
+    @staticmethod
+    def _uses_symbol_levels(layer: QgsVectorLayer) -> bool:
+        try:
+            return bool(layer.renderer() and layer.renderer().usingSymbolLevels())
+        except (AttributeError, RuntimeError):
+            return False
 
     @staticmethod
     def _keeps_biggest_part(flat_rule: FlattenedRule) -> bool:
@@ -730,8 +1001,10 @@ class RulesExporter:
             return None  # All source fields are exported.
         names = set(groups[0].copied_fields)
         for grp in groups:
-            expressions = [grp.filter_expression, grp.geometry_expression]
-            expressions.extend(expr for _, expr, _ in grp.expression_fields)
+            expressions = [grp.geometry_expression]
+            for member in grp.members:
+                expressions.append(member.filter_expression)
+                expressions.extend(expr for _, expr, _ in member.expression_fields)
             for expr_str in expressions:
                 if not isinstance(expr_str, str) or not expr_str.strip():
                     continue
@@ -1096,64 +1369,303 @@ class RulesExporter:
         rule_groups: List[_RuleGroupSnapshot],
         base_layers: Dict[str, str],
     ) -> Dict[str, Optional[str]]:
-        """Export the rule groups in parallel, one pass per base layer: each
+        """Export the rule groups in parallel.
+
+        Datasets GDAL can write (see _gdal_job) are each one GDAL task, run
+        in C++ without the Python interpreter lock, so they use every worker
+        fully. The rest go through Python passes, one per base layer: each
         feature is read once for all the layer's groups, which share the
-        filters and other expressions they have in common."""
+        filters and other expressions they have in common. A GDAL task that
+        fails is redone by a Python pass.
+        """
         outputs: Dict[str, Optional[str]] = {}
-        passes: Dict[str, List[_RuleGroupSnapshot]] = {}
+        by_layer: Dict[str, List[_RuleGroupSnapshot]] = {}
         for grp in rule_groups:
             src_path = base_layers.get(grp.layer_id)
             if not src_path or not exists(src_path):
                 outputs[grp.output_dataset] = None
                 continue
-            passes.setdefault(grp.layer_id, []).append(grp)
-        tasks: List[Tuple[str, List[_RuleGroupSnapshot]]] = []
-        for layer_id, groups in passes.items():
-            for i in range(0, len(groups), _MAX_GROUPS_PER_PASS):
-                tasks.append((base_layers[layer_id], groups[i:i + _MAX_GROUPS_PER_PASS]))
-        if not tasks:
-            return outputs
-        # Largest first, so that no big pass starts last and holds up the end.
-        tasks.sort(key=lambda task: self._file_size(task[0]) * len(task[1]), reverse=True)
+            by_layer.setdefault(grp.layer_id, []).append(grp)
 
-        max_workers = self._compute_pool_size(len(tasks))
+        gdal_tasks: List[Tuple[str, _RuleGroupSnapshot, dict]] = []
+        pass_tasks: List[Tuple[str, List[_RuleGroupSnapshot]]] = []
+        for layer_id, groups in by_layer.items():
+            src_path = base_layers[layer_id]
+            jobs = self._gdal_jobs(src_path, groups) if _GDAL_EXPORT else {}
+            for grp in groups:
+                if grp.output_dataset in jobs:
+                    gdal_tasks.append((src_path, grp, jobs[grp.output_dataset]))
+            pass_tasks.extend(self._pass_tasks(
+                src_path, [grp for grp in groups if grp.output_dataset not in jobs]
+            ))
+        if not gdal_tasks and not pass_tasks:
+            return outputs
+        if gdal_tasks:
+            self.feedback.pushInfo(
+                f". {len(gdal_tasks)} of {len(gdal_tasks) + sum(len(g) for _, g in pass_tasks)} "
+                "datasets are written directly by GDAL."
+            )
+        # Largest first, so that no big task starts last and holds up the end.
+        gdal_tasks.sort(key=lambda task: self._file_size(task[0]), reverse=True)
+        pass_tasks.sort(key=lambda task: self._file_size(task[0]) * len(task[1]), reverse=True)
+
+        max_workers = self._compute_pool_size(len(gdal_tasks) + len(pass_tasks))
 
         with ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="rules-export",
             initializer=_lower_thread_priority,
         ) as pool:
-            # Each pass's expression context (global and project scopes) is
-            # made here, on the caller thread: the project must not be read
-            # from the pass threads, where it corrupted the heap.
-            futures: Dict[Future, List[_RuleGroupSnapshot]] = {
-                pool.submit(
+            # (kind, base layer path, groups) per running task.
+            futures: Dict[Future, Tuple[str, str, List[_RuleGroupSnapshot]]] = {}
+
+            def submit_pass(src_path: str, groups: List[_RuleGroupSnapshot]) -> None:
+                # Each pass's expression context (global and project scopes)
+                # is made here, on the caller thread: the project must not be
+                # read from the pass threads, where it corrupted the heap.
+                fut = pool.submit(
                     self._export_rule_pass, groups, src_path,
                     QgsProject.instance().createExpressionContext(),
-                ): groups
-                for src_path, groups in tasks
-            }
-            for fut in self._iter_completed(futures):
-                groups = futures[fut]
-                try:
-                    outputs.update(fut.result(timeout=_PER_ALG_TIMEOUT_S))
-                except _Cancelled:
+                )
+                futures[fut] = ("pass", src_path, groups)
+
+            for src_path, grp, job in gdal_tasks:
+                futures[pool.submit(self._export_dataset_gdal, grp, src_path, job)] = (
+                    "gdal", src_path, [grp])
+            for src_path, groups in pass_tasks:
+                submit_pass(src_path, groups)
+
+            while futures:
+                done, _ = wait(list(futures), timeout=1.0, return_when=FIRST_COMPLETED)
+                if self._is_cancelled():
                     self.feedback.pushInfo("Rule export cancelled.")
-                    for pending_groups in futures.values():
-                        for grp in pending_groups:
+                    for fut, (_, _, groups) in futures.items():
+                        fut.cancel()
+                        for grp in groups:
                             outputs.setdefault(grp.output_dataset, None)
                     return outputs
-                except Exception as e:  # noqa: BLE001
-                    for grp in groups:
-                        self.feedback.pushWarning(
-                            f"A rule in the {grp.label} was skipped: {e}"
+                for fut in done:
+                    kind, src_path, groups = futures.pop(fut)
+                    try:
+                        result = fut.result(timeout=_PER_ALG_TIMEOUT_S)
+                    except _Cancelled:
+                        continue  # Reported by the cancellation check above.
+                    except Exception as e:  # noqa: BLE001
+                        if kind == "gdal":
+                            # Redo it the general way.
+                            self.feedback.pushDebugInfo(
+                                f"GDAL export of {groups[0].output_dataset} failed, "
+                                f"using the Python export: {e}"
+                            )
+                            submit_pass(src_path, groups)
+                            continue
+                        for grp in groups:
+                            self.feedback.pushWarning(
+                                f"A rule in the {grp.label} was skipped: {e}"
+                            )
+                            outputs[grp.output_dataset] = None
+                        self.feedback.pushDebugInfo(
+                            f"Rule export failed for "
+                            f"{', '.join(grp.output_dataset for grp in groups)}:\n"
+                            f"{traceback.format_exc()}"
                         )
-                        outputs[grp.output_dataset] = None
-                    self.feedback.pushDebugInfo(
-                        f"Rule export failed for "
-                        f"{', '.join(grp.output_dataset for grp in groups)}:\n"
-                        f"{traceback.format_exc()}"
-                    )
+                        continue
+                    if kind == "gdal":
+                        outputs[groups[0].output_dataset] = result
+                    else:
+                        outputs.update(result)
         return outputs
+
+    @staticmethod
+    def _pass_tasks(
+        src_path: str, groups: List[_RuleGroupSnapshot]
+    ) -> List[Tuple[str, List[_RuleGroupSnapshot]]]:
+        """Python passes over one base layer, at most _MAX_GROUPS_PER_PASS
+        datasets each."""
+        return [
+            (src_path, groups[i:i + _MAX_GROUPS_PER_PASS])
+            for i in range(0, len(groups), _MAX_GROUPS_PER_PASS)
+        ]
+
+    # -------------------------------------------------------------------
+    # Phase 3, GDAL path — datasets written by GDAL in C++
+    # -------------------------------------------------------------------
+    def _gdal_jobs(self, src_path: str, groups: List[_RuleGroupSnapshot]) -> Dict[str, dict]:
+        """The GDAL jobs of the datasets GDAL can write, by dataset name.
+
+        Caller thread: parses expressions and reads the base layer's schema.
+        """
+        layer = QgsVectorLayer(src_path, "base", "ogr")
+        try:
+            if not layer.isValid():
+                return {}
+            src_fields = layer.fields()
+        finally:
+            self._dispose_layer(layer)
+        ds = ogr.Open(src_path)
+        if ds is None or ds.GetLayerCount() != 1:
+            return {}
+        layer_name = ds.GetLayer(0).GetName()
+        ds = None
+        jobs = {}
+        for grp in groups:
+            try:
+                job = self._gdal_job(grp, src_fields, layer_name)
+            except (_NotCompilable, RuntimeError, ValueError, TypeError):
+                job = None
+            if job is not None:
+                jobs[grp.output_dataset] = job
+        return jobs
+
+    def _gdal_job(
+        self, grp: _RuleGroupSnapshot, src_fields: QgsFields, layer_name: str
+    ) -> Optional[dict]:
+        """One OGR SQL statement per member, or None if GDAL can't write the
+        dataset exactly as the Python pass would.
+
+        That takes the feature's own geometry and, per member, a filter and
+        fields that OGR SQL computes as QGIS would (see _OgrSqlCompiler and
+        _gdal_column). The result is clipped to the extent, exploded to
+        single parts and kept to the output geometry type, as in
+        _evaluate_geometry and _parts_of_type.
+        """
+        if grp.geometry_expression.strip() != "@geometry":
+            return None
+        output = _OGR_OUTPUT.get(abs(self._enum_int(grp.geometry_target) - 2))
+        if output is None:
+            return None
+        biggest_idx = src_fields.lookupField(_BIGGEST_FIELD)
+        columns, expressions = self._dataset_fields(grp, src_fields)
+        compiler = _OgrSqlCompiler(src_fields)
+        statements = []
+        for member_expressions, member in zip(expressions, grp.members):
+            conditions = []
+            if member.filter_expression:
+                conditions.append(compiler.compile(member.filter_expression))
+            if grp.keep_biggest_part and biggest_idx >= 0:
+                conditions.append(f'"{_BIGGEST_FIELD}" = 1')
+            selected = ", ".join(
+                self._gdal_column(name, field_type, member_expressions.get(name), src_fields)
+                for name, field_type in columns
+            )
+            where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+            statements.append(f'SELECT {selected} FROM "{_sql_name(layer_name)}"{where}')
+        return {"statements": statements, "geometry": output}
+
+    @staticmethod
+    def _gdal_column(name: str, field_type: int, expr_str: Optional[str],
+                     src_fields: QgsFields) -> str:
+        """The OGR SQL select item computing one output field as _plan_field
+        and _convert_value would; raises _NotCompilable otherwise."""
+        alias = f'"{_sql_name(name)}"'
+        cast = _OGR_CAST_TYPES.get(field_type)
+        if not isinstance(expr_str, str) or not expr_str.strip():
+            if cast is None:
+                raise _NotCompilable(name)
+            return f"CAST(NULL AS {cast}) AS {alias}"
+        expr = QgsExpression(expr_str)
+        if expr.hasParserError():
+            raise _NotCompilable(expr_str)
+        if expr.isField():
+            idx = src_fields.lookupField(next(iter(expr.referencedColumns())))
+            if idx < 0:
+                raise _NotCompilable(expr_str)
+            src_name = f'"{_sql_name(src_fields.at(idx).name())}"'
+            src_type = RulesExporter._enum_int(src_fields.at(idx).type())
+            if src_type == field_type:
+                return f"{src_name} AS {alias}"
+            if (src_type, field_type) in _OGR_SAFE_CASTS:
+                return f"CAST({src_name} AS {cast}) AS {alias}"
+            raise _NotCompilable(expr_str)
+        expr.prepare(QgsExpressionContext())
+        root = expr.rootNode()
+        if cast is None or root is None or not root.hasCachedStaticValue():
+            raise _NotCompilable(expr_str)
+        value = QgsField(name, QMetaType.Type(field_type)).convertCompatible(
+            root.cachedStaticValue()
+        )
+        if value is None or (hasattr(value, "isNull") and value.isNull()):
+            return f"CAST(NULL AS {cast}) AS {alias}"
+        if isinstance(value, bool):
+            raise _NotCompilable(expr_str)
+        if field_type == 10 and isinstance(value, str):
+            return f"CAST({_sql_string(value)} AS character) AS {alias}"
+        if field_type != 10 and isinstance(value, (int, float)):
+            return f"CAST({_sql_number(value)} AS {cast}) AS {alias}"
+        raise _NotCompilable(expr_str)
+
+    def _export_dataset_gdal(self, grp: _RuleGroupSnapshot, src_path: str, job: dict) -> Optional[str]:
+        """Worker: write one dataset with GDAL; returns its path, None if it
+        has no features. Raises if GDAL fails (the caller then uses the
+        Python pass).
+
+        GDAL runs each member's SQL over the base layer (one VRT union
+        layer), clipping to the extent; a second copy explodes the clipped
+        multi-part results, keeps the output geometry type and makes curves
+        linear.
+        """
+        self._check_cancel()
+        name = grp.output_dataset
+        output_path = join(self.utils_dir, f"{name}.{_TEMP_RULE_FORMAT}")
+        if exists(output_path):
+            return output_path
+        vrt_path = join(self.utils_dir, f"{name}.gdal.vrt")
+        clipped_path = join(self.utils_dir, f"{name}.gdal.{_TEMP_RULE_FORMAT}")
+        geometry_type, kept_types = job["geometry"]
+        layers = "".join(
+            f'<OGRVRTLayer name="m{i}"><SrcDataSource>{xml_escape(src_path)}</SrcDataSource>'
+            f'<SrcSQL dialect="OGRSQL">{xml_escape(sql)}</SrcSQL></OGRVRTLayer>'
+            for i, sql in enumerate(job["statements"])
+        )
+        e = self.extent
+        bbox = [e.xMinimum(), e.yMinimum(), e.xMaximum(), e.yMaximum()]
+        completed = False
+        try:
+            with open(vrt_path, "w", encoding="utf-8") as f:
+                f.write(
+                    f'<OGRVRTDataSource><OGRVRTUnionLayer name="{xml_escape(name)}">'
+                    f"<FieldStrategy>FirstLayer</FieldStrategy>{layers}"
+                    "</OGRVRTUnionLayer></OGRVRTDataSource>"
+                )
+            self._gdal_translate(clipped_path, vrt_path, gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName=splitext(basename(clipped_path))[0],
+                layerCreationOptions=["SPATIAL_INDEX=NO"], spatFilter=bbox, clipDst=bbox,
+                # Any geometry type: clipping makes multi-part geometries.
+                geometryType="GEOMETRY", dim="XY",
+            ))
+            self._check_cancel()
+            kept = ", ".join(f"'{t}'" for t in kept_types)
+            # Clipping can leave parts of another type (a line touching the
+            # extent's edge leaves a point); like _parts_of_type, they are
+            # skipped (FlatGeobuf has no transactions, so this costs nothing).
+            self._gdal_translate(output_path, clipped_path, gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
+                explodeCollections=True, geometryType=geometry_type, dim="XY",
+                where=f"OGR_GEOMETRY IN ({kept})", skipFailures=True,
+            ))
+            ds = ogr.Open(output_path)
+            count = ds.GetLayer(0).GetFeatureCount() if ds is not None else -1
+            ds = None
+            if count < 0:
+                raise RuntimeError(f"cannot read {output_path}")
+            completed = True
+            if count == 0:
+                self._remove_file(output_path)
+                return None
+            return output_path
+        finally:
+            if not completed:
+                self._remove_file(output_path)
+            self._remove_file(clipped_path)
+            self._remove_file(vrt_path)
+
+    @staticmethod
+    def _gdal_translate(dest: str, src: str, options) -> None:
+        """gdal.VectorTranslate; raises RuntimeError on failure, whether GDAL
+        reports it by exception or by result."""
+        ds = gdal.VectorTranslate(dest, src, options=options)
+        if ds is None:
+            raise RuntimeError(gdal.GetLastErrorMsg() or f"GDAL could not write {dest}")
+        ds = None  # Closes and flushes the file.
 
     def validate_expression(self, grp, expr_str: str):
         warning_msg = f'The expression "{expr_str}" within the {grp.label}'
@@ -1240,9 +1752,13 @@ class RulesExporter:
                 if not outputs:
                     return results
 
-                by_filter: Dict[Optional[str], List[_RuleOutput]] = {}
+                # Per filter: the (output, member) pairs it selects rows for.
+                by_filter: Dict[Optional[str], List[Tuple[_RuleOutput, int]]] = {}
                 for output in outputs:
-                    by_filter.setdefault(output.grp.filter_expression, []).append(output)
+                    for index, member in enumerate(output.grp.members):
+                        if output.plans[index] is not None:
+                            by_filter.setdefault(member.filter_expression, []).append(
+                                (output, index))
                 matcher = _FilterMatcher(list(by_filter), src_fields, prepare)
             biggest_idx = src_fields.lookupField(_BIGGEST_FIELD)
             request = QgsFeatureRequest()
@@ -1259,9 +1775,9 @@ class RulesExporter:
                     continue
                 is_biggest = biggest_idx < 0 or attributes[biggest_idx] == 1
                 selected = [
-                    output for filter_expression in passed
-                    for output in by_filter[filter_expression]
-                    if is_biggest or not output.grp.keep_biggest_part
+                    selection for filter_expression in passed
+                    for selection in by_filter[filter_expression]
+                    if is_biggest or not selection[0].grp.keep_biggest_part
                 ]
                 if selected:
                     self._export_rule_feature(feature, context, selected)
@@ -1291,10 +1807,9 @@ class RulesExporter:
         crs: QgsCoordinateReferenceSystem,
         prepare,
     ) -> Optional[_RuleOutput]:
-        """Plan one group's output fields and geometry and open its writer;
-        None if the group can't be exported."""
-        if grp.filter_expression and not self.validate_expression(grp, grp.filter_expression):
-            return None
+        """Plan one dataset's output fields and geometry and open its writer;
+        None if the dataset can't be exported. A member whose filter is
+        invalid is left out (its plan is None)."""
         if not self.validate_expression(grp, grp.geometry_expression):
             return None
         # layer.geometryType() returns 0 for point and 2 for polygon but
@@ -1304,18 +1819,30 @@ class RulesExporter:
             return None
 
         output = _RuleOutput(grp, output_path, out_wkb)
-        # Per output field: how to compute its value, cheapest kind first —
-        # a constant, a straight copy of a source attribute, or an expression.
-        for m in self._build_field_mapping(grp, src_fields):
-            field = QgsField(m["name"], QMetaType.Type(m["type"]))
-            if not output.fields.append(field):
-                continue  # Duplicate name: first definition wins.
-            try:
-                plan = self._plan_field(field, m["expression"], src_fields, prepare)
-            except RuntimeError as e:
-                output.note(f'field "{field.name()}" (exported as NULL)', str(e))
-                plan = (_FIELD_CONSTANT, field, None, False)
-            output.plan.append(plan)
+        columns, expressions = self._dataset_fields(grp, src_fields)
+        fields = [QgsField(name, QMetaType.Type(field_type)) for name, field_type in columns]
+        for field in fields:
+            output.fields.append(field)
+        for member, member_expressions in zip(grp.members, expressions):
+            if member.filter_expression and not self.validate_expression(
+                    grp, member.filter_expression):
+                output.plans.append(None)
+                continue
+            # Per output field: how to compute its value, cheapest kind first
+            # — a constant, a straight copy of a source attribute, or an
+            # expression.
+            plan = []
+            for field in fields:
+                try:
+                    plan.append(self._plan_field(
+                        field, member_expressions.get(field.name()), src_fields, prepare
+                    ))
+                except RuntimeError as e:
+                    output.note(f'field "{field.name()}" (exported as NULL)', str(e))
+                    plan.append((_FIELD_CONSTANT, field, None, False))
+            output.plans.append(plan)
+        if all(plan is None for plan in output.plans):
+            return None
         try:
             output.geometry = prepare(grp.geometry_expression)
             output.writer = self._create_writer(output_path, output.fields, out_wkb, crs)
@@ -1325,14 +1852,17 @@ class RulesExporter:
         return output
 
     def _export_rule_feature(
-        self, feature: QgsFeature, context: QgsExpressionContext, outputs: List[_RuleOutput]
+        self,
+        feature: QgsFeature,
+        context: QgsExpressionContext,
+        selections: List[Tuple[_RuleOutput, int]],
     ) -> None:
-        """Add one base-layer feature to every output it belongs in."""
+        """Add one base-layer feature to every (output, member) it belongs in."""
         # Per expression object: its result for this feature.
         geometries: Dict[int, Tuple[Optional[List[QgsGeometry]], Optional[Tuple[str, str]]]] = {}
         values: Dict[int, Tuple[Any, Optional[str]]] = {}
         src_values = None
-        for output in outputs:
+        for output, member_index in selections:
             if output.failed:
                 continue
             key = id(output.geometry)
@@ -1351,7 +1881,7 @@ class RulesExporter:
             if src_values is None:
                 src_values = feature.attributes()
             attributes = []
-            for kind, field, source, convert in output.plan:
+            for kind, field, source, convert in output.plans[member_index]:
                 if kind == _FIELD_CONSTANT:
                     attributes.append(source)
                     continue
@@ -1502,34 +2032,52 @@ class RulesExporter:
         expr.prepare(context)
         return expr
 
-    def _build_field_mapping(
+    def _dataset_fields(
         self, grp: _RuleGroupSnapshot, src_fields: QgsFields
-    ) -> List[Dict[str, Any]]:
-        """Worker: assemble the output field definitions (type, expression, name)."""
-        mapping: List[Tuple[int, str, str]] = []
-        mapping.append(
-            (10, grp.description, f"{_FIELD_PREFIX}_description")
-        )
-        mapping.extend(grp.expression_fields)
+    ) -> Tuple[List[Tuple[str, int]], List[Dict[str, str]]]:
+        """The dataset's output fields as (name, type), and per member the
+        expression computing each field it has (others are NULL).
+
+        Fields: the description, the member number (shared datasets), the
+        members' calculated fields, the copied source fields and orig_id.
+        The first definition of a name wins.
+        """
+        columns: List[Tuple[str, int]] = []
+        names: Set[str] = set()
+
+        def add(name: str, field_type) -> None:
+            if name not in names:
+                names.add(name)
+                # Untyped data-defined properties are exported as strings.
+                columns.append((name, 10 if field_type is None else self._enum_int(field_type)))
+
+        expressions: List[Dict[str, str]] = [{} for _ in grp.members]
+        add(f"{_FIELD_PREFIX}_description", 10)
+        if grp.tagged:
+            add(RULE_FIELD, 2)
+        for index, member in enumerate(grp.members):
+            member_expressions = expressions[index]
+            member_expressions[f"{_FIELD_PREFIX}_description"] = member.description
+            if grp.tagged:
+                member_expressions[RULE_FIELD] = str(index)
+            for field_type, expr, name in member.expression_fields:
+                add(name, field_type)
+                member_expressions.setdefault(name, expr)
+        copied = []
         for f in src_fields:
             name = f.name()
             if 'ogc_fid' in name.lower() or name == _BIGGEST_FIELD:
                 continue
             if grp.copied_fields is None or name in grp.copied_fields:
-                mapping.append((f.type(), f'"{name}"', name))
-
-        mapping.append(
-            (6, f'"{_FIELD_PREFIX}_orig_id"', f"{_FIELD_PREFIX}_orig_id")
-        )
-        return [
-            {
-                # Untyped data-defined properties are exported as strings.
-                "type": 10 if m[0] is None else self._enum_int(m[0]),
-                "expression": m[1],
-                "name": m[2],
-            }
-            for m in mapping
-        ]
+                add(name, f.type())
+                copied.append(name)
+        orig_id = f"{_FIELD_PREFIX}_orig_id"
+        add(orig_id, 6)
+        for member_expressions in expressions:
+            for name in copied:
+                member_expressions.setdefault(name, f'"{name}"')
+            member_expressions.setdefault(orig_id, f'"{orig_id}"')
+        return columns, expressions
 
     # -------------------------------------------------------------------
     # Phase 4 — result collection (caller thread)
@@ -1739,12 +2287,68 @@ class RulesExporter:
         else:
             target_geom = flat_rule.get_attr("c")
             source_geom = flat_rule.get_attr("g")
-            if source_geom != target_geom:
+            placement = flat_rule.get_attr("p")
+            if placement and symbol_layer.layerType() == "MarkerLine":
+                transform_expr = self._marker_points_expression(source_geom, placement)
+            elif source_geom != target_geom:
                 if target_geom == 0:
                     transform_expr = self._centroid_fill_expression(symbol_layer)
                 elif target_geom == 1:
                     transform_expr = "boundary(@geometry)"
         return [target_geom, transform_expr]
+
+    @staticmethod
+    def _marker_line_base(source_geom: int) -> str:
+        """The line a marker line follows: the feature, or a polygon's outline."""
+        return "@geometry" if source_geom == 1 else "boundary(@geometry)"
+
+    @classmethod
+    def _marker_points_expression(cls, source_geom: int, placement: int) -> str:
+        """The points a marker line with this single placement draws at."""
+        line = cls._marker_line_base(source_geom)
+        if placement == MARKER_FIRST_VERTEX:
+            return f"start_point({line})"
+        if placement == MARKER_LAST_VERTEX:
+            return f"end_point({line})"
+        if placement == MARKER_CENTRAL_POINT:
+            return f"line_interpolate_point({line}, length({line}) / 2)"
+        if placement == MARKER_INNER_VERTICES:
+            return (
+                f"with_variable('line', {line}, if(num_points(@line) > 2, collect_geometries("
+                f"array_foreach(generate_series(2, num_points(@line) - 1), point_n(@line, @element))"
+                f"), NULL))"
+            )
+        return f"nodes_to_points({line}, true)"  # Every vertex.
+
+    def _marker_angle_fields(self, flat_rule: FlattenedRule) -> List[Tuple[int, str, str]]:
+        """A rotation field for a marker line drawn as points at one vertex
+        or the middle, when its markers follow the line.
+
+        QGIS turns such markers with the line: by the line's direction,
+        clockwise from east (line_interpolate_angle's bearing from north,
+        less 90°), plus the marker's own angle. The sprite is drawn
+        unrotated, so the field holds the whole rotation.
+        """
+        if flat_rule.get_attr("t") != 0 or not flat_rule.rule.symbol():
+            return []
+        placement = flat_rule.get_attr("p")
+        if placement not in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT):
+            return []
+        symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
+        if symbol_layer.layerType() != "MarkerLine" or not symbol_layer.rotateSymbols():
+            return []
+        line = self._marker_line_base(flat_rule.get_attr("g"))
+        distance = {
+            MARKER_FIRST_VERTEX: "0",
+            MARKER_LAST_VERTEX: f"length({line})",
+            MARKER_CENTRAL_POINT: f"length({line}) / 2",
+        }[placement]
+        own_angle = 0.0
+        sub_symbol = symbol_layer.subSymbol()
+        if sub_symbol is not None and sub_symbol.symbolLayerCount():
+            own_angle = sub_symbol.symbolLayer(0).angle()
+        expression = f"line_interpolate_angle({line}, {distance}) - 90 + {own_angle!r}"
+        return [(6, expression, marker_angle_field(flat_rule.get_attr("s") or 0))]
 
     @classmethod
     def _perimeter_to_geometry_generator(cls, settings: QgsPalLayerSettings) -> None:
@@ -1833,9 +2437,10 @@ class RulesExporter:
         surface instead when the centroid falls outside it."""
         point = "centroid(@source)"
         if force_inside:
+            # The centroid is computed once and reused.
             point = (
-                "if(intersects(centroid(@source), @source), "
-                "centroid(@source), point_on_surface(@source))"
+                "with_variable('centroid', centroid(@source), "
+                "if(intersects(@centroid, @source), @centroid, point_on_surface(@source)))"
             )
         return cls._with_polygons(polygons, point)
 

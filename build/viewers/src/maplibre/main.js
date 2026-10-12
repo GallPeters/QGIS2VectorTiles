@@ -12,6 +12,12 @@ const BASEMAP = 'q2vt-basemap';
 const HIGHLIGHT = 'q2vt-search-hit';
 const config = window.Q2VT_CONFIG;
 
+// Right-to-left labels (Hebrew, Arabic) need MapLibre's RTL text plugin to
+// show in reading order and, for Arabic, with joined letters. It sits next
+// to bundle.js and loads only when such a label first appears.
+maplibregl.setRTLTextPlugin(new URL('mapbox-gl-rtl-text.js', import.meta.url).href, true)
+    .catch((error) => console.warn('RTL text plugin not loaded:', error));
+
 const map = new maplibregl.Map({
     container: 'map',
     style: config.styleUrl,
@@ -25,8 +31,16 @@ const popup = new maplibregl.Popup({
     closeButton: false, closeOnClick: false, closeOnMove: false, maxWidth: '280px',
 });
 
-const dataLayers = () => map.getStyle().layers.filter((l) => l.source === SOURCE).map((l) => l.id);
-const firstDataLayer = () => map.getStyle().layers.find((l) => l.type !== 'background' && l.id !== BASEMAP)?.id;
+// The data layers' ids, worked out once per style change rather than on every
+// pointer move (map.getStyle() copies the whole style).
+let dataLayerIds = null;
+map.on('styledata', () => { dataLayerIds = null; });
+const dataLayers = () => {
+    dataLayerIds ??= map.getLayersOrder().filter((id) => map.getLayer(id)?.source === SOURCE);
+    return dataLayerIds;
+};
+const firstDataLayer = () => map.getLayersOrder()
+    .find((id) => map.getLayer(id)?.type !== 'background' && id !== BASEMAP);
 
 const adapter = {
     ready: new Promise((resolve) => map.once('load', resolve)),

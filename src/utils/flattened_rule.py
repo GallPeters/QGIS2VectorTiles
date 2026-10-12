@@ -11,6 +11,21 @@ from typing import Optional, Union
 
 from qgis.core import QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsVectorLayer
 
+from .config import _FIELD_PREFIX
+
+# Marker line placements exported as points ("p" rule attribute): one rule
+# per placement, its markers drawn at the points.
+MARKER_FIRST_VERTEX = 1
+MARKER_LAST_VERTEX = 2
+MARKER_CENTRAL_POINT = 3
+MARKER_ALL_VERTICES = 4
+MARKER_INNER_VERTICES = 5
+
+
+def marker_angle_field(symbol_layer_index: int) -> str:
+    """The dataset field holding a marker line's per-point rotation."""
+    return f"{_FIELD_PREFIX}_marker_angle_{int(symbol_layer_index):02d}"
+
 
 @dataclass
 class FlattenedRule:
@@ -19,6 +34,9 @@ class FlattenedRule:
     rule: Union[QgsRuleBasedLabeling.Rule, QgsRuleBasedRenderer.Rule]
     layer: QgsVectorLayer
     output_dataset: Optional[str] = ""
+    # In a dataset shared by rules differing by filter: this rule's number
+    # (its rows' q2vt_rule value); None when the dataset is its own.
+    member: Optional[int] = None
 
     def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""

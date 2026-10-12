@@ -7,6 +7,7 @@
     "build": "node build.mjs"
   },
   "dependencies": {
+    "@mapbox/mapbox-gl-rtl-text": "0.3.0",
     "maplibre-gl": "6.13.0",
     "ol": "10.11.0",
     "ol-mapbox-style": "13.5.1",

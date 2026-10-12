@@ -1,6 +1,11 @@
 import os
 import math
+import hashlib
 import logging
+import pickle
+import tempfile
+import time
+import unicodedata
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
 
@@ -32,6 +37,9 @@ else:
     
 
 from ..utils.config import (
+    _CACHE_DIR_NAME,
+    _CACHE_MAX_AGE_DAYS,
+    _CACHE_MAX_MB,
     _GLYPH_RANGE_SIZE,
     _MAX_UNICODE,
     _MAPLIBRE_GLYPH_BORDER,
@@ -46,6 +54,93 @@ from ..utils.config import (
 logger = logging.getLogger(__name__)
 
 _SHAPING_OFFSET = 17  # MapLibre's SHAPING_DEFAULT_OFFSET (-17), in px of a 24 px em
+
+# Arabic script blocks. MapLibre's RTL text plugin joins Arabic letters by
+# replacing them with their presentation forms, whose glyphs are then
+# requested: text in these blocks needs those forms too.
+_ARABIC_BLOCKS = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF))
+_ARABIC_PRESENTATION_FORMS = ((0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
+
+# Fonts tried first for characters the label's font lacks (then any font
+# that has them), as Qt falls back to other fonts when QGIS draws a label.
+_FALLBACK_FAMILIES = (
+    "Arial", "Segoe UI", "Tahoma", "Noto Sans", "DejaVu Sans", "Liberation Sans",
+    "Segoe UI Symbol", "Arial Unicode MS",
+)
+
+# Bump when glyph rendering changes, so glyphs cached the old way are not reused.
+_GLYPH_CACHE_VERSION = "1"
+
+
+def _with_presentation_forms(codepoints: Set[int]) -> Set[int]:
+    """The codepoints plus the Arabic presentation forms of their letters:
+    each form (initial, medial, final, isolated, ligature) whose Unicode
+    decomposition uses only letters the text has."""
+    if not any(lo <= cp <= hi for cp in codepoints for lo, hi in _ARABIC_BLOCKS):
+        return codepoints
+    forms = set()
+    for lo, hi in _ARABIC_PRESENTATION_FORMS:
+        for cp in range(lo, hi + 1):
+            parts = unicodedata.decomposition(chr(cp)).split()
+            letters = [int(p, 16) for p in parts if not p.startswith("<")]
+            if letters and all(letter in codepoints for letter in letters):
+                forms.add(cp)
+    return codepoints | forms
+
+
+class _GlyphCache:
+    """A fontstack's rendered glyphs, kept between runs in the system temp
+    folder (keyed by the font and the generation parameters)."""
+
+    def __init__(self, family: str, style: str):
+        self.enabled = _CACHE_MAX_MB > 0
+        directory = os.path.join(tempfile.gettempdir(), _CACHE_DIR_NAME, "glyphs")
+        key = "|".join(str(v) for v in (
+            _GLYPH_CACHE_VERSION, family, style, _FONT_RENDER_SIZE, _SDF_CUTOFF, _SUPERSAMPLE,
+            _SDF_RADIUS, _BUFFER, _SDF_COVERAGE_THRESHOLD, _MAPLIBRE_GLYPH_BORDER,
+        ))
+        self.path = os.path.join(directory, hashlib.sha1(key.encode("utf-8")).hexdigest() + ".pkl")
+        self.glyphs: Dict[int, Optional[dict]] = {}
+        self._dirty = False
+        if not self.enabled:
+            return
+        try:
+            os.makedirs(directory, exist_ok=True)
+            self._prune(directory)
+            with open(self.path, "rb") as f:
+                loaded = pickle.load(f)
+            if isinstance(loaded, dict):
+                self.glyphs = loaded
+        except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ValueError):
+            self.glyphs = {}
+
+    def put(self, codepoint: int, glyph: Optional[dict]) -> None:
+        self.glyphs[codepoint] = glyph
+        self._dirty = True
+
+    def save(self) -> None:
+        if not self.enabled or not self._dirty:
+            return
+        temp = f"{self.path}.{os.getpid()}.tmp"
+        try:
+            with open(temp, "wb") as f:
+                pickle.dump(self.glyphs, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(temp, self.path)
+        except OSError:
+            try:
+                os.remove(temp)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _prune(directory: str) -> None:
+        limit = time.time() - _CACHE_MAX_AGE_DAYS * 86400
+        for entry in os.scandir(directory):
+            try:
+                if entry.is_file() and entry.stat().st_mtime < limit:
+                    os.remove(entry.path)
+            except OSError:
+                continue
 
 
 def _edt(mask: np.ndarray) -> np.ndarray:
@@ -242,7 +337,9 @@ class GlyphGenerator:
                 logger.warning(f"No characters found in field '{self.field_name}' for font '{font_key}'. Skipping.")
                 continue
 
-            codepoints = sorted({ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE})
+            codepoints = sorted(_with_presentation_forms(
+                {ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE}
+            ))
             logger.info(
                 f"Font '{font_key}': {len(codepoints)} unique codepoints required "
                 f"across {len(dataset_paths)} dataset(s)."
@@ -260,8 +357,13 @@ class GlyphGenerator:
             hi_font = QFont(qfont)
             hi_font.setPixelSize(self.font_render_size * self.supersample)
             renderer = _GlyphRenderer(self, qfont, hi_font)
+            self._cache = _GlyphCache(family, style)
+            self._fallbacks: Dict[int, Optional["_GlyphRenderer"]] = {}
+            self._fallback_renderers: Dict[str, "_GlyphRenderer"] = {}
+            self._style = style
 
             self._generate_blocks_for_fontstack(renderer, fontstack_name, fontstack_dir, codepoints)
+            self._cache.save()
             fontstacks[font_key] = fontstack_name
 
         return fontstacks
@@ -286,27 +388,75 @@ class GlyphGenerator:
 
     def _create_sdf_pbf_for_codepoints(self, renderer: "_GlyphRenderer", fontstack_name: str,
                                         codepoints: List[int]) -> Optional[bytes]:
-        metrics = renderer.metrics
         glyphs_data = []
 
         for char_code in codepoints:
-            if not metrics.inFontUcs4(char_code):
-                continue
-
-            char_str = chr(char_code)
-            advance = metrics.horizontalAdvance(char_str)
-            rect = metrics.boundingRect(char_str)
-
-            sdf_bitmap, width, height, left, top = renderer.render(char_str, rect)
-
-            glyphs_data.append({
-                "id": char_code, "bitmap": sdf_bitmap, "width": width,
-                "height": height, "left": left, "top": top, "advance": advance
-            })
+            if char_code in self._cache.glyphs:
+                glyph = self._cache.glyphs[char_code]
+            else:
+                glyph = self._render_glyph(renderer, char_code)
+                self._cache.put(char_code, glyph)
+            if glyph is not None:
+                glyphs_data.append(glyph)
 
         if not glyphs_data:
             return None
         return self._serialize_to_pbf(fontstack_name, glyphs_data)
+
+    def _render_glyph(self, renderer: "_GlyphRenderer", char_code: int) -> Optional[dict]:
+        """One glyph, from the label's font or, if it lacks the character,
+        from a fallback font; None if no font has it."""
+        if not renderer.metrics.inFontUcs4(char_code):
+            renderer = self._fallback_for(char_code, renderer)
+            if renderer is None:
+                return None
+        metrics = renderer.metrics
+        char_str = chr(char_code)
+        advance = metrics.horizontalAdvance(char_str)
+        rect = metrics.boundingRect(char_str)
+        sdf_bitmap, width, height, left, top = renderer.render(char_str, rect)
+        return {
+            "id": char_code, "bitmap": sdf_bitmap, "width": width,
+            "height": height, "left": left, "top": top, "advance": advance
+        }
+
+    def _fallback_for(self, char_code: int, primary: "_GlyphRenderer") -> Optional["_GlyphRenderer"]:
+        """A renderer of a font that has the character (preferred families
+        first), drawn on the label font's baseline; None if none has it."""
+        if char_code in self._fallbacks:
+            return self._fallbacks[char_code]
+        families = list(_FALLBACK_FAMILIES) + [
+            f for f in qfontdb.families() if f not in _FALLBACK_FAMILIES
+        ]
+        found = None
+        for family in families:
+            fallback = self._fallback_renderer(family, primary)
+            if fallback is not None and fallback.metrics.inFontUcs4(char_code):
+                found = fallback
+                break
+        self._fallbacks[char_code] = found
+        return found
+
+    def _fallback_renderer(self, family: str, primary: "_GlyphRenderer") -> Optional["_GlyphRenderer"]:
+        if family in self._fallback_renderers:
+            return self._fallback_renderers[family]
+        renderer = None
+        try:
+            styles = qfontdb.styles(family)
+            if styles:
+                style = self._style if self._style in styles else next(
+                    (s for s in styles if s.lower() in ("regular", "normal")), styles[0])
+                qfont = qfontdb.font(family, style, self.font_render_size)
+                qfont.setPixelSize(self.font_render_size)
+                hi_font = QFont(qfont)
+                hi_font.setPixelSize(self.font_render_size * self.supersample)
+                renderer = _GlyphRenderer(self, qfont, hi_font)
+                # On the label font's baseline, as Qt draws fallback glyphs.
+                renderer.top_shift = primary.top_shift
+        except (RuntimeError, TypeError, AttributeError):
+            renderer = None
+        self._fallback_renderers[family] = renderer
+        return renderer
 
     # ------------------------------------------------------------------
     # PBF encoding (protobuf, hand-rolled — MapLibre glyph spec)

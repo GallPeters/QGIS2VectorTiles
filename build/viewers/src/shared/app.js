@@ -85,7 +85,17 @@ export async function startViewer(map, config) {
     updateZoom();
     map.onViewChange(updateZoom);
 
-    map.onPointerMove(({ lngLat, point }) => {
+    // Pointer moves come faster than frames: handle the latest once per frame.
+    let latestMove = null;
+    map.onPointerMove((move) => {
+        if (latestMove === null) requestAnimationFrame(() => {
+            const pending = latestMove;
+            latestMove = null;
+            handlePointerMove(pending);
+        });
+        latestMove = move;
+    });
+    function handlePointerMove({ lngLat, point }) {
         coords.textContent = formatCoordinate(lngLat);
         coords.hidden = false;
         if (!popupsEnabled || drawing.isActive()) {
@@ -104,7 +114,7 @@ export async function startViewer(map, config) {
         content.addEventListener('mouseenter', () => { overPopup = true; clearTimeout(closeTimer); });
         content.addEventListener('mouseleave', () => { overPopup = false; scheduleClose(); });
         map.showPopup(lngLat, content);
-    });
+    }
     map.onPointerOut(() => {
         coords.hidden = true;
         scheduleClose();

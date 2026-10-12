@@ -193,7 +193,10 @@ class QGIS2VectorTiles:
         return TilesStyler(rules, temp_dir).apply_styling()
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
-        return QgisMapLibreStyleExporter(temp_dir, self.utils_dir, styled_layer, self.viewer, self.min_zoom, self.max_zoom).export()
+        return QgisMapLibreStyleExporter(
+            temp_dir, self.utils_dir, styled_layer, self.viewer, self.min_zoom, self.max_zoom,
+            extent=self.extent,
+        ).export()
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(
