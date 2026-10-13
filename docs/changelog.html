@@ -134,15 +134,15 @@
       <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li><strong>Ready to publish</strong>: the export is a static web map (<code>index.html</code>, the style and one <strong>PMTiles</strong> file). Upload it to <strong>GitHub Pages</strong> or any web host.</li>
-      <li>No more tiles layer in QGIS, <code>.qlr</code> or <code>.mbtiles</code>: the web map is the result.</li>
-      <li><strong>One web map, two viewers</strong>: switch between MapLibre and OpenLayers in the page. The Output Viewer parameter is gone.</li>
-      <li>Both viewers show the <strong>same zoom numbers</strong>.</li>
-      <li>The page reopens in the <strong>viewer you used last</strong>.</li>
-      <li><strong>Tidier viewer layout</strong>: search and settings on the left, zoom and <strong>drawing tools</strong> on the right.</li>
-      <li><strong>About 40% faster</strong> on large projects, up to twice as fast with few zoom levels.</li>
+      <li><strong>Publish anywhere</strong>: a static web map with one <strong>PMTiles</strong> file.</li>
+      <li>No tiles layer, <code>.qlr</code> or <code>.mbtiles</code>: the web map is the result.</li>
+      <li><strong>One web map, two viewers</strong>: switch in the page.</li>
+      <li>Same <strong>zoom numbers</strong> in both viewers.</li>
+      <li>Reopens in the <strong>viewer you used last</strong>.</li>
+      <li><strong>Tidier layout</strong>: settings left, zoom and drawing right.</li>
+      <li><strong>About 40% faster</strong> on large projects.</li>
       <li>Low zoom levels <strong>keep all their features</strong>.</li>
-      <li>OpenLayers users: zoom levels now follow MapLibre's numbering, so the same range gives one more level of detail.</li>
+      <li>OpenLayers zoom levels follow MapLibre's numbering.</li>
     </ul>
   </article>
   <article class="release latest" id="v3-9">
@@ -152,21 +152,21 @@
       <span class="tag">Latest</span>
     </div>
     <ul>
-      <li><strong>About 3 times faster</strong> on large projects.</li>
-      <li>Rules that draw the same features <strong>share their data</strong>: smaller tiles, smoother map.</li>
-      <li>Repeated runs <strong>reuse the glyphs and symbols</strong> drawn before.</li>
-      <li>Rules that change with the scale (<code>@map_scale</code>) are split only where their result changes.</li>
-      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills, <strong>hashed</strong> and <strong>raster lines</strong> keep their colours instead of turning black.</li>
-      <li>Markers on a line's <strong>first, last or middle point</strong> or on its <strong>vertices</strong> are drawn exactly there, turned with the line.</li>
-      <li><strong>Data-defined</strong> widths, sizes, offsets and opacities keep their QGIS units.</li>
-      <li>Markers sized in <strong>map units</strong> scale with the zoom; map-unit sizes now use the map's latitude.</li>
-      <li>Rotated markers are no longer <strong>turned twice</strong>; symbols are drawn sharp on every screen.</li>
-      <li>Labels follow their <strong>placement</strong>, <strong>distance</strong>, <strong>letter spacing</strong> and <strong>priority</strong>.</li>
-      <li><strong>Hebrew and Arabic</strong> labels read right to left, with joined letters and font fallback.</li>
-      <li>The viewers <strong>cache tiles</strong> and respond faster.</li>
-      <li><strong>Search</strong> zooms to the found feature where it is still drawn.</li>
-      <li>Clearer <strong>progress messages</strong>, with the time of each step.</li>
-      <li><strong>OpenLayers</strong>: labels around a point sit beside its marker.</li>
+      <li><strong>About 3× faster</strong> on large projects.</li>
+      <li>Rules drawing the same features <strong>share their data</strong>.</li>
+      <li>Repeated runs <strong>reuse glyphs and symbols</strong>.</li>
+      <li><code>@map_scale</code> rules split only where they change.</li>
+      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills keep their colours.</li>
+      <li>Line markers on <strong>first, last, middle or every vertex</strong>.</li>
+      <li><strong>Data-defined</strong> sizes keep their QGIS units.</li>
+      <li><strong>Map-unit</strong> markers scale with the zoom.</li>
+      <li>Rotated markers no longer turn twice.</li>
+      <li>Labels follow <strong>placement</strong>, spacing and <strong>priority</strong>.</li>
+      <li><strong>Hebrew and Arabic</strong> labels, right to left.</li>
+      <li>Viewers <strong>cache tiles</strong> and respond faster.</li>
+      <li><strong>Search</strong> zooms to where the feature is drawn.</li>
+      <li>Clearer <strong>progress messages</strong> with step times.</li>
+      <li>OpenLayers: point labels sit beside their marker.</li>
     </ul>
   </article>
   <article class="release" id="v3-8">
@@ -175,26 +175,26 @@
       <time datetime="2026-10-11">11 Oct 2026</time>
     </div>
     <ul>
-      <li>New in both viewers: <strong>search</strong>, <strong>drawing</strong>, <strong>measuring</strong>, a <strong>scale bar</strong> and <strong>coordinates</strong>.</li>
-      <li>New <strong>basemap switcher</strong> in the viewers; the <strong>Background</strong> parameter is removed.</li>
-      <li>New <strong>Visible Fields</strong> option in <strong>Included Fields</strong>.</li>
-      <li>Removed the <strong>Polygon Labels Base</strong> parameter: polygon labels follow their own QGIS placement settings.</li>
-      <li>Polygon labels placed <strong>using the perimeter</strong> follow the polygon outline.</li>
-      <li><strong>Centroid fills</strong> follow their QGIS settings.</li>
-      <li>Much <strong>faster export</strong> of projects with many rules or categories.</li>
-      <li>Tiles stop at <strong>zoom 15</strong>: smaller output; viewers enlarge them beyond it.</li>
-      <li><strong>Temporary (memory) layers</strong> are now exported.</li>
-      <li>Upgraded to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
-      <li><strong>Popups</strong> are off by default in both viewers.</li>
-      <li>Fixed some <strong>label fonts</strong> not loading, and the <strong>zoom indicator</strong> showing 0 at startup.</li>
-      <li>Clearer description of the <strong>built-in local server</strong> that opens the viewer.</li>
-      <li>Fixed <strong>crashes</strong> on large projects with thousands of rules; a crash in the conversion now <strong>reports where</strong> it happened.</li>
-      <li>Fixed <strong>data-defined marker sizes</strong> in the web viewers.</li>
-      <li><strong>Pattern fills</strong> (point, line, SVG, raster, random markers) are drawn instead of left empty.</li>
-      <li>Widths and sizes in <strong>map units</strong> or <strong>metres</strong> scale with the zoom, as in QGIS.</li>
-      <li>Labels have their true <strong>size</strong>, <strong>position</strong>, <strong>offset</strong> and <strong>buffer</strong>.</li>
-      <li><strong>Symbol levels</strong> keep road casings under road fills.</li>
-      <li><strong>Layer opacity</strong>, <strong>dash patterns</strong>, and line <strong>caps and joins</strong> (also in QGIS 4) follow QGIS.</li>
+      <li>Viewers: <strong>search</strong>, <strong>drawing</strong>, <strong>measuring</strong>, scale bar.</li>
+      <li>New <strong>basemap switcher</strong> in the viewers.</li>
+      <li>New <strong>Visible Fields</strong> option.</li>
+      <li>Polygon Labels Base parameter removed.</li>
+      <li><strong>Perimeter labels</strong> follow the outline.</li>
+      <li><strong>Centroid fills</strong> follow QGIS.</li>
+      <li><strong>Faster</strong> with many rules or categories.</li>
+      <li>Tiles stop at <strong>zoom 15</strong>; viewers enlarge beyond.</li>
+      <li><strong>Temporary layers</strong> are exported.</li>
+      <li>MapLibre GL JS 6.13 and OpenLayers 10.11.</li>
+      <li>Popups off by default.</li>
+      <li>Fixed label fonts and the startup zoom display.</li>
+      <li>Clearer local server description.</li>
+      <li>Fixed crashes with thousands of rules.</li>
+      <li>Fixed data-defined marker sizes.</li>
+      <li><strong>Pattern fills</strong> are drawn.</li>
+      <li><strong>Map-unit</strong> widths scale with the zoom.</li>
+      <li>Labels keep their <strong>size, position and buffer</strong>.</li>
+      <li><strong>Symbol levels</strong> keep road casings under fills.</li>
+      <li>Opacity, <strong>dashes</strong>, caps and joins follow QGIS.</li>
       <li>Offset markers keep their place.</li>
     </ul>
   </article>
@@ -204,15 +204,15 @@
       <time datetime="2026-10-08">08 Oct 2026</time>
     </div>
     <ul>
-      <li>Much <strong>faster conversion</strong>: sources are clipped to the <strong>extent</strong> and read once.</li>
-      <li>Much faster export of <strong>labels</strong> and <strong>centroid fills</strong> that show only the <strong>largest part</strong> of multi-part features.</li>
-      <li>Fixed <strong>self-crossing lines</strong> (such as some rivers) being split into pieces and shortened during export.</li>
-      <li>The conversion runs in a <strong>separate background process</strong>, so <strong>QGIS stays responsive</strong> while it runs.</li>
-      <li>Prepared layers are <strong>cached between runs</strong>, so re-running an unchanged project is faster.</li>
-      <li>Each layer is written only to its own <strong>zoom range</strong>, making tiles much <strong>smaller</strong> and faster to <strong>generate and render</strong>.</li>
-      <li>The tool <strong>no longer changes the project's styling</strong> (categorized and graduated layers stay as they are).</li>
-      <li>Fixed missing values for <strong>field-based data-defined properties</strong>; invalid values become <strong>NULL</strong>.</li>
-      <li>Fixed <strong>QGIS freezes and crashes</strong> during the conversion.</li>
+      <li><strong>Much faster</strong>: sources clipped and read once.</li>
+      <li>Faster <strong>largest-part</strong> labels and centroid fills.</li>
+      <li>Fixed self-crossing lines being split.</li>
+      <li>Runs in the <strong>background</strong>; QGIS stays responsive.</li>
+      <li>Prepared layers <strong>cached</strong> between runs.</li>
+      <li>Each layer only in its <strong>own zoom range</strong>.</li>
+      <li>The project's styling is left unchanged.</li>
+      <li>Fixed field-based data-defined values.</li>
+      <li>Fixed freezes and crashes.</li>
     </ul>
   </article>
   <article class="release" id="v3-6">
@@ -221,8 +221,8 @@
       <time datetime="2026-08-06">06 Aug 2026</time>
     </div>
     <ul>
-      <li>Fixed an issue causing errors when converting projects containing <strong>data-defined fill symbol outline colors</strong>.</li>
-      <li>Fixed an issue where <strong>nested rule-based symbology</strong> could generate unnecessary <strong>extra symbol layers</strong>.</li>
+      <li>Fixed data-defined fill outline colors.</li>
+      <li>Fixed extra symbol layers from nested rules.</li>
     </ul>
   </article>
   <article class="release" id="v3-5">
@@ -231,9 +231,9 @@
       <time datetime="2026-07-13">13 Jul 2026</time>
     </div>
     <ul>
-      <li>Added <strong>marker lines</strong> (lines and polygon outlines), with spacing, offset, rotation and size.</li>
-      <li>Improved predefined <strong>dash patterns</strong> (<strong>Dash</strong>, <strong>Dot</strong>, <strong>Dash Dot</strong>, etc.) for better rendering in the <strong>MapLibre</strong> viewer.</li>
-      <li>Fixed an issue where <strong>symbol opacity</strong> was not converted correctly.</li>
+      <li>Added <strong>marker lines</strong>.</li>
+      <li>Better <strong>dash patterns</strong>.</li>
+      <li>Fixed symbol opacity.</li>
     </ul>
   </article>
   <article class="release" id="v3-4">
@@ -242,12 +242,12 @@
       <time datetime="2026-07-07">07 Jul 2026</time>
     </div>
     <ul>
-      <li>Added automatic conversion of <strong>polygon outlines to line layers</strong> for better visual parity with QGIS.</li>
-      <li>Improved <strong>label halo width</strong> and fixed <strong>glyph text size</strong> calculations.</li>
-      <li>Changed <strong>web viewer popups</strong> to be disabled by default.</li>
-      <li>Set <strong>round line caps</strong> by default for smoother line rendering.</li>
-      <li>Added support for the <strong>GDAL SIMPLIFICATION</strong> parameter (default: <strong>1</strong>) during vector tile generation.</li>
-      <li>Enabled <strong>icon-allow-overlap</strong> to better match QGIS label and symbol placement.</li>
+      <li>Polygon outlines become line layers.</li>
+      <li>Better label halos and text sizes.</li>
+      <li>Popups off by default.</li>
+      <li>Round line caps by default.</li>
+      <li>GDAL <strong>simplification</strong> while tiling.</li>
+      <li>Icons may overlap, as in QGIS.</li>
     </ul>
   </article>
   <article class="release" id="v3-3">
@@ -256,11 +256,11 @@
       <time datetime="2026-07-01">01 Jul 2026</time>
     </div>
     <ul>
-      <li>Added server-side generation of <strong>MapLibre glyphs (.pbf)</strong>, removing dependency on client-installed fonts.</li>
-      <li>Optimized <strong>glyph generation</strong> to include only characters used in the current web map.</li>
-      <li>Improved <strong>vector tile rendering performance in QGIS</strong> using simplified client-side styling instead of complex QGIS styling.</li>
-      <li>Excluded unused <strong>calculated fields</strong> from output tiles to reduce size and improve efficiency.</li>
-      <li>Removed <strong>icon quality parameter</strong>; sprites are now exported in high resolution by default.</li>
+      <li>Built-in <strong>glyphs</strong>: no fonts needed on the web.</li>
+      <li>Glyphs only for the characters used.</li>
+      <li>Faster tile rendering in QGIS.</li>
+      <li>Unused fields left out of the tiles.</li>
+      <li>Sprites always in high resolution.</li>
     </ul>
   </article>
   <article class="release" id="v3-2">
@@ -269,9 +269,9 @@
       <time datetime="2026-06-18">18 Jun 2026</time>
     </div>
     <ul>
-      <li>Added <strong>sprite quality</strong> parameter for sharper icon rendering.</li>
-      <li>Improved <strong>centroid fill marker placement</strong> to better match QGIS behavior.</li>
-      <li>Fixed rendering of symbols combining <strong>geometry generators</strong> and standard symbol layers.</li>
+      <li>Sprite quality parameter.</li>
+      <li>Better centroid fill placement.</li>
+      <li>Fixed geometry generators mixed with other layers.</li>
     </ul>
   </article>
   <article class="release" id="v3-1">
@@ -280,11 +280,11 @@
       <time datetime="2026-06-15">15 Jun 2026</time>
     </div>
     <ul>
-      <li>Improved <strong>label placement</strong> to match QGIS (around/on point behavior).</li>
-      <li><strong>Label priority</strong> now drives collision behavior in web rendering.</li>
-      <li>Added <strong>validation warnings</strong> for invalid geometry generators and filter expressions.</li>
-      <li>Adjusted <strong>sprite buffer</strong> to better match QGIS icon rendering (e.g. road shields).</li>
-      <li>Bug fixes and stability improvements.</li>
+      <li>Point label placement matches QGIS.</li>
+      <li>Label <strong>priority</strong> drives collisions.</li>
+      <li>Warnings for invalid generators and filters.</li>
+      <li>Sprite buffer matches QGIS icons.</li>
+      <li>Bug fixes and stability.</li>
     </ul>
   </article>
   <article class="release" id="v3-0">
@@ -293,8 +293,8 @@
       <time datetime="2026-06-01">1 Jun 2026</time>
     </div>
     <ul>
-      <li>Fixed <strong>temporal fields</strong> appearing in output tileset.</li>
-      <li>Updgrade <strong>icon.</strong></li>
+      <li>Fixed temporal fields in the tiles.</li>
+      <li>New icon.</li>
     </ul>
   </article>
   <article class="release" id="v2-9">
@@ -303,9 +303,9 @@
       <time datetime="2026-05-31">31 May 2026</time>
     </div>
     <ul>
-      <li>Added support for <strong>Label largest part only</strong> labeling.</li>
-      <li>Limited maximum tileset zoom to <strong>16 (≈ 1 m precision)</strong>.</li>
-      <li>Fixed <strong>labeling zoom range</strong> when defined in labeling settings.</li>
+      <li><strong>Largest part only</strong> labels.</li>
+      <li>Tiles up to zoom 16 (about 1 m precision).</li>
+      <li>Fixed label zoom ranges.</li>
     </ul>
   </article>
   <article class="release" id="v2-8">
@@ -314,8 +314,8 @@
       <time datetime="2026-05-25">25 May 2026</time>
     </div>
     <ul>
-      <li>Added support for <strong>OpenLayers</strong> web viewer output.</li>
-      <li>Fixed <strong>Linux</strong> compatibility issues.</li>
+      <li><strong>OpenLayers</strong> viewer.</li>
+      <li>Linux fixes.</li>
     </ul>
   </article>
   <article class="release" id="v2-7">
@@ -324,8 +324,8 @@
       <time datetime="2026-05-14">14 May 2026</time>
     </div>
     <ul>
-      <li>Added support for <strong>pop-ups</strong> in the MapLibre Viewer.</li>
-      <li>Redesigned output feature descriptions to improve <strong>style inspection</strong> capabilities.</li>
+      <li><strong>Popups</strong> in the MapLibre viewer.</li>
+      <li>Clearer feature descriptions.</li>
     </ul>
   </article>
   <article class="release" id="v2-6">
@@ -334,9 +334,9 @@
       <time datetime="2026-05-04">04 May 2026</time>
     </div>
     <ul>
-      <li>Redesigned the rules export pipeline using <strong>multithreading</strong> (replacing QGIS tasks) for greater performance and stability.</li>
-      <li>Added support for <strong>polygon outlines</strong>.</li>
-      <li>Skip styles with <strong>No Brush</strong>, <strong>No Line Fill</strong>, or <strong>No Stroke</strong>.</li>
+      <li><strong>Multithreaded</strong> rule export.</li>
+      <li>Polygon outlines.</li>
+      <li>Empty styles (no brush or stroke) skipped.</li>
     </ul>
   </article>
   <article class="release" id="v2-5">
@@ -345,9 +345,9 @@
       <time datetime="2026-04-28">28 Apr 2026</time>
     </div>
     <ul>
-      <li>Extended QGIS-to-MapLibre conversion with additional properties (<strong>symbol-placement</strong>, <strong>text-variable-anchor</strong>, and more).</li>
-      <li>Fixed export issues involving <strong>nested renderer and labeling rules</strong>.</li>
-      <li>Refactored codebase for improved maintainability and readability.</li>
+      <li>More style properties converted.</li>
+      <li>Fixed nested rules.</li>
+      <li>Cleaner code.</li>
     </ul>
   </article>
   <article class="release" id="v2-4">
@@ -356,13 +356,13 @@
       <time datetime="2026-04-19">19 Apr 2026</time>
     </div>
     <ul>
-      <li>Export tiles into a <strong>single MBTiles file</strong> instead of XYZ directories.</li>
-      <li>Added optional <strong>NASA Blue Marble</strong> background layer in the MapLibre viewer.</li>
-      <li>Added <strong>alpha channel</strong> support in MapLibre style color properties, including data-defined properties.</li>
-      <li>Improved tile generation performance by switching from GDAL Python bindings to the <strong>GDAL CLI</strong>.</li>
-      <li>Fixed <strong>GeoPackage</strong> locking when exporting multiple layers from the same source.</li>
-      <li>Fixed issue causing layers from <strong>PostgreSQL</strong> connections to be skipped.</li>
-      <li>Fixed color conversion for <strong>data-defined properties</strong>.</li>
+      <li>Tiles in one <strong>MBTiles</strong> file.</li>
+      <li>NASA Blue Marble background.</li>
+      <li>Colour <strong>transparency</strong>, also data-defined.</li>
+      <li>Faster tiling with the GDAL command line.</li>
+      <li>Fixed GeoPackage locking.</li>
+      <li>Fixed skipped PostgreSQL layers.</li>
+      <li>Fixed data-defined colours.</li>
     </ul>
   </article>
   <article class="release" id="v2-3">
@@ -371,7 +371,7 @@
       <time datetime="2026-03-17">17 Mar 2026</time>
     </div>
     <ul>
-      <li>Stability fixes for <strong>parallel rule export</strong> via the QGIS task manager.</li>
+      <li>Stable parallel export.</li>
     </ul>
   </article>
   <article class="release" id="v2-2">
@@ -380,7 +380,7 @@
       <time datetime="2026-03-11">11 Mar 2026</time>
     </div>
     <ul>
-      <li>Parallelized rule export to <strong>accelerate processing runtime</strong>.</li>
+      <li><strong>Parallel</strong> rule export.</li>
     </ul>
   </article>
   <article class="release" id="v2-1">
@@ -389,7 +389,7 @@
       <time datetime="2026-02-26">26 Feb 2026</time>
     </div>
     <ul>
-      <li>Fixed <strong>sprite generation</strong> on Qt6.</li>
+      <li>Fixed sprites on Qt6.</li>
     </ul>
   </article>
   <article class="release" id="v2-0">
@@ -398,8 +398,8 @@
       <time datetime="2026-02-24">24 Feb 2026</time>
     </div>
     <ul>
-      <li>Added <strong>Background Type</strong> parameter.</li>
-      <li>General bug fixes.</li>
+      <li>Background Type parameter.</li>
+      <li>Bug fixes.</li>
     </ul>
   </article>
   <article class="release" id="v1-9">
@@ -408,8 +408,8 @@
       <time datetime="2026-02-22">22 Feb 2026</time>
     </div>
     <ul>
-      <li>Bundled <strong>maplibre-gl.js</strong> locally for offline use.</li>
-      <li>Fixed conversion of layers containing <strong>empty renderers or labelings</strong>.</li>
+      <li>MapLibre bundled for <strong>offline</strong> use.</li>
+      <li>Fixed empty renderers and labels.</li>
     </ul>
   </article>
   <article class="release" id="v1-8">
@@ -418,7 +418,7 @@
       <time datetime="2026-02-19">19 Feb 2026</time>
     </div>
     <ul>
-      <li>Silent <strong>HTTP server</strong> activation on Windows.</li>
+      <li>Silent server start on Windows.</li>
     </ul>
   </article>
   <article class="release" id="v1-7">
@@ -427,9 +427,9 @@
       <time datetime="2026-02-16">16 Feb 2026</time>
     </div>
     <ul>
-      <li>Implemented <strong>data-defined properties</strong> as fields inside the MapLibre style.json.</li>
-      <li>Removed <strong>MBTiles output</strong> option (not natively supported by MapLibre at the time).</li>
-      <li>Expanded documentation with a <strong>considerations section</strong> and additional demos.</li>
+      <li><strong>Data-defined properties</strong> in the style.</li>
+      <li>MBTiles output removed.</li>
+      <li>More docs and demos.</li>
     </ul>
   </article>
   <article class="release" id="v1-6">
@@ -438,8 +438,8 @@
       <time datetime="2026-02-14">14 Feb 2026</time>
     </div>
     <ul>
-      <li>Added experimental <strong>client-side MapLibre style</strong> package generation.</li>
-      <li>Fixed style conversion involving <strong>geometric transformations</strong>.</li>
+      <li>Experimental <strong>MapLibre style</strong> export.</li>
+      <li>Fixed geometry transformations.</li>
     </ul>
   </article>
   <article class="release" id="v1-5">
@@ -448,8 +448,8 @@
       <time datetime="2026-02-08">08 Feb 2026</time>
     </div>
     <ul>
-      <li>Added support for <strong>field-based properties</strong>.</li>
-      <li>Improved <strong>processing performance</strong>.</li>
+      <li><strong>Field-based</strong> properties.</li>
+      <li>Faster processing.</li>
     </ul>
   </article>
   <article class="release" id="v1-4">
@@ -458,8 +458,8 @@
       <time datetime="2026-02-08">08 Feb 2026</time>
     </div>
     <ul>
-      <li>Improved rendering for <strong>Centroid Fill symbol layers</strong>.</li>
-      <li>Stabilized <strong>data-defined properties</strong> support on QGIS LTR (3.40.x).</li>
+      <li>Better centroid fills.</li>
+      <li>Stable data-defined properties on QGIS 3.40.</li>
     </ul>
   </article>
   <article class="release" id="v1-3">
@@ -468,9 +468,9 @@
       <time datetime="2026-02-05">05 Feb 2026</time>
     </div>
     <ul>
-      <li>Added <strong>Qt6</strong> support.</li>
-      <li>Improved <strong>output rendering and processing performance</strong>.</li>
-      <li>Fixed issues on <strong>QGIS LTR (3.40.x)</strong>.</li>
+      <li><strong>Qt6</strong> support.</li>
+      <li>Faster processing, better rendering.</li>
+      <li>QGIS 3.40 fixes.</li>
     </ul>
   </article>
   <article class="release" id="v1-2">
@@ -479,7 +479,7 @@
       <time datetime="2025-12-30">30 Dec 2025</time>
     </div>
     <ul>
-      <li>Added <strong>Polygon Labels Base</strong> parameter.</li>
+      <li>Polygon Labels Base parameter.</li>
     </ul>
   </article>
   <article class="release" id="v1-1">
@@ -488,8 +488,8 @@
       <time datetime="2025-12-16">16 Dec 2025</time>
     </div>
     <ul>
-      <li>Added support for <strong>data-defined properties (DDP)</strong>.</li>
-      <li>General bug fixes.</li>
+      <li><strong>Data-defined properties</strong>.</li>
+      <li>Bug fixes.</li>
     </ul>
   </article>
   <article class="release" id="v1-0">

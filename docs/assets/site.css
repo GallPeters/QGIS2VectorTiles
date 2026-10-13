@@ -956,9 +956,10 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   flex-direction: column;
   justify-content: flex-end;
 }
-.demo.featured .demo-media { position: absolute; inset: 0; }
+.demo.featured .demo-media { position: relative; flex: 1 1 auto; min-height: 0; }
 .demo.featured .demo-media::after {
   content: '';
+  display: none;
   position: absolute;
   inset: 0;
   background: linear-gradient(to top, rgba(7, 8, 10, 0.96) 0%, rgba(7, 8, 10, 0.55) 30%, transparent 58%);
@@ -1027,7 +1028,32 @@ a.chip:hover { border-color: var(--line-strong); background: var(--fill-hover); 
 }
 .chip .chip-glyph { display: grid; place-items: center; padding: 0; background: var(--brand-soft); color: var(--brand-hi); }
 .chip .chip-glyph svg { width: 21px; height: 21px; }
-.usecase-note { margin-top: clamp(10px, 2vh, 18px); font-size: 13.5px; color: var(--text-3); }
+.usecase-note { margin-top: auto; padding-top: clamp(12px, 2.4vh, 20px); font-size: 13.5px; color: var(--text-3); }
+/* Brand chips: boxes of one width, centered under the card's text, two
+   per row (a lone last one centered), or one per row when stacked. */
+.usecase .chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 340px;
+  margin: clamp(16px, 3vh, 26px) auto 0;
+  padding-top: 0;
+}
+.usecase .chip {
+  min-width: 0;
+  gap: 8px;
+  padding: 5px 10px 5px 5px;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.usecase .chip img, .usecase .chip .chip-glyph { flex: none; width: 34px; height: 34px; }
+.usecase .chips.stacked .chip, .usecase .chip:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc(50% - 5px);
+}
 @media (max-width: 960px) { .slide-inner.usecases { grid-template-columns: 1fr; } }
 
 /* --- CTA ---------------------------------------------------------------- */
@@ -1761,7 +1787,7 @@ td.prop { color: var(--text); font-weight: 500; }
   }
   .usecase .h3 { margin-top: 0; font-size: 17px; }
   .usecase > p, .usecase .usecase-note { display: none; }
-  .usecase .chips { grid-column: 1 / -1; gap: 6px; padding-top: 10px; }
+  .usecase .chips { grid-column: 1 / -1; gap: 6px; margin-top: 0; padding-top: 10px; }
   .usecase .chip { gap: 7px; padding: 4px 11px 4px 4px; font-size: 13.5px; }
   .usecase .chip img, .usecase .chip .chip-glyph { width: 28px; height: 28px; padding: 3px; }
   .usecase .chip .chip-glyph svg { width: 15px; height: 15px; }
@@ -1781,6 +1807,13 @@ td.prop { color: var(--text); font-weight: 500; }
   .pipeline-main .steps { padding-block: 4px; }
 }
 @media (max-width: 1024px) and (min-height: 480px) and (max-height: 640px) {
+  .usecases .section-head .lead { display: none; }
+  #use-cases .screen { gap: 8px; }
+  .usecase { padding-block: 8px; }
+  .usecase .h3 { font-size: 15.5px; }
+  .usecase .chips { gap: 5px; padding-top: 7px; }
+  .usecase .chip { padding: 2px 8px 2px 2px; font-size: 12.5px; }
+  .usecase .chip img, .usecase .chip .chip-glyph { width: 24px; height: 24px; padding: 2px; }
   .pipeline .lead, .gallery .lead { display: none; }
   .hero-tags { gap: 6px 20px; }
   .hero-tag { font-size: 14px; }
