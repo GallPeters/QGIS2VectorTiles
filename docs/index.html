@@ -70,6 +70,7 @@
   <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
 </svg>
 
@@ -151,14 +152,14 @@
           <div class="live-demo" data-reveal style="--d:2">
             <ul class="live-facts">
               <li><svg aria-hidden="true"><use href="#i-globe"/></svg><span><b>Project:</b> <a class="link" href="https://www.naturalearthdata.com/">Natural Earth</a>, hundreds of layers and data sources.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent, zoom levels 0–8, <strong>8 minutes!</strong></span></li>
-              <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to GitHub Pages as is. Explore it!</span></li>
+              <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent, zoom levels 0–8, <span class="text-brand">8 minutes</span></span></li>
+              <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to <a class="link" href="https://github.com/GallPeters/QGIS2VectorTiles-webmaps">GitHub Pages</a> as is.</span></li>
             </ul>
             <figure class="window">
               <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>Natural Earth · live web map</span><a class="window-link" href="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/" target="_blank" rel="noopener">Full screen<svg><use href="#i-arrow"/></svg></a></div>
               <div class="live-map" data-src="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/">
                 <p class="live-loading">Loading the live map…</p>
-                <button class="live-activate" type="button"><svg><use href="#i-globe"/></svg>Click to explore the map</button>
+                <button class="live-activate" type="button"><svg><use href="#i-pointer"/></svg>Click to explore the map</button>
               </div>
               <figcaption class="visually-hidden">The Natural Earth project, converted by QGIS2VectorTiles and published on GitHub Pages, as a live web map.</figcaption>
             </figure>
