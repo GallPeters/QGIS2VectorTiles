@@ -46,8 +46,13 @@ _SIMPLIFICATION = 4
 _SIMPLIFICATION_MAX_ZOOM = 0
 # Largest tile (bytes) and most features per tile. Beyond them GDAL writes a
 # tile with less precision or leaves features out; tiles this big already
-# load and draw slowly.
+# load and draw slowly. A zoom level with few tiles over the extent (the
+# lowest ones) allows _TILE_VIEW_SIZE spread over them, up to
+# _TILE_MAX_SIZE_FEW: a view shows them all at once anyway, and shrinking a
+# tile to the limit costs GDAL several more encodings of it and drops data.
 _TILE_MAX_SIZE = 1000000
+_TILE_MAX_SIZE_FEW = 4000000
+_TILE_VIEW_SIZE = 8000000
 _TILE_MAX_FEATURES = 500000
 # Included Fields parameter: which source fields the tiles (and the search
 # index) carry besides the ones the plugin computes (labels, data-defined
@@ -126,6 +131,8 @@ __all__ = [
     "_SIMPLIFICATION",
     "_SIMPLIFICATION_MAX_ZOOM",
     "_TILE_MAX_SIZE",
+    "_TILE_MAX_SIZE_FEW",
+    "_TILE_VIEW_SIZE",
     "_TILE_MAX_FEATURES",
     "_TILES_MAX_ZOOM",
     "_FIELDS_REQUIRED",

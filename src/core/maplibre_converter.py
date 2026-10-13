@@ -1758,6 +1758,17 @@ class QgisMapLibreStyleExporter:
         Returns:
             The complete MapLibre style dictionary.
         """
+        self.convert()
+        self.save_to_file()
+        return self.style
+
+    def convert(self) -> Dict[str, Any]:
+        """Convert all styles and labelling on the layer, without writing
+        anything (save_to_file() then writes the style, sprites and glyphs).
+
+        Returns:
+            The MapLibre style dictionary.
+        """
         self.layer.source()
         self._set_map_units()
 
@@ -1772,7 +1783,6 @@ class QgisMapLibreStyleExporter:
                 self._convert_labeling_style(style)
 
         self.style["layers"] = merge_rule_layers(self.style["layers"])
-        self.save_to_file()
         return self.style
 
     def _set_map_units(self) -> None:
