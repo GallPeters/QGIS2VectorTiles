@@ -16,11 +16,12 @@
 //                              showing the feature; null if unknown)
 //   setHighlight(lngLat|null)  mark a found feature
 //   setBasemap(basemap)        show a BASEMAPS entry under the tiles
+//   addRightControl(element)   place element under the map's zoom buttons
+//   createDrawAdapter()        a Terra Draw adapter for the map
 //
 // Layout: one column on the left (search and zoom level, the map settings
-// panel, the drawing tools), so the controls never overlap; the map's own
-// zoom buttons on the right.
-//   createDrawAdapter()        a Terra Draw adapter for the map
+// panel); on the right the map's zoom buttons with the drawing tools under
+// them, as wide as they are.
 
 import { el, icon } from './dom.js';
 import { createBasemapControl } from './basemaps.js';
@@ -113,10 +114,10 @@ export async function startViewer(map, config) {
         el('div', { class: 'q2vt-top-left' }, [
             el('div', { class: 'q2vt-search-row' }, [search, zoomLabel]),
             settings,
-            drawing.element,
         ]),
         coords,
     );
+    map.addRightControl(drawing.element);
 
     function hidePopup() {
         clearTimeout(closeTimer);

@@ -15,7 +15,10 @@ import { fromLonLat, getUserProjection, toLonLat, transformExtent } from 'ol/pro
 import { getCenter } from 'ol/extent.js';
 import { Circle, Fill, Icon, Stroke, Style } from 'ol/style.js';
 import { defaults as defaultControls } from 'ol/control/defaults.js';
+import Control from 'ol/control/Control.js';
+import Rotate from 'ol/control/Rotate.js';
 import ScaleLine from 'ol/control/ScaleLine.js';
+import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
 import { TerraDrawOpenLayersAdapter } from 'terra-draw-openlayers-adapter';
 import { startViewer } from '../shared/app.js';
@@ -30,11 +33,21 @@ const config = window.Q2VT_CONFIG;
 const OL_ZOOM_OFFSET = 1;
 const startZoom = (config.startZoom ?? config.minZoom) + OL_ZOOM_OFFSET;
 
+// The zoom buttons, the reset-north button (shown once the map is turned)
+// and the drawing tools stack in one column on the right, as in MapLibre.
+const rightColumn = document.createElement('div');
+rightColumn.className = 'q2vt-ol-right';
+
 const map = new Map({
     target: 'map',
     view: new View({ center: fromLonLat(config.center), zoom: startZoom }),
-    controls: defaultControls({ attributionOptions: { collapsible: true } })
-        .extend([new ScaleLine({ units: 'metric' })]),
+    controls: defaultControls({ zoom: false, rotate: false, attributionOptions: { collapsible: true } })
+        .extend([
+            new Control({ element: rightColumn }),
+            new Zoom({ target: rightColumn }),
+            new Rotate({ target: rightColumn }),
+            new ScaleLine({ units: 'metric' }),
+        ]),
 });
 
 const popupElement = document.createElement('div');
@@ -141,6 +154,7 @@ const adapter = {
         const background = layers.getArray().findIndex((l) => (l.get('mapbox-layers') || []).includes('background'));
         layers.insertAt(background + 1, basemapLayer);
     },
+    addRightControl: (element) => rightColumn.append(element),
     createDrawAdapter() {
         const drawAdapter = new TerraDrawOpenLayersAdapter({
             map,
