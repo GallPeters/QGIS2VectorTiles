@@ -404,19 +404,18 @@
           <p>Serve vector tiles through standard GIS infrastructure. Benefit from smaller payloads, faster response times, and a single source of truth for your styles.</p>
           <div class="chips">
             <a class="chip" href="https://geoserver.org/"><img src="icons/geoserver.png" alt="" width="26" height="26" loading="lazy">GeoServer</a>
-            <a class="chip" href="https://qgis.org/en/site/forusers/index.html#qgis-server"><img src="icons/qgis.png" alt="" width="26" height="26" loading="lazy">QGIS Server</a>
           </div>
-          <p class="usecase-note">Using the <a class="link" href="https://docs.geoserver.org/stable/en/user/community/mbtiles/index.html">MBTiles</a> and <a class="link" href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html">MBStyle</a> extensions.</p>
+          <p class="usecase-note">Using the <a class="link" href="https://geoserver.org/geoserver/en/user/community/pmtiles-store">PMTiles DataStore</a> and <a class="link" href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html">MBStyle</a> extensions.</p>
         </article>
         <article class="usecase" data-reveal style="--d:2">
           <span class="usecase-num">03</span>
-          <h3 class="h3">Project sharing</h3>
-          <p>Share a single styled layer file instead of dozens of datasets, projections, and dependencies. The complex multi-source project is collapsed with visuals baked in.</p>
+          <h3 class="h3">Publish anywhere</h3>
+          <p>Every export is a folder of plain files: no tile server or database to run. Upload it to GitHub Pages or any web host as it is, and share the link.</p>
           <div class="chips">
-            <span class="chip"><span class="chip-glyph"><svg><use href="#i-folder"/></svg></span>1× source</span>
-            <a class="chip" href="https://docs.qgis.org/latest/en/docs/user_manual/managing_data_source/opening_data.html#the-browser-panel"><img src="icons/qlr.png" alt="" width="26" height="26" loading="lazy">1× .qlr layer</a>
+            <a class="chip" href="https://pages.github.com/"><span class="chip-glyph"><svg><use href="#i-github"/></svg></span>GitHub Pages</a>
+            <span class="chip"><span class="chip-glyph"><svg><use href="#i-globe"/></svg></span>Any web host</span>
           </div>
-          <p class="usecase-note">Standard <a class="link" href="https://qgis.org/">QGIS</a> layer definition format.</p>
+          <p class="usecase-note">Tiles in one <a class="link" href="https://docs.protomaps.com/pmtiles/">PMTiles</a> file, read with standard HTTP range requests.</p>
         </article>
       </div>
     </div>
