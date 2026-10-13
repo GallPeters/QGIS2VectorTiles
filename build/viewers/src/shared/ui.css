@@ -1,5 +1,4 @@
-/* Viewer controls shared by the MapLibre and OpenLayers viewers. Each
-   viewer sets --q2vt-right-top below its own zoom buttons. */
+/* Viewer controls shared by the MapLibre and OpenLayers viewers. */
 
 :root {
     --q2vt-bg: #ffffff;
@@ -20,27 +19,70 @@ body { font-family: var(--q2vt-font); }
 .q2vt-icon { display: inline-flex; width: 18px; height: 18px; }
 .q2vt-icon svg { width: 100%; height: 100%; }
 
-/* ---- Top left: search, zoom, popups ---------------------------------- */
+/* ---- Left column: search and zoom, settings, drawing ------------------ */
 .q2vt-top-left {
     position: absolute; top: 10px; left: 10px; z-index: 5;
-    display: flex; flex-direction: column; gap: 8px;
-    width: min(320px, calc(100vw - 80px));
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    width: min(330px, calc(100vw - 72px));
 }
-.q2vt-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.q2vt-chip {
-    background: var(--q2vt-bg); color: var(--q2vt-text);
-    border: 1px solid var(--q2vt-border); border-radius: var(--q2vt-radius);
-    box-shadow: var(--q2vt-shadow);
-    padding: 6px 10px; font: 600 13px var(--q2vt-font); white-space: nowrap;
+.q2vt-search-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.q2vt-search-row .q2vt-search { flex: 1; min-width: 0; }
+.q2vt-zoom {
+    flex: none; padding: 4px 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+    font: 600 12px var(--q2vt-font); color: var(--q2vt-muted);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.q2vt-chip-button { cursor: pointer; }
-.q2vt-chip-button:hover { background: #f9fafb; }
-.q2vt-chip-button.active { color: var(--q2vt-accent); border-color: #bfdbfe; background: var(--q2vt-accent-soft); }
-.q2vt-switch { display: flex; }
-.q2vt-switch .q2vt-chip { border-radius: 0; box-shadow: none; }
-.q2vt-switch .q2vt-chip:first-child { border-radius: var(--q2vt-radius) 0 0 var(--q2vt-radius); }
-.q2vt-switch .q2vt-chip:last-child { border-radius: 0 var(--q2vt-radius) var(--q2vt-radius) 0; margin-left: -1px; }
-.q2vt-switch .q2vt-chip.active { cursor: default; position: relative; }
+
+/* Map settings card */
+.q2vt-panel {
+    width: 100%; box-sizing: border-box;
+    background: var(--q2vt-bg); border: 1px solid var(--q2vt-border);
+    border-radius: var(--q2vt-radius); box-shadow: var(--q2vt-shadow);
+}
+.q2vt-panel-head {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    padding: 8px 10px; border: 0; background: transparent; border-radius: var(--q2vt-radius);
+    font: 600 13px var(--q2vt-font); color: var(--q2vt-text); cursor: pointer;
+}
+.q2vt-panel-head:hover { background: #f9fafb; }
+.q2vt-panel-head .q2vt-icon { color: var(--q2vt-muted); transition: transform 0.15s; }
+.q2vt-panel.open .q2vt-panel-head .q2vt-icon { transform: rotate(180deg); }
+.q2vt-panel-body {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 4px 10px 10px; border-top: 1px solid #f3f4f6;
+}
+.q2vt-panel-body[hidden] { display: none; }
+.q2vt-setting { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 6px; }
+.q2vt-setting-label { font: 600 12px var(--q2vt-font); color: var(--q2vt-muted); white-space: nowrap; }
+
+/* On/off switch */
+.q2vt-toggle {
+    position: relative; flex: none; width: 38px; height: 22px; padding: 0;
+    border: 0; border-radius: 11px; background: #d1d5db; cursor: pointer;
+    transition: background-color 0.15s;
+}
+.q2vt-toggle[aria-checked="true"] { background: var(--q2vt-accent); }
+.q2vt-toggle-knob {
+    position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.3); transition: transform 0.15s;
+}
+.q2vt-toggle[aria-checked="true"] .q2vt-toggle-knob { transform: translateX(16px); }
+
+/* Segmented control */
+.q2vt-segmented { display: flex; padding: 2px; border-radius: 7px; background: #f3f4f6; }
+.q2vt-segment {
+    padding: 4px 9px; border: 0; border-radius: 5px; background: transparent;
+    font: 600 12px var(--q2vt-font); color: #4b5563; white-space: nowrap; cursor: pointer;
+}
+.q2vt-segment:hover { color: var(--q2vt-text); }
+.q2vt-segment.active {
+    background: #ffffff; color: var(--q2vt-accent); cursor: default;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+}
+.q2vt-toggle:focus-visible, .q2vt-segment:focus-visible, .q2vt-panel-head:focus-visible {
+    outline: 2px solid var(--q2vt-accent); outline-offset: 1px;
+}
 
 .q2vt-search { position: relative; }
 .q2vt-search-bar {
@@ -74,9 +116,9 @@ body { font-family: var(--q2vt-font); }
 .q2vt-search-where { font-size: 11px; color: var(--q2vt-muted); margin-top: 2px; }
 .q2vt-search-message { padding: 9px 10px; font-size: 12px; color: var(--q2vt-muted); }
 
-/* ---- Left: drawing panel --------------------------------------------- */
+/* ---- Drawing tools (in the left column) ------------------------------- */
 .q2vt-draw {
-    position: absolute; top: 102px; left: 10px; z-index: 4;
+    position: relative;
     display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
 }
 .q2vt-draw-tools {
@@ -93,7 +135,7 @@ body { font-family: var(--q2vt-font); }
 }
 .q2vt-tool:hover { background: #f3f4f6; color: var(--q2vt-text); }
 .q2vt-tool.active { background: var(--q2vt-accent); color: #ffffff; }
-.q2vt-tool:focus-visible, .q2vt-chip-button:focus-visible { outline: 2px solid var(--q2vt-accent); outline-offset: 1px; }
+.q2vt-tool:focus-visible { outline: 2px solid var(--q2vt-accent); outline-offset: 1px; }
 .q2vt-draw-toggle {
     width: 40px; height: 40px; background: var(--q2vt-bg);
     border: 1px solid var(--q2vt-border); border-radius: var(--q2vt-radius); box-shadow: var(--q2vt-shadow);
@@ -109,24 +151,23 @@ body { font-family: var(--q2vt-font); }
 .q2vt-hint { color: var(--q2vt-muted); }
 .q2vt-measure { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--q2vt-border); font-size: 13px; }
 
-/* ---- Right: basemap switcher ----------------------------------------- */
-.q2vt-basemap { position: absolute; top: var(--q2vt-right-top, 110px); right: 10px; z-index: 4; }
-.q2vt-basemap > .q2vt-tool {
-    width: 36px; height: 36px; background: var(--q2vt-bg);
+/* ---- Right: the map's zoom buttons, alike in both viewers ------------- */
+.maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+    border: 1px solid var(--q2vt-border); border-radius: var(--q2vt-radius);
+    box-shadow: var(--q2vt-shadow); overflow: hidden;
+}
+.maplibregl-ctrl-group button { width: 38px; height: 38px; }
+.maplibregl-ctrl-group button + button { border-top-color: var(--q2vt-border); }
+.ol-zoom {
+    padding: 0; background: var(--q2vt-bg) !important; overflow: hidden;
     border: 1px solid var(--q2vt-border); border-radius: var(--q2vt-radius); box-shadow: var(--q2vt-shadow);
 }
-.q2vt-basemap-list {
-    position: absolute; right: 0; top: calc(100% + 4px); min-width: 180px; padding: 4px;
-    background: var(--q2vt-bg); border: 1px solid var(--q2vt-border);
-    border-radius: var(--q2vt-radius); box-shadow: var(--q2vt-shadow);
+.ol-zoom button {
+    display: block; width: 38px; height: 38px; margin: 0; border-radius: 0;
+    background: var(--q2vt-bg); color: #333333; font: 600 22px/1 var(--q2vt-font);
 }
-.q2vt-basemap-list[hidden] { display: none; }
-.q2vt-basemap-item {
-    display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 6px;
-    background: transparent; font: 13px var(--q2vt-font); color: var(--q2vt-text); cursor: pointer;
-}
-.q2vt-basemap-item:hover { background: #f3f4f6; }
-.q2vt-basemap-item.active { background: var(--q2vt-accent-soft); color: var(--q2vt-accent); font-weight: 600; }
+.ol-zoom button:hover, .ol-zoom button:focus { background: #f3f4f6; color: var(--q2vt-text); outline: none; }
+.ol-zoom .ol-zoom-in { border-bottom: 1px solid var(--q2vt-border); }
 
 /* ---- Bottom: pointer coordinates ------------------------------------- */
 .q2vt-coords {

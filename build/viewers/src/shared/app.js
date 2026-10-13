@@ -16,14 +16,20 @@
 //                              showing the feature; null if unknown)
 //   setHighlight(lngLat|null)  mark a found feature
 //   setBasemap(basemap)        show a BASEMAPS entry under the tiles
+//
+// Layout: one column on the left (search and zoom level, the map settings
+// panel, the drawing tools), so the controls never overlap; the map's own
+// zoom buttons on the right.
 //   createDrawAdapter()        a Terra Draw adapter for the map
 
-import { el } from './dom.js';
-import { createBasemapSwitcher } from './basemaps.js';
+import { el, icon } from './dom.js';
+import { createBasemapControl } from './basemaps.js';
+import { createSegmented, createToggle, settingsRow } from './controls.js';
 import { createDrawing } from './draw.js';
 import { formatCoordinate } from './geo.js';
 import { popupContent } from './popup.js';
 import { createSearch } from './search.js';
+import { load, save } from './storage.js';
 
 const VIEWERS = [['ml', 'MapLibre'], ['ol', 'OpenLayers']];
 
@@ -38,40 +44,55 @@ function switchViewer(map, viewer) {
     window.location.search = params.toString();
 }
 
+const PANEL_KEY = 'q2vt:settings-open';
+
+/** The collapsible "Map settings" card: open by default except on phones,
+ * then as the user left it. */
+function createSettingsPanel(rows) {
+    let open = load(PANEL_KEY, !window.matchMedia('(max-width: 640px)').matches);
+    const body = el('div', { class: 'q2vt-panel-body', id: 'q2vt-settings' }, rows);
+    const header = el('button', {
+        type: 'button', class: 'q2vt-panel-head', 'aria-controls': 'q2vt-settings',
+        onclick: () => { open = !open; save(PANEL_KEY, open); render(); },
+    }, [el('span', {}, 'Map settings'), icon('chevron')]);
+    const panel = el('section', { class: 'q2vt-panel', 'aria-label': 'Map settings' }, [header, body]);
+    function render() {
+        panel.classList.toggle('open', open);
+        header.setAttribute('aria-expanded', String(open));
+        body.hidden = !open;
+    }
+    render();
+    return panel;
+}
+
 export async function startViewer(map, config) {
     let popupsEnabled = false;
     let overPopup = false;
     let closeTimer = null;
 
-    const zoomChip = el('div', { class: 'q2vt-chip', 'aria-live': 'off' }, 'Zoom: –');
-    const popupToggle = el('button', {
-        type: 'button', class: 'q2vt-chip q2vt-chip-button', 'aria-pressed': 'false',
-        onclick: () => {
-            popupsEnabled = !popupsEnabled;
-            renderPopupToggle();
-            if (!popupsEnabled) hidePopup();
+    const zoomLabel = el('div', { class: 'q2vt-zoom', 'aria-live': 'off', title: 'Zoom level' }, 'Zoom –');
+
+    const popupToggle = createToggle({
+        label: 'Popups',
+        on: popupsEnabled,
+        onChange: (on) => {
+            popupsEnabled = on;
+            if (!on) hidePopup();
         },
     });
-    function renderPopupToggle() {
-        popupToggle.textContent = popupsEnabled ? 'Popups: ON' : 'Popups: OFF';
-        popupToggle.setAttribute('aria-pressed', String(popupsEnabled));
-        popupToggle.classList.toggle('active', popupsEnabled);
-    }
-    renderPopupToggle();
-
-    // Switch between the MapLibre and OpenLayers viewers: the same map,
-    // place and zoom in the other library.
-    const viewerSwitch = el('div', { class: 'q2vt-switch', role: 'group', 'aria-label': 'Map library' },
-        VIEWERS.map(([id, name]) => {
-            const current = id === config.viewer;
-            return el('button', {
-                type: 'button',
-                class: `q2vt-chip q2vt-chip-button${current ? ' active' : ''}`,
-                'aria-pressed': String(current),
-                title: current ? `Shown with ${name}` : `Show this map with ${name}`,
-                onclick: () => { if (!current) switchViewer(map, id); },
-            }, name);
-        }));
+    // The other map library reopens the page at the same place and zoom.
+    const viewerControl = createSegmented({
+        label: 'Viewer',
+        options: VIEWERS.map(([id, name]) => ({ id, label: name, title: `Show this map with ${name}` })),
+        current: config.viewer,
+        onChoose: (id) => switchViewer(map, id),
+    });
+    const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b) });
+    const settings = createSettingsPanel([
+        settingsRow('Popups', popupToggle.element),
+        settingsRow('Viewer', viewerControl.element),
+        settingsRow('Background', basemaps.element),
+    ]);
 
     const search = createSearch({
         url: config.searchUrl,
@@ -86,13 +107,14 @@ export async function startViewer(map, config) {
         storageKey: config.storageKey,
         onToolChange: (active) => { if (active) hidePopup(); },
     });
-    const basemaps = createBasemapSwitcher({ apply: (b) => map.setBasemap(b) });
     const coords = el('div', { class: 'q2vt-coords', hidden: true });
 
     document.body.append(
-        el('div', { class: 'q2vt-top-left' }, [search, el('div', { class: 'q2vt-row' }, [zoomChip, popupToggle, viewerSwitch])]),
-        drawing.element,
-        basemaps.element,
+        el('div', { class: 'q2vt-top-left' }, [
+            el('div', { class: 'q2vt-search-row' }, [search, zoomLabel]),
+            settings,
+            drawing.element,
+        ]),
         coords,
     );
 
@@ -111,7 +133,7 @@ export async function startViewer(map, config) {
     basemaps.apply();
     drawing.start();
 
-    const updateZoom = () => { zoomChip.textContent = `Zoom: ${map.getZoom().toFixed(2)}`; };
+    const updateZoom = () => { zoomLabel.textContent = `Zoom ${map.getZoom().toFixed(2)}`; };
     updateZoom();
     map.onViewChange(updateZoom);
 

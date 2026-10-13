@@ -41,6 +41,7 @@ const ICONS = {
     clear: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m9 9 6 6M15 9l-6 6"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     layers: '<path d="m12 4 9 5-9 5-9-5z"/><path d="m3 14 9 5 9-5"/>',
+    chevron: '<path d="m6 9 6 6 6-6"/>',
 };
 
 export function icon(name) {
