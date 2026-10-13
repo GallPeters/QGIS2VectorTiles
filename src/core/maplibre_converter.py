@@ -1161,7 +1161,7 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_size(
-        text_format: QgsTextFormat, label_settings: QgsPalLayerSettings, viewer: int
+        text_format: QgsTextFormat, label_settings: QgsPalLayerSettings
     ) -> Union[float, List]:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Size)
@@ -1247,7 +1247,6 @@ class TextPropertyExtractor:
     def get_text_halo_width(
         text_format: QgsTextFormat,
         label_settings: QgsPalLayerSettings = None,
-        viewer: int = 0
     ) -> Union[float, List]:
         """Return ``text-halo-width`` in pixels from the buffer size.
 
@@ -1675,7 +1674,6 @@ class QgisMapLibreStyleExporter:
         output_dir: str,
         utils_dir,
         layer: Optional[QgsVectorTileLayer] = None,
-        viewer: int = 0,
         minzoom: int = 0,
         maxzoom: int = 14,
         extent=None,
@@ -1693,7 +1691,6 @@ class QgisMapLibreStyleExporter:
         self.marker_symbols: dict = {}
         self.marker_counter = 0
         self.glyphs = {}
-        self.viewer = viewer
         self.minzoom = minzoom
         self.maxzoom = maxzoom
         # The export extent (EPSG:3857), whose latitude sizes ground lengths.
@@ -1801,13 +1798,7 @@ class QgisMapLibreStyleExporter:
         if not style.isEnabled() or not style.symbol():
             return
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1 
-        # if self.viewer == 0:
-        #     min_zoom = style.minZoomLevel()
-        #     max_zoom = style.maxZoomLevel() + 1 
-        # else:
-        #     min_zoom = style.minZoomLevel() - 1
-        #     max_zoom = min(style.maxZoomLevel() + 1, self.maxzoom)
+        max_zoom = style.maxZoomLevel() + 1
         first = len(self.style["layers"])
         self._convert_symbol(
             style.symbol(), style.styleName(), style.layerName(),
@@ -1820,13 +1811,7 @@ class QgisMapLibreStyleExporter:
         if not style.isEnabled() or not style.labelSettings():
             return
         min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1 
-        # if self.viewer == 0:
-        #     min_zoom = style.minZoomLevel()
-        #     max_zoom = style.maxZoomLevel() + 1 
-        # else:
-        #     min_zoom = style.minZoomLevel() - 1
-        #     max_zoom = min(style.maxZoomLevel() + 1, self.maxzoom)
+        max_zoom = style.maxZoomLevel() + 1
         first = len(self.style["layers"])
         self._convert_label(
             style.labelSettings(), style.styleName(), style.layerName(),
@@ -2335,7 +2320,7 @@ class QgisMapLibreStyleExporter:
             self.glyphs[font] = [dataset]
         layer_def["layout"].update({
             "text-font": [font],
-            "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings, self.viewer),
+            "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
             "text-offset": TextPropertyExtractor.get_text_offset(label_settings),

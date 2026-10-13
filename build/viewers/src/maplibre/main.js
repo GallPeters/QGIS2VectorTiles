@@ -22,7 +22,7 @@ const map = new maplibregl.Map({
     container: 'map',
     style: config.styleUrl,
     center: config.center,
-    zoom: config.minZoom,
+    zoom: config.startZoom ?? config.minZoom,
 });
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
@@ -45,6 +45,7 @@ const firstDataLayer = () => map.getLayersOrder()
 const adapter = {
     ready: new Promise((resolve) => map.once('load', resolve)),
     getZoom: () => map.getZoom(),
+    getCenter: () => { const c = map.getCenter(); return [c.lng, c.lat]; },
     onViewChange: (cb) => map.on('move', cb),
     onPointerMove: (cb) => map.on('mousemove', (e) => cb({
         lngLat: [e.lngLat.lng, e.lngLat.lat], point: [e.point.x, e.point.y],

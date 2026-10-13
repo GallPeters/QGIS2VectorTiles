@@ -52,17 +52,17 @@ class QGIS2VectorTiles:
         output_dir: str = None,
         included_fields: int = 0,
         cpu_percent: int = 100,
-        viewer: int = 0,
         feedback: QgsProcessingFeedback = None,
     ):
-        self.min_zoom = min_zoom - viewer
-        self.max_zoom = max_zoom - viewer
+        # Zoom levels are MapLibre's (512 px tiles), in both web viewers:
+        # the OpenLayers viewer converts them for its own numbering.
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom
         self.extent = extent or iface.mapCanvas().extent()
         self.utils_dir = self._get_utils_dir()
         self.output_dir = output_dir or self.utils_dir
         self.included_fields = included_fields
         self.cpu_percent = min(cpu_percent, 90)
-        self.viewer = viewer
         self.feedback = feedback or QgsProcessingFeedback()
         # Set when a run completes; finish_in_main_thread() then adds the
         # tiles layer to the project.
@@ -130,10 +130,10 @@ class QGIS2VectorTiles:
 
     def finish_in_main_thread(self):
         """Project changes after a run. Call on QGIS's main thread only."""
-        self.finish(self.extent, self.min_zoom, self.viewer, self.temp_dir)
+        self.finish(self.extent, self.min_zoom, self.temp_dir)
 
     @classmethod
-    def finish(cls, extent, min_zoom: int, viewer: int, temp_dir: Optional[str]):
+    def finish(cls, extent, min_zoom: int, temp_dir: Optional[str]):
         """Project changes after a run. Call on QGIS's main thread only.
 
         The project and its layer tree belong to the main thread; changing
@@ -141,7 +141,7 @@ class QGIS2VectorTiles:
         """
         cls.clear_project()
         if temp_dir:
-            ServerInitializer(extent, min_zoom, viewer, temp_dir).add_tiles_layer()
+            ServerInitializer(extent, min_zoom, temp_dir).add_tiles_layer()
 
     @staticmethod
     def clear_project():
@@ -199,7 +199,7 @@ class QGIS2VectorTiles:
 
     def _export_maplibre_style(self, temp_dir, styled_layer):
         return QgisMapLibreStyleExporter(
-            temp_dir, self.utils_dir, styled_layer, self.viewer, self.min_zoom, self.max_zoom,
+            temp_dir, self.utils_dir, styled_layer, self.min_zoom, self.max_zoom,
             extent=self.extent,
         ).export()
 
@@ -220,7 +220,7 @@ class QGIS2VectorTiles:
     
     def serve_tiles(self, temp_dir: str):
         """Serve the generated tiles via a local HTTP server (no project changes)."""
-        ServerInitializer(self.extent, self.min_zoom, self.viewer, temp_dir).serve_tiles()
+        ServerInitializer(self.extent, self.min_zoom, temp_dir).serve_tiles()
 
 if __name__ == "__console__":
     print(". Starting vector tiles package generation process...")

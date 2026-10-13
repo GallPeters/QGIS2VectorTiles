@@ -36,6 +36,11 @@ body { font-family: var(--q2vt-font); }
 .q2vt-chip-button { cursor: pointer; }
 .q2vt-chip-button:hover { background: #f9fafb; }
 .q2vt-chip-button.active { color: var(--q2vt-accent); border-color: #bfdbfe; background: var(--q2vt-accent-soft); }
+.q2vt-switch { display: flex; }
+.q2vt-switch .q2vt-chip { border-radius: 0; box-shadow: none; }
+.q2vt-switch .q2vt-chip:first-child { border-radius: var(--q2vt-radius) 0 0 var(--q2vt-radius); }
+.q2vt-switch .q2vt-chip:last-child { border-radius: 0 var(--q2vt-radius) var(--q2vt-radius) 0; margin-left: -1px; }
+.q2vt-switch .q2vt-chip.active { cursor: default; position: relative; }
 
 .q2vt-search { position: relative; }
 .q2vt-search-bar {

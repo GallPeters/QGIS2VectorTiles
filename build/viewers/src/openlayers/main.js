@@ -24,9 +24,15 @@ import '../shared/ui.css';
 const SOURCE = 'q2vt_tiles';
 const config = window.Q2VT_CONFIG;
 
+// Zoom levels are MapLibre's everywhere outside this file (the style, the
+// page's settings, the zoom shown, the viewer switch): OpenLayers numbers the
+// same scale one higher (its zoom 0 is a 256 px world, MapLibre's 512 px).
+const OL_ZOOM_OFFSET = 1;
+const startZoom = (config.startZoom ?? config.minZoom) + OL_ZOOM_OFFSET;
+
 const map = new Map({
     target: 'map',
-    view: new View({ center: fromLonLat(config.center), zoom: config.minZoom }),
+    view: new View({ center: fromLonLat(config.center), zoom: startZoom }),
     controls: defaultControls({ attributionOptions: { collapsible: true } })
         .extend([new ScaleLine({ units: 'metric' })]),
 });
@@ -59,7 +65,7 @@ const ready = apply(map, config.styleUrl).then(() => {
     const old = map.getView();
     map.setView(new View({
         center: fromLonLat(config.center),
-        zoom: config.minZoom ?? old.getZoom(),
+        zoom: Number.isFinite(startZoom) ? startZoom : old.getZoom(),
         minZoom: 0,
         maxZoom: 22,
         constrainResolution: false,
@@ -73,7 +79,8 @@ const ready = apply(map, config.styleUrl).then(() => {
 
 const adapter = {
     ready,
-    getZoom: () => map.getView().getZoom(),
+    getZoom: () => map.getView().getZoom() - OL_ZOOM_OFFSET,
+    getCenter: () => toLonLat(map.getView().getCenter()),
     onViewChange: (cb) => {
         map.getView().on('change:resolution', cb);
         map.on('moveend', cb);
@@ -99,12 +106,11 @@ const adapter = {
     hidePopup: () => popup.setPosition(undefined),
     // A found feature is shown at the closest zoom at which its layer is
     // still drawn: a point at its layer's highest zoom, an area fitted to
-    // the view but kept within the layer's zoom levels. OpenLayers' zoom is
-    // the style's plus one (its tiles are 256 px, the style's 512 px).
+    // the view but kept within the layer's zoom levels.
     fitBounds([west, south, east, north], zooms = {}) {
         const view = map.getView();
-        const max = Math.min((zooms.max ?? 16) + 1, view.getMaxZoom());
-        const min = Math.min((zooms.min ?? 0) + 1, max);
+        const max = Math.min((zooms.max ?? 16) + OL_ZOOM_OFFSET, view.getMaxZoom());
+        const min = Math.min((zooms.min ?? 0) + OL_ZOOM_OFFSET, max);
         if (west === east && south === north) {
             view.animate({ center: fromLonLat([west, south]), zoom: max, duration: 500 });
             return;

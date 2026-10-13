@@ -61,13 +61,13 @@ WshShell.Run "cmd /c """ & base & "utils\activate_server.bat""", 0
 Set WshShell = Nothing
 '''
 
-    def __init__(self, extent, min_zoom: int, viewer: int, output_dir: str):
+    def __init__(self, extent, min_zoom: int, output_dir: str):
         self.extent = extent
         self.min_zoom = min_zoom
-        self.viewer = viewer
-        self.viewer_dir = join(_RESOURCES, 'ml_viewer' if viewer == 0 else 'ol_viewer')
+        # One viewer page for both map libraries (see resources/viewer).
+        self.viewer_dir = join(_RESOURCES, 'viewer')
         self.output_dir = output_dir
-        self.port = _PORT  # use different port for each viewer to allow running both simultaneously
+        self.port = _PORT
 
     def serve_tiles(self):
         """Copy server utilities and launch the local tile server."""
@@ -178,16 +178,16 @@ Set WshShell = Nothing
         python_exe: str,
     ):
         """Replace template placeholders in server, viewer, and launcher files."""
-        # The URLs' version: unique per export (its folder) and viewer, so
-        # browsers may keep the tiles and never show an earlier export's.
-        version = f"{self.viewer + 1}_{basename(normpath(output_folder))}"
+        # The URLs' version: unique per export (its folder), so browsers may
+        # keep the tiles and never show an earlier export's.
+        version = basename(normpath(output_folder))
         # Both viewers read their settings from viewer.html; the output
         # folder's name keys the drawings the browser keeps for this map.
         viewer = join(utils_dir, "viewer", 'viewer.html')
         self.replace_in_file(
             viewer,
             {
-                "_Q2VT_MINZOOM": str(self.min_zoom + self.viewer),
+                "_Q2VT_MINZOOM": str(self.min_zoom),
                 "_Q2VT_CENTER": center,
                 "_Q2VT_STORAGE_KEY": basename(normpath(output_folder)),
                 "18111991": str(self.port),

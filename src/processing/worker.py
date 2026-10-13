@@ -122,7 +122,6 @@ def main(job_path: str) -> int:
         cpu_percent=params["cpu_percent"],
         output_dir=params["output_dir"],
         included_fields=params["included_fields"],
-        viewer=params["viewer"],
         feedback=feedback,
     )
     # The parent starts the tile server and changes its own project.

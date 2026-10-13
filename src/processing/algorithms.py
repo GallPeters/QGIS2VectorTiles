@@ -7,6 +7,7 @@ from uuid import uuid4
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
+    QgsProcessingParameterDefinition,
     QgsProcessingAlgorithm,
     QgsProcessingParameterNumber,
     QgsProcessingParameterExtent,
@@ -168,15 +169,17 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
-        self.addParameter(
-            QgsProcessingParameterEnum(
-                self.VIEWER,
-                self.tr("Output Viewer"),
-                options=["MapLibre (Recommended)", "OpenLayers"],
-                defaultValue=0,  # Default to Required Fields Only
-                optional=False,
-            )
+        # Kept, hidden and ignored, so that models and scripts that still set
+        # it keep working: since v4.0 one output opens in both viewers.
+        viewer_param = QgsProcessingParameterEnum(
+            self.VIEWER,
+            self.tr("Output Viewer (no longer used)"),
+            options=["MapLibre", "OpenLayers"],
+            defaultValue=0,
+            optional=True,
         )
+        viewer_param.setFlags(viewer_param.flags() | QgsProcessingParameterDefinition.Flag.FlagHidden)
+        self.addParameter(viewer_param)
 
         # Output directory parameter
         self.addParameter(
@@ -262,11 +265,10 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
         included_fields = self.parameterAsEnum(parameters, self.INCLUDED_FIELDS, context)
-        viewer = self.parameterAsInt(parameters, self.VIEWER, context)
 
         if self._project_path:
             return self._process_in_worker(
-                feedback, extent, viewer,
+                feedback, extent,
                 {
                     "min_zoom": min_zoom,
                     "max_zoom": max_zoom,
@@ -275,7 +277,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                     "cpu_percent": cpu_percent,
                     "output_dir": output_dir,
                     "included_fields": included_fields,
-                    "viewer": viewer,
                 },
             )
 
@@ -288,7 +289,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 cpu_percent=cpu_percent,
                 output_dir=output_dir,
                 included_fields=included_fields,
-                viewer=viewer,
                 feedback=feedback,
             )
 
@@ -304,7 +304,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         # Return empty results dictionary (modify as needed for your use case)
         return {}
 
-    def _process_in_worker(self, feedback, extent, viewer, params: dict) -> dict:
+    def _process_in_worker(self, feedback, extent, params: dict) -> dict:
         """Run the conversion in a separate process (see subprocess_runner)."""
         try:
             result = run_in_subprocess(self._project_path, _PACKAGE_DIR, params, feedback)
@@ -317,8 +317,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         if result.get("canceled") or not result.get("temp_dir"):
             return {}
         # The tile server touches no project state, so it starts here.
-        ServerInitializer(extent, result["min_zoom"], viewer, result["temp_dir"]).serve_tiles()
-        self._finish_args = (extent, result["min_zoom"], viewer, result["temp_dir"])
+        ServerInitializer(extent, result["min_zoom"], result["temp_dir"]).serve_tiles()
+        self._finish_args = (extent, result["min_zoom"], result["temp_dir"])
         return {}
 
     def postProcessAlgorithm(self, context, feedback):
