@@ -114,6 +114,11 @@
     count.textContent = shown + (shown === 1 ? ' property' : ' properties');
   }
 
+  // A search passed in the address (compatibility.html?q=halo), e.g. from
+  // the home page's "Complex projects" panel.
+  var initial = new URLSearchParams(window.location.search).get('q');
+  if (initial) search.value = initial;
+
   search.addEventListener('input', apply);
   filters.forEach(function (btn) {
     btn.addEventListener('click', function () {

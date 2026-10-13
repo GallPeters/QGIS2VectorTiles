@@ -61,11 +61,11 @@
     },
     generator: {
       file: 'core/tiles_generator.py',
-      bullets: ['Coordinates multi-threaded tile slicing.', 'Hooks directly into system-level GDAL installations.', 'Runs optimized map routines.']
+      bullets: ['Slices the datasets into vector tiles with parallel GDAL runs, split by zoom level and area.', 'Uses the GDAL that ships with QGIS.', 'Writes all the tiles into one PMTiles file.']
     },
     styler: {
       file: 'core/tiles_styler.py',
-      bullets: ['Transforms styling definitions.', 'Matches and binds QGIS styles to vector channels.', 'Outputs unified .qlr layers.']
+      bullets: ['Transforms styling definitions.', 'Matches and binds QGIS styles to vector channels.', 'Hands one styled layer to the MapLibre converter.']
     },
     converter: {
       file: 'core/maplibre_converter.py',
@@ -73,7 +73,7 @@
     },
     server: {
       file: 'core/server_initializer.py',
-      bullets: ['Copies the web viewer and a small local tile server into the output folder.', 'Starts the server on localhost at the end of each run and opens the viewer in your browser.', 'Adds the styled tiles to the QGIS project and saves them as a .qlr layer.']
+      bullets: ['Lays out the output folder as a complete static web map: index.html, style and tiles.pmtiles.', 'Starts a small local server at the end of each run and opens the viewer in your browser.', 'The same folder can be uploaded to GitHub Pages or any web host as it is.']
     }
   };
   var repo = 'https://github.com/GallPeters/QGIS2VectorTiles/blob/main/src/';
@@ -280,6 +280,186 @@
         e.preventDefault();
         openCard(card);
       });
+    });
+  }
+
+  // --- Hero: "Complex projects" panel -------------------------------------
+  // A popover (top layer, so the hero never clips it) listing the complex
+  // features, with a search over the styling guide's data
+  // (compatibility.yaml, loaded on first open). Wide screens place it under
+  // its button; phones show it as a sheet below the header (CSS).
+  var complexToggle = document.getElementById('complex-toggle');
+  var complexPanel = document.getElementById('complex-panel');
+  if (complexToggle && complexPanel) {
+    var native = typeof complexPanel.showPopover === 'function';
+    var searchBox = document.getElementById('complex-search');
+    var featureList = document.getElementById('complex-list');
+    var results = document.getElementById('complex-results');
+    var guideLink = document.getElementById('complex-guide');
+    var wide = window.matchMedia('(min-width: 641px)');
+    var index = null;
+    var loading = null;
+    var STATUS = { yes: 'Supported', partial: 'Partial', no: 'Not supported' };
+    // Everyday words for settings QGIS names otherwise.
+    var SYNONYMS = {
+      halo: ['buffer'], outline: ['stroke'], border: ['stroke'], transparency: ['opacity'],
+      rotation: ['angle', 'rotation'], icon: ['marker', 'svg'], dash: ['dash', 'pattern']
+    };
+
+    var isOpen = function () {
+      return native ? complexPanel.matches(':popover-open') : complexPanel.classList.contains('is-open');
+    };
+    var place = function () {
+      if (!wide.matches) { complexPanel.style.top = complexPanel.style.left = complexPanel.style.maxHeight = ''; return; }
+      var r = complexToggle.getBoundingClientRect();
+      var width = Math.min(460, window.innerWidth - 24);
+      var left = Math.min(Math.max(12, r.left), window.innerWidth - width - 12);
+      var below = window.innerHeight - r.bottom - 16;
+      var above = r.top - 16;
+      complexPanel.style.left = left + 'px';
+      complexPanel.style.width = width + 'px';
+      if (below >= 360 || below >= above) {
+        complexPanel.style.top = (r.bottom + 8) + 'px';
+        complexPanel.style.maxHeight = below + 'px';
+      } else {
+        var height = Math.min(above, 560);
+        complexPanel.style.top = (r.top - 8 - height) + 'px';
+        complexPanel.style.maxHeight = height + 'px';
+      }
+    };
+    var loadScript = function (src) {
+      return new Promise(function (resolve, reject) {
+        if (window.jsyaml) return resolve();
+        var s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = function () { reject(new Error('The YAML parser did not load.')); };
+        document.head.appendChild(s);
+      });
+    };
+    var loadIndex = function () {
+      if (loading) return loading;
+      loading = Promise.all([
+        loadScript('assets/vendor/js-yaml.min.js'),
+        fetch('compatibility.yaml').then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+      ]).then(function (parts) {
+        var data = window.jsyaml.load(parts[1]) || {};
+        index = [];
+        (data.categories || []).forEach(function (cat) {
+          (cat.properties || []).forEach(function (p) {
+            var status = String(p.supported || '').trim().toLowerCase();
+            index.push({
+              prop: String(p.qgis_prop || ''),
+              cat: cat.name,
+              status: STATUS[status] ? status : 'partial',
+              notes: String(p.notes || ''),
+              title: String(p.qgis_prop || '').toLowerCase(),
+              text: [p.qgis_prop, p.maplibre_prop, p.notes, cat.name].join(' ').toLowerCase()
+            });
+          });
+        });
+        return index;
+      });
+      loading.catch(function () { loading = null; });
+      return loading;
+    };
+    var el = function (tag, cls, text) {
+      var node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text) node.textContent = text;
+      return node;
+    };
+    var search = function () {
+      var query = searchBox.value.trim().toLowerCase();
+      guideLink.href = 'compatibility.html' + (query ? '?q=' + encodeURIComponent(searchBox.value.trim()) : '');
+      featureList.hidden = !!query;
+      results.hidden = !query;
+      if (!query) return;
+      if (!index) {
+        results.replaceChildren(el('p', 'complex-empty', 'Loading the styling guide…'));
+        loadIndex().then(search, function () {
+          results.replaceChildren(el('p', 'complex-empty', 'The styling guide could not be loaded here. Open it below.'));
+        });
+        return;
+      }
+      var words = query.split(/\s+/);
+      var hits = index.filter(function (item) {
+        return words.every(function (w) { return item.text.indexOf(w) !== -1; });
+      });
+      // Settings named like the search (or its QGIS name) first.
+      var named = [words[0]].concat(SYNONYMS[words[0]] || []);
+      var score = function (item) {
+        return named.some(function (w) { return item.title.indexOf(w) !== -1; }) ? 1 : 0;
+      };
+      hits.sort(function (a, b) { return score(b) - score(a); });
+      if (!hits.length) {
+        results.replaceChildren(el('p', 'complex-empty', 'No setting matches "' + searchBox.value.trim() + '". Try another word, or open the full guide.'));
+        return;
+      }
+      var list = el('ul', 'complex-hits');
+      hits.slice(0, 8).forEach(function (item) {
+        var li = el('li');
+        var a = el('a');
+        a.href = 'compatibility.html?q=' + encodeURIComponent(item.prop);
+        var head = el('span', 'hit-head');
+        head.append(el('span', 'status ' + item.status, STATUS[item.status]), el('b', null, item.prop));
+        a.append(head, el('span', 'hit-cat', item.cat), el('span', 'hit-notes', item.notes));
+        li.appendChild(a);
+        list.appendChild(li);
+      });
+      var nodes = [list];
+      if (hits.length > 8) nodes.push(el('p', 'complex-more', (hits.length - 8) + ' more in the full guide.'));
+      results.replaceChildren.apply(results, nodes);
+    };
+    var onToggled = function () {
+      var open = isOpen();
+      complexToggle.setAttribute('aria-expanded', String(open));
+      if (open) {
+        place();
+        loadIndex().catch(function () {});
+        if (wide.matches) searchBox.focus({ preventScroll: true });
+      }
+    };
+    if (native) {
+      complexToggle.setAttribute('popovertarget', 'complex-panel');
+      complexPanel.addEventListener('toggle', onToggled);
+      complexPanel.addEventListener('beforetoggle', function (e) { if (e.newState === 'open') place(); });
+    } else {
+      // Without popovers: toggled here, closed by Escape or a click outside.
+      complexPanel.removeAttribute('popover');
+      complexToggle.addEventListener('click', function () {
+        complexPanel.classList.toggle('is-open');
+        onToggled();
+      });
+      document.addEventListener('click', function (e) {
+        if (isOpen() && !complexPanel.contains(e.target) && !complexToggle.contains(e.target)) {
+          complexPanel.classList.remove('is-open');
+          onToggled();
+        }
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && isOpen()) { complexPanel.classList.remove('is-open'); onToggled(); complexToggle.focus(); }
+      });
+    }
+    var close = function () {
+      if (!isOpen()) return;
+      if (native) complexPanel.hidePopover();
+      else { complexPanel.classList.remove('is-open'); onToggled(); }
+    };
+    // The page moved under it: close, as menus do.
+    window.addEventListener('scroll', close, { passive: true });
+    document.body.addEventListener('scroll', close, { passive: true });
+    window.addEventListener('resize', function () { if (isOpen()) place(); });
+    searchBox.addEventListener('input', search);
+    featureList.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-q]');
+      if (!btn) return;
+      searchBox.value = btn.dataset.q;
+      search();
+      searchBox.focus({ preventScroll: true });
     });
   }
 

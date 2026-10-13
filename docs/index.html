@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QGIS2VectorTiles: QGIS projects to web maps in a single run</title>
-<meta name="description" content="A free QGIS plugin that turns styled QGIS projects into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required: a built-in local server opens the viewer at the end of each run.">
+<meta name="description" content="A free QGIS plugin that turns styled QGIS projects into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required.">
 <link rel="canonical" href="https://gallpeters.github.io/QGIS2VectorTiles/">
 <meta name="theme-color" content="#07080a">
 
@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=3.9.1">
+<link rel="stylesheet" href="assets/site.css?v=4.0.0">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -67,6 +67,8 @@
   <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
   <symbol id="i-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
 </svg>
 
@@ -125,16 +127,18 @@
               <a class="pill" href="changelog.html#v4-0"><b class="soon">v4.0</b><span>Coming soon<span class="more">: host on GitHub</span></span><svg><use href="#i-chevron"/></svg></a>
             </div>
             <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
-            <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required: a built-in local server opens the viewer at the end of each run.</p>
+            <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required.</p>
             <div class="hero-actions" data-reveal style="--d:3">
               <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
               <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
             </div>
-            <ul class="hero-meta" data-reveal style="--d:4">
-              <li><svg><use href="#i-check"/></svg>Free &amp; open source</li>
-              <li><svg><use href="#i-check"/></svg>QGIS 3.44 – 4.x</li>
-              <li><svg><use href="#i-check"/></svg>Works offline</li>
-            </ul>
+            <p class="hero-note" data-reveal style="--d:3">For QGIS 3.44 – 4.x on Windows, macOS and Linux</p>
+            <div class="hero-tags" data-reveal style="--d:4">
+              <span class="hero-tag"><svg><use href="#i-check"/></svg>Free &amp; open source</span>
+              <span class="hero-tag"><svg><use href="#i-check"/></svg>Works offline</span>
+              <span class="hero-tag"><svg><use href="#i-check"/></svg>Deploy anywhere</span>
+              <button class="hero-tag hero-tag-more" type="button" id="complex-toggle" aria-expanded="false" aria-controls="complex-panel"><svg><use href="#i-layers"/></svg>Complex projects<svg class="caret"><use href="#i-down"/></svg></button>
+            </div>
           </div>
         </div>
 
@@ -214,17 +218,17 @@
           <article class="feature" data-reveal style="--d:1">
             <div class="feature-icon"><svg><use href="#i-zap"/></svg></div>
             <h3 class="h3">Client-side rendering</h3>
-            <p>The browser draws the tiles with MapLibre or OpenLayers, sharp at every zoom. The local server only hands out ready-made tiles; it renders nothing.</p>
+            <p>The browser draws the tiles with MapLibre or OpenLayers, sharp at every zoom. No map server renders anything.</p>
           </article>
           <article class="feature" data-reveal style="--d:2">
             <div class="feature-icon"><svg><use href="#i-box"/></svg></div>
             <h3 class="h3">No dependencies</h3>
-            <p>Runs on the Python and GDAL that ship with QGIS, and so does its local tile server. No internet connection, nothing extra to install.</p>
+            <p>Runs on the Python and GDAL that ship with QGIS. No internet connection, nothing extra to install.</p>
           </article>
           <article class="feature" data-reveal style="--d:3">
             <div class="feature-icon"><svg><use href="#i-globe"/></svg></div>
             <h3 class="h3">Open standards</h3>
-            <p>Vector tiles in MBTiles, a MapLibre GL style and a QGIS layer file: formats the web-mapping world reads.</p>
+            <p>Vector tiles in one PMTiles file and a MapLibre GL style: formats the web-mapping world reads.</p>
           </article>
         </div>
         <p class="tap-hint">Tap a feature for details.</p>
@@ -264,7 +268,7 @@
             </button>
             <button class="step" type="button" data-module="generator">
               <span class="step-num" aria-hidden="true">03</span>
-              <span class="step-text"><span class="step-title">tiles_generator.py</span><span class="step-desc" title="Slices geometries via multi-threaded GDAL">Slices geometries via multi-threaded GDAL</span></span>
+              <span class="step-text"><span class="step-title">tiles_generator.py</span><span class="step-desc" title="Slices geometries into PMTiles with parallel GDAL runs">Slices geometries into PMTiles with parallel GDAL runs</span></span>
               <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
             </button>
             <button class="step" type="button" data-module="styler">
@@ -279,7 +283,7 @@
             </button>
             <button class="step" type="button" data-module="server">
               <span class="step-num" aria-hidden="true">06</span>
-              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc" title="Starts the local tile server and opens the viewer">Starts the local tile server and opens the viewer</span></span>
+              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc" title="Lays out the web map folder and opens the viewer">Lays out the web map folder and opens the viewer</span></span>
               <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
             </button>
           </div>
@@ -477,6 +481,31 @@
 
 <nav class="dots" aria-label="Sections"></nav>
 
+<div class="complex-panel" id="complex-panel" popover role="dialog" aria-labelledby="complex-title">
+  <div class="complex-head">
+    <p class="complex-title" id="complex-title">Built for complex projects</p>
+    <p class="complex-sub">What the export keeps from your QGIS project. Search for any setting to check it.</p>
+    <label class="complex-search">
+      <span class="visually-hidden">Search QGIS styling settings</span>
+      <svg aria-hidden="true"><use href="#i-search"/></svg>
+      <input type="search" id="complex-search" placeholder="Search a setting, e.g. halo" autocomplete="off" spellcheck="false">
+    </label>
+  </div>
+  <ul class="complex-list" id="complex-list">
+    <li><div class="complex-item"><b>Large datasets</b><span>Millions of features, clipped to your extent and processed in parallel.</span></div></li>
+    <li><button type="button" data-q="provider"><b>Any vector source</b><span>GeoPackage, Shapefile, PostGIS, SpatiaLite, WFS and temporary layers.</span></button></li>
+    <li><button type="button" data-q="rule"><b>Rule-based, categorized &amp; graduated</b><span>Nested rules keep their filters and scale ranges.</span></button></li>
+    <li><button type="button" data-q="geometry generator"><b>Geometry generators</b><span>Any QGIS expression, computed during the export.</span></button></li>
+    <li><button type="button" data-q="data-defined"><b>Data-defined properties</b><span>Per-feature colors, sizes, widths, rotations and opacity.</span></button></li>
+    <li><button type="button" data-q="map_scale"><b>Scale-dependent styling</b><span>Visibility ranges and <code>@map_scale</code> become zoom levels.</span></button></li>
+    <li><button type="button" data-q="placement"><b>Label placement</b><span>Around points, cartographic, along and above or below lines, priority.</span></button></li>
+    <li><button type="button" data-q="perimeter"><b>Perimeter labels</b><span>Polygon outlines labeled like lines, straight or curved.</span></button></li>
+    <li><button type="button" data-q="marker line"><b>Marker lines</b><span>Markers at vertices, ends or the middle, turned with the line.</span></button></li>
+    <li><button type="button" data-q="right-to-left"><b>Hebrew &amp; Arabic labels</b><span>Right-to-left text in reading order, with joined letters.</span></button></li>
+  </ul>
+  <div class="complex-results" id="complex-results" aria-live="polite" hidden></div>
+  <a class="complex-foot" id="complex-guide" href="compatibility.html">Open the full styling guide<svg><use href="#i-arrow"/></svg></a>
+</div>
 <dialog class="module-dialog" id="module-dialog" aria-labelledby="module-title">
   <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
   <div class="dialog-inner">
@@ -498,7 +527,7 @@
 </dialog>
 
 
-<script src="assets/site.js?v=3.9.1" defer></script>
-<script src="assets/home.js?v=3.9.1" defer></script>
+<script src="assets/site.js?v=4.0.0" defer></script>
+<script src="assets/home.js?v=4.0.0" defer></script>
 </body>
 </html>
