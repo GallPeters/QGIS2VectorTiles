@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.9</strong>, 13 Oct 2026. Coming soon: <strong class="text-brand">v4.0</strong>.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v3.9</strong>. Coming soon: <strong class="text-brand">v4.0</strong>.</p>
     </div>
   </section>
 
@@ -134,15 +134,15 @@
       <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li><strong>Ready to publish</strong>: the export folder is a complete static web map (the viewer as <code>index.html</code>, the style and one <strong>PMTiles</strong> file, <code>tiles.pmtiles</code>). Upload it to <strong>GitHub Pages</strong> or any web host as it is; the included local server still opens it on your computer.</li>
-      <li>The tiles layer is no longer added to the QGIS project, and the <code>.qlr</code> and <code>.mbtiles</code> files are no longer written: the web map is the result.</li>
-      <li><strong>One web map, two viewers</strong>: every export opens in MapLibre or OpenLayers, with a switch in the page that keeps the place and zoom. The Output Viewer parameter is gone.</li>
-      <li>Both viewers show the <strong>same zoom numbers</strong> for the same scale, and the zoom range you choose means the same in both.</li>
-      <li>The viewer page reopens in the <strong>viewer you used last</strong>.</li>
-      <li>Tidier viewer layout, alike in both viewers: on the left, the search bar and the zoom level (as tall as it) above a foldable <strong>Map settings</strong> card (popups, viewer, background), one neat block; on the right, larger zoom buttons with the <strong>drawing tools</strong> under them, as wide as they are.</li>
-      <li><strong>Faster runs</strong> again (about 40% less time on large projects, and up to twice as fast for a few zoom levels): tiles are built in memory when it is free, split by area across the cores when there are fewer zoom levels than cores, and made while the style and search index are written; source layers are read and prepared by GDAL.</li>
-      <li>The lowest zoom levels, where the export fits in a few tiles, <strong>keep all their features</strong>: crowded tiles were thinned to stay under the tile size limit.</li>
-      <li>Note for OpenLayers users: zoom levels now follow MapLibre's numbering, so a project re-run with the same zoom range gets one more level of detail (up to zoom 15).</li>
+      <li><strong>Ready to publish</strong>: the export is a static web map (<code>index.html</code>, the style and one <strong>PMTiles</strong> file). Upload it to <strong>GitHub Pages</strong> or any web host.</li>
+      <li>No more tiles layer in QGIS, <code>.qlr</code> or <code>.mbtiles</code>: the web map is the result.</li>
+      <li><strong>One web map, two viewers</strong>: switch between MapLibre and OpenLayers in the page. The Output Viewer parameter is gone.</li>
+      <li>Both viewers show the <strong>same zoom numbers</strong>.</li>
+      <li>The page reopens in the <strong>viewer you used last</strong>.</li>
+      <li><strong>Tidier viewer layout</strong>: search and settings on the left, zoom and <strong>drawing tools</strong> on the right.</li>
+      <li><strong>About 40% faster</strong> on large projects, up to twice as fast with few zoom levels.</li>
+      <li>Low zoom levels <strong>keep all their features</strong>.</li>
+      <li>OpenLayers users: zoom levels now follow MapLibre's numbering, so the same range gives one more level of detail.</li>
     </ul>
   </article>
   <article class="release latest" id="v3-9">
@@ -152,21 +152,21 @@
       <span class="tag">Latest</span>
     </div>
     <ul>
-      <li><strong>Faster runs</strong>: tiles are made for all zoom levels at once, and simple rules are written directly by GDAL (about 3 times faster on large projects).</li>
-      <li>Rules that draw the same features <strong>share their data</strong> in the tiles, and categories share one map layer: <strong>smaller tiles</strong> and a <strong>smoother map</strong>.</li>
+      <li><strong>About 3 times faster</strong> on large projects.</li>
+      <li>Rules that draw the same features <strong>share their data</strong>: smaller tiles, smoother map.</li>
       <li>Repeated runs <strong>reuse the glyphs and symbols</strong> drawn before.</li>
       <li>Rules that change with the scale (<code>@map_scale</code>) are split only where their result changes.</li>
-      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills, <strong>hashed lines</strong>, <strong>raster lines</strong> and other unsupported lines are drawn in their own colours instead of black.</li>
+      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills, <strong>hashed</strong> and <strong>raster lines</strong> keep their colours instead of turning black.</li>
       <li>Markers on a line's <strong>first, last or middle point</strong> or on its <strong>vertices</strong> are drawn exactly there, turned with the line.</li>
       <li><strong>Data-defined</strong> widths, sizes, offsets and opacities keep their QGIS units.</li>
       <li>Markers sized in <strong>map units</strong> scale with the zoom; map-unit sizes now use the map's latitude.</li>
       <li>Rotated markers are no longer <strong>turned twice</strong>; symbols are drawn sharp on every screen.</li>
-      <li>Labels follow their <strong>placement</strong> (around point, cartographic order, above or below lines), <strong>distance</strong>, <strong>letter spacing</strong> and <strong>priority</strong>.</li>
-      <li><strong>Hebrew and Arabic</strong> labels read right to left with joined letters; characters missing from a font come from another font, as in QGIS.</li>
-      <li>The web viewers keep the <strong>tiles in the browser cache</strong>, read tiles in parallel, and respond faster on hover.</li>
-      <li><strong>Search</strong> in the web viewers zooms to the found feature at the closest zoom where it is still drawn, not past its data.</li>
-      <li>Simpler, clearer <strong>progress messages</strong>, with the time of each step, starting the moment the tool runs.</li>
-      <li>In the <strong>OpenLayers</strong> viewer, labels placed around a point sit beside its marker, as in MapLibre, instead of covering it.</li>
+      <li>Labels follow their <strong>placement</strong>, <strong>distance</strong>, <strong>letter spacing</strong> and <strong>priority</strong>.</li>
+      <li><strong>Hebrew and Arabic</strong> labels read right to left, with joined letters and font fallback.</li>
+      <li>The viewers <strong>cache tiles</strong> and respond faster.</li>
+      <li><strong>Search</strong> zooms to the found feature where it is still drawn.</li>
+      <li>Clearer <strong>progress messages</strong>, with the time of each step.</li>
+      <li><strong>OpenLayers</strong>: labels around a point sit beside its marker.</li>
     </ul>
   </article>
   <article class="release" id="v3-8">
@@ -175,14 +175,14 @@
       <time datetime="2026-10-11">11 Oct 2026</time>
     </div>
     <ul>
-      <li>New in both web viewers: <strong>search</strong>, <strong>drawing</strong> (download as GeoJSON), <strong>distance and area measuring</strong>, a <strong>scale bar</strong> and <strong>pointer coordinates</strong>.</li>
+      <li>New in both viewers: <strong>search</strong>, <strong>drawing</strong>, <strong>measuring</strong>, a <strong>scale bar</strong> and <strong>coordinates</strong>.</li>
       <li>New <strong>basemap switcher</strong> in the viewers; the <strong>Background</strong> parameter is removed.</li>
       <li>New <strong>Visible Fields</strong> option in <strong>Included Fields</strong>.</li>
       <li>Removed the <strong>Polygon Labels Base</strong> parameter: polygon labels follow their own QGIS placement settings.</li>
       <li>Polygon labels placed <strong>using the perimeter</strong> follow the polygon outline.</li>
       <li><strong>Centroid fills</strong> follow their QGIS settings.</li>
       <li>Much <strong>faster export</strong> of projects with many rules or categories.</li>
-      <li>Tiles stop at <strong>zoom 15</strong>: smaller output. With a higher <strong>Maximum Zoom</strong>, the viewers enlarge them up to it instead of showing a blank map.</li>
+      <li>Tiles stop at <strong>zoom 15</strong>: smaller output; viewers enlarge them beyond it.</li>
       <li><strong>Temporary (memory) layers</strong> are now exported.</li>
       <li>Upgraded to <strong>MapLibre GL JS 6.13</strong> and <strong>OpenLayers 10.11</strong>.</li>
       <li><strong>Popups</strong> are off by default in both viewers.</li>
@@ -204,14 +204,14 @@
       <time datetime="2026-10-08">08 Oct 2026</time>
     </div>
     <ul>
-      <li>Much <strong>faster conversion</strong>: sources are clipped to the <strong>export extent</strong> and read only once, and each rule is exported in a <strong>single pass</strong>.</li>
+      <li>Much <strong>faster conversion</strong>: sources are clipped to the <strong>extent</strong> and read once.</li>
       <li>Much faster export of <strong>labels</strong> and <strong>centroid fills</strong> that show only the <strong>largest part</strong> of multi-part features.</li>
       <li>Fixed <strong>self-crossing lines</strong> (such as some rivers) being split into pieces and shortened during export.</li>
       <li>The conversion runs in a <strong>separate background process</strong>, so <strong>QGIS stays responsive</strong> while it runs.</li>
       <li>Prepared layers are <strong>cached between runs</strong>, so re-running an unchanged project is faster.</li>
       <li>Each layer is written only to its own <strong>zoom range</strong>, making tiles much <strong>smaller</strong> and faster to <strong>generate and render</strong>.</li>
       <li>The tool <strong>no longer changes the project's styling</strong> (categorized and graduated layers stay as they are).</li>
-      <li>Fixed missing labels and values for <strong>field-based data-defined properties</strong>; invalid values are exported as <strong>NULL</strong> with a single warning instead of dropping the rule.</li>
+      <li>Fixed missing values for <strong>field-based data-defined properties</strong>; invalid values become <strong>NULL</strong>.</li>
       <li>Fixed <strong>QGIS freezes and crashes</strong> during the conversion.</li>
     </ul>
   </article>
@@ -231,7 +231,7 @@
       <time datetime="2026-07-13">13 Jul 2026</time>
     </div>
     <ul>
-      <li>Added support for <strong>marker lines</strong> in <strong>line symbol layers</strong> and <strong>polygon outline layers</strong>, including <strong>marker spacing</strong>, <strong>line offset</strong>, <strong>rotation</strong>, and <strong>size</strong>.</li>
+      <li>Added <strong>marker lines</strong> (lines and polygon outlines), with spacing, offset, rotation and size.</li>
       <li>Improved predefined <strong>dash patterns</strong> (<strong>Dash</strong>, <strong>Dot</strong>, <strong>Dash Dot</strong>, etc.) for better rendering in the <strong>MapLibre</strong> viewer.</li>
       <li>Fixed an issue where <strong>symbol opacity</strong> was not converted correctly.</li>
     </ul>
@@ -511,7 +511,7 @@
     <div class="footer-grid">
       <div class="footer-brand">
         <a class="brand" href="./"><img src="icons/logo.webp" alt="" width="30" height="30" loading="lazy"><span class="brand-name"><span>QGIS2</span>VectorTiles</span></a>
-        <p>Pack a QGIS project into a lightweight vector tile package with a matching web style and a ready-to-use web viewer.</p>
+        <p>QGIS projects to web maps, in a single run.</p>
       </div>
       <nav class="footer-col" aria-label="Product">
         <h2>Product</h2>

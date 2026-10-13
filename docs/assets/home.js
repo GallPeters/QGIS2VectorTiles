@@ -239,6 +239,53 @@
       glideTimer = setTimeout(endGlide, 900);
       window.scrollTo({ top: pageTop(target), behavior: reduceMotion ? 'auto' : 'smooth' });
     }, { passive: false });
+
+    // Keys move whole sections too. Each press counts from where the page
+    // is heading, not where it is mid-glide: Page Down twice glides two
+    // sections down in one smooth move, and the opposite key turns it
+    // around at once, instead of the native keyboard scroll fighting the
+    // snapping.
+    var KEYS = { PageDown: 1, PageUp: -1, ArrowDown: 1, ArrowUp: -1, ' ': 1, Home: -Infinity, End: Infinity };
+    var heading = null;
+    var keyTimer = 0;
+    // Keys a focused field (or, for Space, a focused button) handles itself.
+    var ownsKey = function (el, key) {
+      if (!el) return false;
+      if (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|VIDEO)$/.test(el.tagName)) return true;
+      return key === ' ' && /^(BUTTON|A|SUMMARY)$/.test(el.tagName);
+    };
+    window.addEventListener('scrollend', function () { heading = null; });
+    window.addEventListener('keydown', function (e) {
+      if (!snapScreens.matches || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      var step = KEYS[e.key];
+      if (step === undefined || ownsKey(document.activeElement, e.key)) return;
+      if (document.querySelector('dialog[open], .complex-panel:popover-open, .complex-panel.is-open')) return;
+      if (e.key === ' ' && e.shiftKey) step = -1;
+      var y = window.scrollY;
+      var from = heading;
+      if (from === null) {
+        // The section whose top is nearest.
+        from = 0;
+        allSlides.forEach(function (slide, i) {
+          if (Math.abs(pageTop(slide) - y) < Math.abs(pageTop(allSlides[from]) - y)) from = i;
+        });
+        // In a section taller than the window, arrows scroll it natively.
+        var slide = allSlides[from];
+        if (Math.abs(step) === 1 && e.key.indexOf('Arrow') === 0 &&
+            (step > 0 ? pageTop(slide) + slide.offsetHeight > y + window.innerHeight + 4 : pageTop(slide) < y - 4)) return;
+      }
+      var to = Math.max(0, Math.min(allSlides.length - 1, from + (isFinite(step) ? step : step > 0 ? allSlides.length : -allSlides.length)));
+      e.preventDefault();
+      if (to === heading) return;
+      heading = to;
+      gliding = true;
+      clearTimeout(glideTimer);
+      glideTimer = setTimeout(endGlide, 900);
+      // Browsers without scrollend forget the heading by time.
+      clearTimeout(keyTimer);
+      keyTimer = setTimeout(function () { heading = null; }, 1200);
+      window.scrollTo({ top: pageTop(allSlides[to]), behavior: reduceMotion ? 'auto' : 'smooth' });
+    });
   }
 
   // --- Phones: feature and use-case cards open their full text -----------
@@ -284,17 +331,17 @@
   }
 
   // --- Hero: "Complex projects" panel -------------------------------------
-  // A popover (top layer, so the hero never clips it) listing the complex
-  // features, with a search over the styling guide's data
-  // (compatibility.yaml, loaded on first open). Wide screens place it under
-  // its button; phones show it as a sheet below the header (CSS).
+  // A popover (top layer, so the hero never clips it) listing every
+  // supported setting from the styling guide's data (compatibility.yaml,
+  // loaded on first open), with a search. Wide screens place it under its
+  // button, as wide; phones show it as a sheet below the header (CSS).
   var complexToggle = document.getElementById('complex-toggle');
   var complexPanel = document.getElementById('complex-panel');
   if (complexToggle && complexPanel) {
     var native = typeof complexPanel.showPopover === 'function';
     var searchBox = document.getElementById('complex-search');
     var featureList = document.getElementById('complex-list');
-    var results = document.getElementById('complex-results');
+    var subtitle = document.getElementById('complex-sub');
     var guideLink = document.getElementById('complex-guide');
     var wide = window.matchMedia('(min-width: 641px)');
     var index = null;
@@ -312,7 +359,7 @@
     var place = function () {
       if (!wide.matches) { complexPanel.style.top = complexPanel.style.left = complexPanel.style.maxHeight = ''; return; }
       var r = complexToggle.getBoundingClientRect();
-      var width = Math.min(460, window.innerWidth - 24);
+      var width = Math.min(Math.max(r.width, 380), window.innerWidth - 24);
       var left = Math.min(Math.max(12, r.left), window.innerWidth - width - 12);
       var below = window.innerHeight - r.bottom - 16;
       var above = r.top - 16;
@@ -372,17 +419,48 @@
       if (text) node.textContent = text;
       return node;
     };
-    var search = function () {
-      var query = searchBox.value.trim().toLowerCase();
-      guideLink.href = 'compatibility.html' + (query ? '?q=' + encodeURIComponent(searchBox.value.trim()) : '');
-      featureList.hidden = !!query;
-      results.hidden = !query;
-      if (!query) return;
+    var row = function (item) {
+      var li = el('li');
+      var a = el('a');
+      a.href = 'compatibility.html?q=' + encodeURIComponent(item.prop);
+      var head = el('span', 'hit-head');
+      head.append(el('b', null, item.prop), el('span', 'status ' + item.status, STATUS[item.status]));
+      a.append(head, el('span', 'hit-notes', item.notes));
+      li.appendChild(a);
+      return li;
+    };
+    // Empty search: every supported or partly supported setting, by
+    // category. A search: the matching settings, any support level.
+    var render = function () {
+      var raw = searchBox.value.trim();
+      var query = raw.toLowerCase();
+      guideLink.href = 'compatibility.html' + (raw ? '?q=' + encodeURIComponent(raw) : '');
       if (!index) {
-        results.replaceChildren(el('p', 'complex-empty', 'Loading the styling guide…'));
-        loadIndex().then(search, function () {
-          results.replaceChildren(el('p', 'complex-empty', 'The styling guide could not be loaded here. Open it below.'));
+        featureList.replaceChildren(el('p', 'complex-empty', 'Loading the supported settings…'));
+        loadIndex().then(render, function () {
+          featureList.replaceChildren(el('p', 'complex-empty', 'The settings could not be loaded here. Open the full guide below.'));
         });
+        return;
+      }
+      if (!query) {
+        var supported = index.filter(function (item) { return item.status !== 'no'; });
+        subtitle.textContent = 'All ' + supported.length + ' supported QGIS settings, by category. Search to check any setting.';
+        var groups = [];
+        supported.forEach(function (item) {
+          var group = groups[groups.length - 1];
+          if (!group || group.name !== item.cat) groups.push(group = { name: item.cat, items: [] });
+          group.items.push(item);
+        });
+        featureList.replaceChildren.apply(featureList, groups.map(function (group) {
+          var section = el('section', 'complex-group');
+          var head = el('p', 'complex-cat');
+          head.append(el('span', null, group.name), el('span', 'complex-count', String(group.items.length)));
+          var list = el('ul', 'complex-hits');
+          group.items.forEach(function (item) { list.appendChild(row(item)); });
+          section.append(head, list);
+          return section;
+        }));
+        featureList.scrollTop = 0;
         return;
       }
       var words = query.split(/\s+/);
@@ -396,30 +474,20 @@
       };
       hits.sort(function (a, b) { return score(b) - score(a); });
       if (!hits.length) {
-        results.replaceChildren(el('p', 'complex-empty', 'No setting matches "' + searchBox.value.trim() + '". Try another word, or open the full guide.'));
+        featureList.replaceChildren(el('p', 'complex-empty', 'No setting matches "' + raw + '". Try another word, or open the full guide.'));
         return;
       }
       var list = el('ul', 'complex-hits');
-      hits.slice(0, 8).forEach(function (item) {
-        var li = el('li');
-        var a = el('a');
-        a.href = 'compatibility.html?q=' + encodeURIComponent(item.prop);
-        var head = el('span', 'hit-head');
-        head.append(el('span', 'status ' + item.status, STATUS[item.status]), el('b', null, item.prop));
-        a.append(head, el('span', 'hit-cat', item.cat), el('span', 'hit-notes', item.notes));
-        li.appendChild(a);
-        list.appendChild(li);
-      });
-      var nodes = [list];
-      if (hits.length > 8) nodes.push(el('p', 'complex-more', (hits.length - 8) + ' more in the full guide.'));
-      results.replaceChildren.apply(results, nodes);
+      hits.forEach(function (item) { list.appendChild(row(item)); });
+      featureList.replaceChildren(list);
+      featureList.scrollTop = 0;
     };
     var onToggled = function () {
       var open = isOpen();
       complexToggle.setAttribute('aria-expanded', String(open));
       if (open) {
         place();
-        loadIndex().catch(function () {});
+        if (!featureList.querySelector('.complex-hits')) render();
         if (wide.matches) searchBox.focus({ preventScroll: true });
       }
     };
@@ -453,14 +521,7 @@
     window.addEventListener('scroll', close, { passive: true });
     document.body.addEventListener('scroll', close, { passive: true });
     window.addEventListener('resize', function () { if (isOpen()) place(); });
-    searchBox.addEventListener('input', search);
-    featureList.addEventListener('click', function (e) {
-      var btn = e.target.closest('button[data-q]');
-      if (!btn) return;
-      searchBox.value = btn.dataset.q;
-      search();
-      searchBox.focus({ preventScroll: true });
-    });
+    searchBox.addEventListener('input', render);
   }
 
   // --- Dialogs: close button and backdrop click ---------------------------
