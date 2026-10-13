@@ -15,7 +15,9 @@
   _- No internet connection or third-party installation required -_
 
 <kbd>
-<img width="670" alt="QGIS2VectorTilesDemo" src="https://github.com/user-attachments/assets/98da33f5-7513-4f84-a8a7-4d0750d7db63" />
+<a href="https://gallpeters.github.io/QGIS2VectorTiles/">
+  <img width="1424" src="https://github.com/user-attachments/assets/36a6c62a-77c9-4123-b159-73113d0c4918" alt="QGIS2VectorTiles">
+</a>
 </kbd>
 
 </div>
