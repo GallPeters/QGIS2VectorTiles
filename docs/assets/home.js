@@ -5,44 +5,42 @@
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var canHover = window.matchMedia('(hover: hover)').matches;
 
-  // --- QGIS / web comparison slider -------------------------------------
-  // A transparent range input covers the images, so dragging, tapping and
-  // the arrow keys all work natively and screen readers get a slider.
-  var compare = document.querySelector('.compare');
-  if (compare) {
-    var range = compare.querySelector('.compare-range');
-    var touched = false;
-    var setPos = function (v) {
-      compare.style.setProperty('--pos', v + '%');
-      range.setAttribute('aria-valuetext', Math.round(100 - v) + '% web map shown');
+  // --- Hero: live web map ---------------------------------------------
+  // A real export (Natural Earth on GitHub Pages) in an iframe, loaded once
+  // the page itself has loaded. It takes no pointer input until the visitor
+  // clicks it, so wheel and swipe keep moving the page; it lets go again
+  // when the pointer leaves it, the page scrolls, or a click lands outside.
+  var liveMap = document.querySelector('.live-map');
+  if (liveMap) {
+    var frame = null;
+    var activate = liveMap.querySelector('.live-activate');
+    var loadFrame = function () {
+      if (frame) return;
+      frame = document.createElement('iframe');
+      frame.src = liveMap.dataset.src;
+      frame.title = 'Natural Earth live web map';
+      frame.setAttribute('allow', 'fullscreen');
+      frame.addEventListener('load', function () { liveMap.classList.add('is-loaded'); });
+      liveMap.insertBefore(frame, activate);
     };
-    range.addEventListener('input', function () { touched = true; setPos(range.value); });
-    range.addEventListener('pointerdown', function () { touched = true; });
-    setPos(range.value);
-
-    // A short sweep the first time the slider is seen, so it reads as interactive.
-    if (!reduceMotion && 'IntersectionObserver' in window) {
-      var ease = function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
-      var frames = [[50, 78, 900], [78, 24, 1100], [24, 50, 800]];
-      var sweep = function () {
-        var i = 0, start = null;
-        var step = function (now) {
-          if (touched) return;
-          if (start === null) start = now;
-          var f = frames[i], t = Math.min(1, (now - start) / f[2]);
-          var v = f[0] + (f[1] - f[0]) * ease(t);
-          range.value = v;
-          setPos(v);
-          if (t === 1) { i += 1; start = null; if (i === frames.length) return; }
-          window.requestAnimationFrame(step);
-        };
-        setTimeout(function () { window.requestAnimationFrame(step); }, 600);
-      };
-      var seen = new IntersectionObserver(function (entries) {
-        if (entries[0].isIntersecting) { seen.disconnect(); sweep(); }
-      }, { threshold: 0.5 });
-      seen.observe(compare);
-    }
+    var liveSince = 0;
+    var setLive = function (on) {
+      if (liveMap.classList.contains('is-active') === on) return;
+      liveMap.classList.toggle('is-active', on);
+      if (on) {
+        liveSince = Date.now();
+        if (frame) frame.focus({ preventScroll: true });
+      }
+    };
+    if (document.readyState === 'complete') setTimeout(loadFrame, 300);
+    else window.addEventListener('load', function () { setTimeout(loadFrame, 300); });
+    activate.addEventListener('click', function () { loadFrame(); setLive(true); });
+    if (canHover) liveMap.addEventListener('mouseleave', function () { setLive(false); });
+    document.addEventListener('pointerdown', function (e) { if (!liveMap.contains(e.target)) setLive(false); });
+    // Scrolling right after the click (bringing the map into view) keeps it.
+    var releaseLive = function () { if (Date.now() - liveSince > 600) setLive(false); };
+    window.addEventListener('scroll', releaseLive, { passive: true });
+    document.body.addEventListener('scroll', releaseLive, { passive: true });
   }
 
   // --- Pipeline module dialog --------------------------------------------
