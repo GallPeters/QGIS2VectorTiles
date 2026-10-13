@@ -8,20 +8,31 @@ format.
 The MVT driver works a run's zoom levels one after another and gains
 nothing from GDAL_NUM_THREADS (measured slower), so the zoom levels are
 split into parallel ogr2ogr runs, one process each, whose MBTiles are then
-merged into one (zoom levels never share a tile).
+merged into one (zoom levels never share a tile). Workers left over when
+there are fewer zoom levels than workers split zoom levels by area into
+strips of tile columns: a strip's run reads only the features near it and
+keeps only its own tiles.
+
+Each run's temporary database, which the driver writes every feature of
+every tile to, is kept in memory while the runs' estimated sizes fit in
+half the free memory (several times faster than on disk), else on disk.
 
 Depends on: config (for constants only — no custom class dependencies)
 """
 
+import ctypes
 import json
+import math
 import os
 import shutil
 import sqlite3
 import subprocess
+import threading
 import time
+from dataclasses import dataclass
 from os import cpu_count
 from os.path import join, basename
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 from xml.sax.saxutils import escape, quoteattr
 from osgeo import ogr
@@ -29,10 +40,31 @@ from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
-    _TILE_MAX_FEATURES, _TILE_MAX_SIZE,
+    _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
 )
 
 _CREATE_NO_WINDOW = 0x08000000
+
+# Half the width of the EPSG:3857 world, in metres.
+_WORLD_HALF = 20037508.342789244
+
+# A run's temporary database in memory takes about this many times the size
+# of the datasets it reads, per zoom level (measured: 3.3).
+_MEMORY_PER_DATASET_BYTE = 4
+
+# Share of the free memory the runs' in-memory databases may take together.
+_MEMORY_SHARE = 0.5
+
+
+@dataclass
+class _Run:
+    """One ogr2ogr run: zoom levels lo..hi, of all tile columns or of
+    columns[0]..columns[1] only, written to ``output``."""
+    lo: int
+    hi: int
+    columns: Optional[Tuple[int, int]] = None
+    output: str = ""
+    in_memory: bool = False
 
 
 class GDALTilesGenerator:
@@ -53,6 +85,13 @@ class GDALTilesGenerator:
         self.extent = extent
         self.cpu_percent = cpu_percent
         self.feedback = feedback
+        # Set by cancel(), from another thread.
+        self._cancelled = threading.Event()
+
+    def cancel(self):
+        """Stop generating (from another thread): the runs are stopped and
+        generate() raises."""
+        self._cancelled.set()
 
     def generate(self) -> Tuple[str, int]:
         """Build the VRTs, run ogr2ogr, return (mbtiles URI, min_zoom)."""
@@ -62,27 +101,156 @@ class GDALTilesGenerator:
         first = min(min_zoom, _TILES_MAX_ZOOM)
         last = min(max_zoom, _TILES_MAX_ZOOM)
         self._last_zoom = last
-        runs = [
-            run for run in self._zoom_runs(first, last, self._worker_count())
+        workers = self._worker_count()
+        zoom_runs = [
+            run for run in self._zoom_runs(first, last, workers)
             if self._run_layers(*run)
         ] or [(first, last)]
+        runs = self._split_by_area(zoom_runs, workers)
+        self._place_temporary_dbs(runs)
         if len(runs) == 1:
-            self._run_ogr2ogr_runs([(output, first, last)])
+            runs[0].output = output
+            self._run_ogr2ogr_runs(runs)
         else:
-            parts = [
-                (join(QgsProcessingUtils.tempFolder(), f"tiles_{lo}_{hi}_{uuid4().hex}.mbtiles"), lo, hi)
-                for lo, hi in runs
-            ]
+            for run in runs:
+                run.output = join(
+                    QgsProcessingUtils.tempFolder(), f"tiles_{run.lo}_{run.hi}_{uuid4().hex}.mbtiles"
+                )
             try:
-                self._run_ogr2ogr_runs(parts)
-                self._merge(output, [path for path, _, _ in parts], first, last)
+                self._run_ogr2ogr_runs(runs)
+                self._merge(output, runs, first, last)
             finally:
-                for path, _, _ in parts:
-                    self._remove(path)
+                for run in runs:
+                    self._remove(run.output)
         return uri, min_zoom
 
     def _worker_count(self) -> int:
         return max(1, int((cpu_count() or 1) * self.cpu_percent / 100))
+
+    # --- Tile grid over the extent ---
+
+    @staticmethod
+    def _tile_index(coordinate: float, zoom: int) -> int:
+        """The tile column (or row from the south) holding an EPSG:3857
+        coordinate."""
+        tiles = 2 ** zoom
+        index = int(math.floor((coordinate + _WORLD_HALF) / (2 * _WORLD_HALF) * tiles))
+        return min(max(index, 0), tiles - 1)
+
+    def _tile_range(self, zoom: int) -> Tuple[int, int, int, int]:
+        """(first column, last column, first row, last row) of the tiles
+        covering the extent; the whole world without one."""
+        e = self.extent
+        if e is None or e.isEmpty():
+            return 0, 2 ** zoom - 1, 0, 2 ** zoom - 1
+        return (self._tile_index(e.xMinimum(), zoom), self._tile_index(e.xMaximum(), zoom),
+                self._tile_index(e.yMinimum(), zoom), self._tile_index(e.yMaximum(), zoom))
+
+    def _tile_count(self, zoom: int) -> int:
+        c0, c1, r0, r1 = self._tile_range(zoom)
+        return (c1 - c0 + 1) * (r1 - r0 + 1)
+
+    def _max_tile_size(self, zoom: int) -> int:
+        """MAX_SIZE of a run whose last zoom level is ``zoom``."""
+        return max(_TILE_MAX_SIZE, min(_TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE // self._tile_count(zoom)))
+
+    # --- Splitting zoom levels by area ---
+
+    def _split_by_area(self, zoom_runs: List[Tuple[int, int]], workers: int) -> List[_Run]:
+        """The runs: one per zoom run, single-zoom ones split into strips of
+        tile columns while workers are left. Every zoom level costs about
+        the same (each writes every feature), so the zoom with the fewest
+        strips is split further, the one with most columns first."""
+        strips = {run: 1 for run in zoom_runs}
+        columns = {}
+        for lo, hi in zoom_runs:
+            c0, c1, _, _ = self._tile_range(hi)
+            columns[(lo, hi)] = c1 - c0 + 1
+        spare = workers - len(zoom_runs)
+        while spare > 0:
+            candidates = [
+                run for run in zoom_runs
+                if run[0] == run[1] and strips[run] < columns[run]
+            ]
+            if not candidates:
+                break
+            run = min(candidates, key=lambda r: (strips[r], -columns[r], -r[0]))
+            strips[run] += 1
+            spare -= 1
+        runs = []
+        for lo, hi in zoom_runs:
+            count = strips[(lo, hi)]
+            if count == 1:
+                runs.append(_Run(lo, hi))
+                continue
+            c0, c1, _, _ = self._tile_range(hi)
+            total = c1 - c0 + 1
+            start = c0
+            for i in range(count):
+                width = total // count + (1 if i < total % count else 0)
+                runs.append(_Run(lo, hi, (start, start + width - 1)))
+                start += width
+        return runs
+
+    def _strip_filter(self, run: _Run) -> List[str]:
+        """ogr2ogr's spatial filter for a strip: its columns, widened by a
+        tile on each side so that every feature reaching into its tiles
+        (or their buffer) is read; nothing for a whole run."""
+        if run.columns is None:
+            return []
+        tile = 2 * _WORLD_HALF / 2 ** run.hi
+        west = -_WORLD_HALF + run.columns[0] * tile - tile
+        east = -_WORLD_HALF + (run.columns[1] + 1) * tile + tile
+        return ["-spat", repr(west), repr(-_WORLD_HALF), repr(east), repr(_WORLD_HALF)]
+
+    # --- Temporary databases ---
+
+    def _place_temporary_dbs(self, runs: List[_Run]):
+        """Keep runs' temporary databases in memory while their estimated
+        sizes fit in _MEMORY_SHARE of the free memory."""
+        budget = self._free_memory() * _MEMORY_SHARE
+        sizes = {}
+        for run in runs:
+            layers = self._run_layers(run.lo, run.hi)
+            data = sum(self._dataset_size(layer) for layer, _, _ in layers.values())
+            strips = 1
+            if run.columns is not None:
+                c0, c1, _, _ = self._tile_range(run.hi)
+                strips = max(1, (c1 - c0 + 1) / (run.columns[1] - run.columns[0] + 1))
+            sizes[id(run)] = _MEMORY_PER_DATASET_BYTE * data * (run.hi - run.lo + 1) / strips
+        for run in sorted(runs, key=lambda r: sizes[id(r)]):
+            if sizes[id(run)] <= budget:
+                run.in_memory = True
+                budget -= sizes[id(run)]
+
+    @staticmethod
+    def _dataset_size(layer: QgsVectorLayer) -> int:
+        try:
+            return os.path.getsize(layer.source().split("|")[0])
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _free_memory() -> int:
+        """Free physical memory in bytes; 0 if unknown."""
+        try:
+            if os.name == "nt":
+                class _MemoryStatus(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                    ]
+                status = _MemoryStatus()
+                status.dwLength = ctypes.sizeof(status)
+                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                    return int(status.ullAvailPhys)
+                return 0
+            return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+        except (AttributeError, OSError, ValueError):
+            return 0
 
     @staticmethod
     def _zoom_runs(first: int, last: int, workers: int) -> List[Tuple[int, int]]:
@@ -193,25 +361,30 @@ class GDALTilesGenerator:
 
     # --- ogr2ogr execution ---
 
-    def _ogr2ogr_command(self, output: str, lo: int, hi: int) -> List[str]:
-        """The ogr2ogr command of one run (zooms lo..hi), writing its VRT and
-        CONF next to the temporary files."""
+    def _ogr2ogr_command(self, run: _Run) -> List[str]:
+        """The ogr2ogr command of one run, writing its VRT and CONF next to
+        the temporary files."""
+        lo, hi = run.lo, run.hi
         run_layers = self._run_layers(lo, hi)
         tag = f"{lo}_{hi}_{uuid4().hex}"
         vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
         conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
         self._build_vrt(vrt_path, [layer for layer, _, _ in run_layers.values()])
         self._build_layer_conf(conf_path, run_layers)
-        # The temporary database is written heavily; keep it on local disk,
-        # not next to the output (which may be a synced or network folder).
-        temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
+        # The temporary database is written heavily: in memory if it fits,
+        # else on local disk, not next to the output (which may be a synced
+        # or network folder).
+        if run.in_memory:
+            temporary_db = f"/vsimem/tiles_{tag}.temp.db"
+        else:
+            temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
         # The driver applies SIMPLIFICATION_MAX_ZOOM at a run's last zoom:
         # only the tiles' real last zoom is left unsimplified.
         last_zoom_simplification = (
             _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else _SIMPLIFICATION
         )
         return [
-            "ogr2ogr", "-f", "MBTiles", output, vrt_path,
+            "ogr2ogr", "-f", "MBTiles", run.output, vrt_path,
             # MAXZOOM also becomes the MBTiles metadata's maxzoom, from which
             # QGIS enlarges the tiles beyond it.
             "-dsco", f"MINZOOM={lo}",
@@ -219,16 +392,34 @@ class GDALTilesGenerator:
             "-dsco", f"CONF={conf_path}",
             "-dsco", f"TEMPORARY_DB={temporary_db}",
             "-t_srs", f"EPSG:{_EPSG_CRS}",
-            "-dsco", f"MAX_SIZE={_TILE_MAX_SIZE}",
+            "-dsco", f"MAX_SIZE={self._max_tile_size(hi)}",
             "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
             "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
             "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
+            *self._strip_filter(run),
         ]
 
-    def _run_ogr2ogr_runs(self, runs: List[Tuple[str, int, int]]):
-        """Run ogr2ogr once per (output, lo, hi), all at once, each on one
-        thread; raises RuntimeError if any fails, and stops them all if the
-        conversion is cancelled."""
+    def _run_ogr2ogr_runs(self, runs: List[_Run]):
+        """Run ogr2ogr once per run, all at once, each on one thread; raises
+        RuntimeError if any fails, and stops them all if the conversion is
+        cancelled. A run that fails with its temporary database in memory
+        (e.g. out of memory) is run again with it on disk."""
+        failed = self._run_processes(runs)
+        retry = [run for run, _ in failed if run.in_memory]
+        if retry:
+            for run in retry:
+                run.in_memory = False
+                self._remove(run.output)
+            failed = self._run_processes(retry)
+        if failed:
+            error_msg = f"ogr2ogr failed.\nError: {failed[0][1]}"
+            if self.feedback:
+                self.feedback.reportError(error_msg)
+            raise RuntimeError(error_msg)
+
+    def _run_processes(self, runs: List[_Run]) -> List[Tuple[_Run, str]]:
+        """Run the runs' ogr2ogr processes at once; the failed runs with the
+        end of their error output."""
         env = os.environ.copy()
         env["GDAL_NUM_THREADS"] = "1"
         startupinfo = None
@@ -240,48 +431,61 @@ class GDALTilesGenerator:
             startupinfo.wShowWindow = 0
 
         processes = []
+        failed = []
         try:
-            for output, lo, hi in runs:
-                stderr_path = f"{output}.log"
+            for run in runs:
+                stderr_path = f"{run.output}.log"
                 with open(stderr_path, "w", encoding="utf-8") as stderr:
-                    processes.append((subprocess.Popen(
-                        self._ogr2ogr_command(output, lo, hi), env=env,
+                    processes.append((run, subprocess.Popen(
+                        self._ogr2ogr_command(run), env=env,
                         stdout=subprocess.DEVNULL, stderr=stderr,
                         startupinfo=startupinfo, creationflags=creationflags,
                     ), stderr_path))
-            while any(process.poll() is None for process, _ in processes):
-                if self.feedback is not None and self.feedback.isCanceled():
+            while any(process.poll() is None for _, process, _ in processes):
+                if self._cancelled.is_set() or (
+                        self.feedback is not None and self.feedback.isCanceled()):
                     raise RuntimeError("Tile generation cancelled.")
                 time.sleep(0.25)
-            for process, stderr_path in processes:
+            for run, process, stderr_path in processes:
                 if process.returncode != 0:
                     with open(stderr_path, encoding="utf-8", errors="replace") as f:
-                        error_msg = f"ogr2ogr failed.\nError: {f.read()[-4000:]}"
-                    if self.feedback:
-                        self.feedback.reportError(error_msg)
-                    raise RuntimeError(error_msg)
+                        failed.append((run, f.read()[-4000:]))
         finally:
-            for process, stderr_path in processes:
+            for _, process, stderr_path in processes:
                 if process.poll() is None:
                     process.kill()
                     process.wait()
                 self._remove(stderr_path)
+        return failed
 
     # --- Merging the runs' MBTiles ---
 
     @classmethod
-    def _merge(cls, output: str, parts: List[str], first: int, last: int):
-        """Merge the runs' MBTiles (disjoint zoom levels) into ``output``:
-        all tiles, and metadata covering all zooms and layers."""
+    def _merge(cls, output: str, runs: List[_Run], first: int, last: int):
+        """Merge the runs' MBTiles (disjoint zoom levels, or disjoint tile
+        columns of one) into ``output``: each run's own tiles, and metadata
+        covering all zooms and layers. A strip's run also writes partial
+        tiles beside its columns, which are left out."""
         cls._remove(output)
-        shutil.copyfile(parts[0], output)
+        shutil.copyfile(runs[0].output, output)
         conn = sqlite3.connect(output)
         try:
+            if runs[0].columns is not None:
+                conn.execute(
+                    "DELETE FROM tiles WHERE tile_column < ? OR tile_column > ?", runs[0].columns
+                )
+                conn.commit()
             metadata = [dict(conn.execute("SELECT name, value FROM metadata"))]
             # Attached one at a time, always under the same name.
-            for part in parts[1:]:
-                conn.execute("ATTACH DATABASE ? AS part", (part,))
-                conn.execute("INSERT INTO tiles SELECT * FROM part.tiles")
+            for run in runs[1:]:
+                conn.execute("ATTACH DATABASE ? AS part", (run.output,))
+                if run.columns is None:
+                    conn.execute("INSERT INTO tiles SELECT * FROM part.tiles")
+                else:
+                    conn.execute(
+                        "INSERT INTO tiles SELECT * FROM part.tiles "
+                        "WHERE tile_column BETWEEN ? AND ?", run.columns
+                    )
                 metadata.append(dict(conn.execute("SELECT name, value FROM part.metadata")))
                 conn.commit()
                 conn.execute("DETACH DATABASE part")

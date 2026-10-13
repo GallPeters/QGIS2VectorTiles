@@ -54,6 +54,9 @@ The redesign separates the export pipeline into clearly typed phases:
    │   * The caller thread writes finished batches to the base layer in   │
    │     reading order, numbering orig_id as it goes. No intermediate     │
    │     copy of the source is written.                                   │
+   │   * Local files GDAL reads as QGIS does skip Phases 1 + 2: GDAL      │
+   │     builds their base layers in C++, one task each, in parallel      │
+   │     with the reads above (see _gdal_base_plan).                      │
    ├──────────────────────────────────────────────────────────────────────┤
    │ Phase 3 — Rule export (PARALLEL, file → file)                        │
    │   * Rules that would write the same rows (the symbol layers of one   │
@@ -215,9 +218,19 @@ RULE_FIELD = f"{_FIELD_PREFIX}_rule"
 # Most rules one shared dataset holds.
 _MAX_MEMBERS = 250
 
-# Set Q2VT_NO_GDAL_EXPORT=1 to export every dataset with the Python pass
-# (for comparing the two paths).
+# Set Q2VT_NO_GDAL_EXPORT=1 to export every dataset with the Python pass, and
+# Q2VT_NO_GDAL_BASE=1 to build every base layer by reading it with QGIS (for
+# comparing the two paths).
 _GDAL_EXPORT = os.environ.get("Q2VT_NO_GDAL_EXPORT") != "1"
+_GDAL_BASE = os.environ.get("Q2VT_NO_GDAL_BASE") != "1"
+
+# Intermediate GDAL files are kept in memory (/vsimem/) when their input is
+# at most this large, and written next to the other temporary files if not.
+_GDAL_MEMORY_INPUT_MAX = 256 * 1024 * 1024
+
+# Geometry family (geometrybyexpression OUTPUT_GEOMETRY code, as in
+# _OGR_OUTPUT) of an OGR layer geometry type, linear and single.
+_OGR_FAMILY = {ogr.wkbPolygon: 0, ogr.wkbLineString: 1, ogr.wkbPoint: 2}
 
 # Output geometry per geometrybyexpression OUTPUT_GEOMETRY code, as OGR names:
 # the geometry type GDAL writes and the source geometries it keeps.
@@ -309,6 +322,8 @@ class _SourceSnapshot:
     required_fields: Optional[Tuple[str, ...]] = None
     # Set for _LIVE_PROVIDERS, which are read from it instead of the URI.
     live: Optional[_LiveSource] = None
+    # The layer's CRS in QGIS (which may differ from the file's), as WKT.
+    crs_wkt: str = ""
 
     @property
     def needs_serial_read(self) -> bool:
@@ -886,6 +901,7 @@ class RulesExporter:
                 extent=self._extent_in_crs(layer.crs()),
                 required_fields=self._required_source_fields(groups),
                 live=_LiveSource.of(layer) if layer.providerType() in _LIVE_PROVIDERS else None,
+                crs_wkt=layer.crs().toWkt(Qgis.CrsWktVariant.Preferred) if layer.crs().isValid() else "",
             )
 
         return sources, rule_groups
@@ -1062,28 +1078,35 @@ class RulesExporter:
         ) as pool:
             # (build, future) in submission order — the order they are written.
             pending: Deque[Tuple[_BaseBuild, Future]] = deque()
+            # Sources GDAL builds in C++, each one task, while this thread
+            # reads the others with QGIS.
+            gdal_builds: Dict[str, Future] = {}
             try:
                 for lid, src in todo.items():
                     # Cached entries are built under a temporary name.
                     path = cache.temp_path_for(target_paths[lid]) if cached[lid] else target_paths[lid]
-                    build = builds[lid] = _BaseBuild(src, path)
-                    try:
-                        if src.needs_serial_read:
-                            with self._serial_read_lock:
-                                self._read_source(build, pool, pending, max_workers)
-                        else:
-                            self._read_source(build, pool, pending, max_workers)
-                    except _Cancelled:
-                        raise
-                    except Exception as e:  # noqa: BLE001  (we want to swallow per-source)
-                        self._fail_base_build(build, e)
-                    build.reading_done = True
-                    if build.pending == 0:
-                        self._finish_base_build(build)
+                    builds[lid] = _BaseBuild(src, path)
+                    plan = self._gdal_base_plan(src) if _GDAL_BASE else None
+                    if plan is not None:
+                        gdal_builds[lid] = pool.submit(self._build_base_gdal, src, plan, path)
+                for lid, build in builds.items():
+                    if lid not in gdal_builds:
+                        self._read_into_build(build, pool, pending, max_workers)
+                self._write_ready_batches(pending, keep=0)
+                for lid, fut in gdal_builds.items():
+                    build = builds[lid]
+                    if self._wait_for(fut):
+                        build.finished = True
+                    else:
+                        # Read it with QGIS instead.
+                        self._remove_file(build.path)
+                        self._read_into_build(build, pool, pending, max_workers)
                 self._write_ready_batches(pending, keep=0)
             except _Cancelled:
                 self.feedback.pushInfo("Base-layer build cancelled.")
                 for _, fut in pending:
+                    fut.cancel()
+                for fut in gdal_builds.values():
                     fut.cancel()
                 for build in builds.values():
                     if not build.finished:
@@ -1094,6 +1117,265 @@ class RulesExporter:
             if build.finished and cached[lid]:
                 target_paths[lid] = cache.commit(build.path, target_paths[lid])
         return target_paths
+
+    def _read_into_build(
+        self,
+        build: _BaseBuild,
+        pool: ThreadPoolExecutor,
+        pending: "Deque[Tuple[_BaseBuild, Future]]",
+        max_workers: int,
+    ) -> None:
+        """Read a source with QGIS into its base layer (see _read_source)."""
+        try:
+            if build.src.needs_serial_read:
+                with self._serial_read_lock:
+                    self._read_source(build, pool, pending, max_workers)
+            else:
+                self._read_source(build, pool, pending, max_workers)
+        except _Cancelled:
+            raise
+        except Exception as e:  # noqa: BLE001  (we want to swallow per-source)
+            self._fail_base_build(build, e)
+        build.reading_done = True
+        if build.pending == 0:
+            self._finish_base_build(build)
+
+    def _wait_for(self, fut: Future) -> bool:
+        """Wait for a GDAL task, watching for cancellation; whether it
+        succeeded."""
+        while True:
+            done, _ = wait([fut], timeout=0.5)
+            self._check_cancel()
+            if done:
+                break
+        try:
+            fut.result()
+            return True
+        except _Cancelled:
+            raise
+        except Exception:  # noqa: BLE001  (the caller falls back to QGIS)
+            return False
+
+    # -------------------------------------------------------------------
+    # Phases 1 + 2, GDAL path — base layers built by GDAL in C++
+    # -------------------------------------------------------------------
+    def _gdal_base_plan(self, src: _SourceSnapshot) -> Optional[dict]:
+        """How GDAL reads a source into its base layer, or None if QGIS must
+        read it.
+
+        GDAL reads local files whose URI has no options besides the layer
+        (a subset filter or a geometry type split falls back to QGIS), in
+        the layer's QGIS CRS, when the project sets no particular datum
+        transformation for it. Caller thread: the source is opened here, one
+        at a time, as QGIS reads them.
+        """
+        if src.live is not None or src.provider != "ogr" or not src.crs_wkt:
+            return None
+        path, *options = src.source_uri.split("|")
+        layer_name, layer_index = None, 0
+        for option in options:
+            key, _, value = option.partition("=")
+            if key == "layername":
+                layer_name = value
+            elif key == "layerid" and value.isdigit():
+                layer_index = int(value)
+            else:
+                return None
+        if not os.path.isfile(path):
+            return None
+        source_crs = QgsCoordinateReferenceSystem.fromWkt(src.crs_wkt)
+        target_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
+        if not source_crs.isValid() or self._transform_context.hasTransform(source_crs, target_crs):
+            return None
+        try:
+            ds = gdal.OpenEx(path, gdal.OF_VECTOR | gdal.OF_READONLY)
+        except RuntimeError:
+            return None
+        if ds is None:
+            return None
+        layer = ds.GetLayerByName(layer_name) if layer_name else ds.GetLayer(layer_index)
+        if layer is None:
+            return None
+        family = _OGR_FAMILY.get(ogr.GT_GetSingle(ogr.GT_GetLinear(ogr.GT_Flatten(layer.GetGeomType()))))
+        select = self._gdal_base_columns(layer, src.required_fields)
+        if family is None or select is None:
+            return None
+        # OGR SQL over a project source; every name in it is quoted and
+        # escaped (_sql_name).
+        sql = f'SELECT {select} FROM "{_sql_name(layer.GetName())}"'  # nosec B608
+        return {"dataset": ds, "sql": sql, "family": family, "size": self._file_size(path)}
+
+    @staticmethod
+    def _gdal_base_columns(layer, required_fields: Optional[Tuple[str, ...]]) -> Optional[str]:
+        """The OGR SQL select list of a base layer: the fields QGIS would
+        read (the FID column too, which QGIS shows as a field), orig_id
+        numbered by FID and q2vt_biggest set to 1; None if GDAL can't
+        select them as QGIS does."""
+        defn = layer.GetLayerDefn()
+        names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
+        fid_column = layer.GetFIDColumn()
+        available = ([fid_column] if fid_column else []) + names
+        if any(name in (f"{_FIELD_PREFIX}_orig_id", _BIGGEST_FIELD) for name in available):
+            return None
+        if required_fields is None:
+            wanted = available
+        else:
+            # QGIS finds a field regardless of case, and skips unknown names.
+            by_lower = {}
+            for name in available:
+                by_lower.setdefault(name.lower(), name)
+            wanted = []
+            for name in required_fields:
+                found = name if name in available else by_lower.get(name.lower())
+                if found is not None and found not in wanted:
+                    wanted.append(found)
+        items = [
+            f'CAST(FID AS integer64) AS "{_sql_name(name)}"' if name == fid_column
+            else f'"{_sql_name(name)}"'
+            for name in wanted
+        ]
+        items.append(f'CAST(FID AS float) AS "{_FIELD_PREFIX}_orig_id"')
+        items.append(f'CAST(1 AS integer) AS "{_BIGGEST_FIELD}"')
+        return ", ".join(items)
+
+    def _build_base_gdal(self, src: _SourceSnapshot, plan: dict, path: str) -> None:
+        """Worker: build a base layer with GDAL — what _prepare_base_batch
+        does, in C++ without the Python interpreter lock.
+
+        A first copy reads the in-extent features (bounding-box test, as
+        QGIS's filter rectangle), repairs them (GEOS make-valid, keeping
+        the original dimension) and reprojects them; a second explodes
+        multi-parts, keeps the layer's geometry type and simplifies each
+        part. Parts of multi-part features then get their q2vt_biggest flags
+        (see _flag_biggest_parts). Raises if GDAL fails.
+        """
+        self._check_cancel()
+        family = plan["family"]
+        geometry_type, kept_types = _OGR_OUTPUT[family]
+        stage = self._gdal_stage_path(f"base_{uuid4().hex}", plan["size"])
+        callback = self._gdal_progress
+        try:
+            self._gdal_translate(stage, plan["dataset"], gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName="base", layerCreationOptions=["SPATIAL_INDEX=NO"],
+                SQLStatement=plan["sql"], SQLDialect="OGRSQL",
+                spatFilter=list(src.extent) if src.extent is not None else None,
+                srcSRS=src.crs_wkt, dstSRS=f"EPSG:{_EPSG_CRS}", makeValid=family != 2,
+                geometryType="GEOMETRY", dim="XY", skipFailures=True, callback=callback,
+            ))
+            self._check_cancel()
+            kept = ", ".join(f"'{t}'" for t in kept_types)
+            self._gdal_translate(path, stage, gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName=splitext(basename(path))[0],
+                layerCreationOptions=["SPATIAL_INDEX=NO"], explodeCollections=True,
+                geometryType=geometry_type, dim="XY", where=f"OGR_GEOMETRY IN ({kept})",
+                simplifyTolerance=None if family == 2 else _DATA_SIMPLIFICATION_TOLERANCE,
+                skipFailures=True, callback=callback,
+            ))
+        except BaseException:
+            self._remove_file(path)
+            raise
+        finally:
+            self._remove_file(stage)
+            plan["dataset"] = None  # Closes the source.
+        self._check_cancel()
+        self._flag_biggest_parts(path, family)
+
+    def _flag_biggest_parts(self, path: str, family: int) -> None:
+        """Clear q2vt_biggest on all but the largest part of each multi-part
+        feature (parts share their orig_id and are consecutive).
+
+        Most layers have none; that is checked on the orig_id column alone.
+        Otherwise the layer is copied with the flags set, the first of equal
+        parts counting as the largest, as in _prepare_base_batch.
+        """
+        orig_name = f"{_FIELD_PREFIX}_orig_id"
+        if not self._has_repeated_values(path, orig_name):
+            return
+        temp_path = join(self.utils_dir, f"flags_{uuid4().hex}.{_TEMP_LAYER_FORMAT}")
+        src_ds = ogr.Open(path)
+        out_ds = None
+        try:
+            src_layer = src_ds.GetLayer(0)
+            defn = src_layer.GetLayerDefn()
+            orig_idx = defn.GetFieldIndex(orig_name)
+            biggest_idx = defn.GetFieldIndex(_BIGGEST_FIELD)
+            out_ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(temp_path)
+            out_layer = out_ds.CreateLayer(
+                src_layer.GetName(), src_layer.GetSpatialRef(), src_layer.GetGeomType(),
+                ["SPATIAL_INDEX=NO"],
+            )
+            for i in range(defn.GetFieldCount()):
+                out_layer.CreateField(defn.GetFieldDefn(i))
+            out_defn = out_layer.GetLayerDefn()
+
+            def size(feature) -> float:
+                geometry = feature.GetGeometryRef()
+                if geometry is None:
+                    return -1.0
+                return geometry.GetArea() if family == 0 else geometry.Length() if family == 1 else 0.0
+
+            def write(group) -> None:
+                if len(group) > 1:
+                    biggest = max(group, key=size)
+                    for feature in group:
+                        feature.SetField(biggest_idx, 1 if feature is biggest else 0)
+                for feature in group:
+                    out = ogr.Feature(out_defn)
+                    out.SetFrom(feature)
+                    out_layer.CreateFeature(out)
+
+            group, group_id = [], None
+            for n, feature in enumerate(src_layer):
+                if n % _WRITE_BATCH_SIZE == 0:
+                    self._check_cancel()
+                feature_id = feature.GetField(orig_idx)
+                if group and feature_id != group_id:
+                    write(group)
+                    group = []
+                group_id = feature_id
+                group.append(feature)
+            write(group)
+        except BaseException:
+            out_ds = None
+            self._remove_file(temp_path)
+            raise
+        finally:
+            src_ds = None
+        out_ds = None  # Closes and flushes the file.
+        os.replace(temp_path, path)
+
+    @staticmethod
+    def _has_repeated_values(path: str, field_name: str) -> bool:
+        """Whether a field of a dataset holds any value twice; read as one
+        column (Arrow), True if that isn't possible."""
+        try:
+            import numpy  # pylint: disable=import-outside-toplevel
+            ds = gdal.OpenEx(path, gdal.OF_VECTOR)
+            layer = ds.GetLayer(0)
+            defn = layer.GetLayerDefn()
+            layer.SetIgnoredFields([
+                defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())
+                if defn.GetFieldDefn(i).GetName() != field_name
+            ] + ["OGR_GEOMETRY"])
+            batches = [batch[field_name] for batch in layer.GetArrowStreamAsNumPy()]
+            ds = None
+        except Exception:  # noqa: BLE001  (then copy the layer to find out)
+            return True
+        if not batches:
+            return False
+        values = numpy.concatenate(batches)
+        return len(numpy.unique(values)) != len(values)
+
+    def _gdal_stage_path(self, name: str, input_size: int) -> str:
+        """An intermediate FlatGeobuf file: in memory for inputs up to
+        _GDAL_MEMORY_INPUT_MAX, else with the temporary files."""
+        if input_size <= _GDAL_MEMORY_INPUT_MAX:
+            return f"/vsimem/q2vt_{name}.{_TEMP_LAYER_FORMAT}"
+        return join(self.utils_dir, f"{name}.{_TEMP_LAYER_FORMAT}")
+
+    def _gdal_progress(self, *_args) -> int:
+        """GDAL progress callback: 0 stops GDAL once the run is cancelled."""
+        return 0 if self._is_cancelled() else 1
 
     def _read_source(
         self,
@@ -1249,8 +1531,10 @@ class RulesExporter:
             for part in parts:
                 out = QgsFeature(out_fields)
                 out.setAttributes(attributes)
+                # Points have nothing to simplify.
                 out.setGeometry(
-                    part if part.isNull() else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
+                    part if part.isNull() or part.type() == Qgis.GeometryType.Point
+                    else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
                 )
                 out.setAttribute(biggest_idx, 0)
                 features.append(out)
@@ -1582,7 +1866,8 @@ class RulesExporter:
         GDAL runs each member's SQL over the base layer (one VRT union
         layer), clipping to the extent; a second copy explodes the clipped
         multi-part results, keeps the output geometry type and makes curves
-        linear.
+        linear. The base layer's parts are single, so points, which
+        clipping keeps or drops whole, are written in one copy.
         """
         self._check_cancel()
         name = grp.output_dataset
@@ -1590,7 +1875,7 @@ class RulesExporter:
         if exists(output_path):
             return output_path
         vrt_path = join(self.utils_dir, f"{name}.gdal.vrt")
-        clipped_path = join(self.utils_dir, f"{name}.gdal.{_TEMP_RULE_FORMAT}")
+        clipped_path = self._gdal_stage_path(f"{name}_{uuid4().hex}", self._file_size(src_path))
         geometry_type, kept_types = job["geometry"]
         layers = "".join(
             f'<OGRVRTLayer name="m{i}"><SrcDataSource>{xml_escape(src_path)}</SrcDataSource>'
@@ -1607,22 +1892,34 @@ class RulesExporter:
                     f"<FieldStrategy>FirstLayer</FieldStrategy>{layers}"
                     "</OGRVRTUnionLayer></OGRVRTDataSource>"
                 )
-            self._gdal_translate(clipped_path, vrt_path, gdal.VectorTranslateOptions(
-                format="FlatGeobuf", layerName=splitext(basename(clipped_path))[0],
-                layerCreationOptions=["SPATIAL_INDEX=NO"], spatFilter=bbox, clipDst=bbox,
-                # Any geometry type: clipping makes multi-part geometries.
-                geometryType="GEOMETRY", dim="XY",
-            ))
-            self._check_cancel()
             kept = ", ".join(f"'{t}'" for t in kept_types)
-            # Clipping can leave parts of another type (a line touching the
-            # extent's edge leaves a point); like _parts_of_type, they are
-            # skipped (FlatGeobuf has no transactions, so this costs nothing).
-            self._gdal_translate(output_path, clipped_path, gdal.VectorTranslateOptions(
-                format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
-                explodeCollections=True, geometryType=geometry_type, dim="XY",
-                where=f"OGR_GEOMETRY IN ({kept})", skipFailures=True,
-            ))
+            if geometry_type == "POINT":
+                # A point's bounding box is the point: the spatial filter
+                # keeps exactly the points clipping would.
+                self._gdal_translate(output_path, vrt_path, gdal.VectorTranslateOptions(
+                    format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
+                    spatFilter=bbox, explodeCollections=True, geometryType=geometry_type,
+                    dim="XY", where=f"OGR_GEOMETRY IN ({kept})", skipFailures=True,
+                    callback=self._gdal_progress,
+                ))
+            else:
+                self._gdal_translate(clipped_path, vrt_path, gdal.VectorTranslateOptions(
+                    format="FlatGeobuf", layerName="clipped",
+                    layerCreationOptions=["SPATIAL_INDEX=NO"], spatFilter=bbox, clipDst=bbox,
+                    # Any geometry type: clipping makes multi-part geometries.
+                    geometryType="GEOMETRY", dim="XY", callback=self._gdal_progress,
+                ))
+                self._check_cancel()
+                # Clipping can leave parts of another type (a line touching
+                # the extent's edge leaves a point); like _parts_of_type,
+                # they are skipped (FlatGeobuf has no transactions, so this
+                # costs nothing).
+                self._gdal_translate(output_path, clipped_path, gdal.VectorTranslateOptions(
+                    format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
+                    explodeCollections=True, geometryType=geometry_type, dim="XY",
+                    where=f"OGR_GEOMETRY IN ({kept})", skipFailures=True,
+                    callback=self._gdal_progress,
+                ))
             ds = ogr.Open(output_path)
             count = ds.GetLayer(0).GetFeatureCount() if ds is not None else -1
             ds = None
@@ -1643,10 +1940,16 @@ class RulesExporter:
     def _gdal_translate(dest: str, src: str, options) -> None:
         """gdal.VectorTranslate; raises RuntimeError on failure, whether GDAL
         reports it by exception or by result."""
-        ds = gdal.VectorTranslate(dest, src, options=options)
-        if ds is None:
-            raise RuntimeError(gdal.GetLastErrorMsg() or f"GDAL could not write {dest}")
-        ds = None  # Closes and flushes the file.
+        # GDAL's messages (this thread's only) are not shown: a failure
+        # raises, with the last one.
+        gdal.PushErrorHandler("CPLQuietErrorHandler")
+        try:
+            ds = gdal.VectorTranslate(dest, src, options=options)
+            if ds is None:
+                raise RuntimeError(gdal.GetLastErrorMsg() or f"GDAL could not write {dest}")
+            ds = None  # Closes and flushes the file.
+        finally:
+            gdal.PopErrorHandler()
 
     def validate_expression(self, grp, expr_str: str):
         warning_msg = f'The expression "{expr_str}" within the {grp.label}'
@@ -2490,6 +2793,10 @@ class RulesExporter:
 
     @staticmethod
     def _remove_file(path: str) -> None:
+        if path.startswith("/vsimem/"):
+            if gdal.VSIStatL(path) is not None:
+                gdal.Unlink(path)
+            return
         try:
             if exists(path):
                 os.remove(path)

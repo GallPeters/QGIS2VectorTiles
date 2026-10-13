@@ -13,10 +13,12 @@ pipeline from QGIS project styling to vector tiles:
   6. Serve tiles via local HTTP server
 """
 
+from copy import deepcopy
 from datetime import datetime
 from os import makedirs, listdir
 from os.path import join
 from shutil import rmtree
+from threading import Thread
 from time import perf_counter
 from typing import List, Optional
 from uuid import uuid4
@@ -40,6 +42,33 @@ from .core.tiles_styler import TilesStyler
 from .core.maplibre_converter import QgisMapLibreStyleExporter
 from .core.server_initializer import ServerInitializer
 from .core.search_index import SearchIndexBuilder
+
+
+class _Background:
+    """A call run on its own thread; result() waits for it and returns its
+    result or raises its exception."""
+
+    def __init__(self, function, *args):
+        self._result = None
+        self._error: Optional[BaseException] = None
+        self._thread = Thread(target=self._run, args=(function, args), daemon=True)
+        self._thread.start()
+
+    def _run(self, function, args):
+        try:
+            self._result = function(*args)
+        except BaseException as e:  # noqa: BLE001  (re-raised by result())
+            self._error = e
+
+    def wait(self):
+        self._thread.join()
+
+    def result(self):
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+        return self._result
+
 
 class QGIS2VectorTiles:
     """Orchestrate the conversion from QGIS project styling to vector tiles."""
@@ -100,24 +129,42 @@ class QGIS2VectorTiles:
             self._log(f". Successfully styled tiles "
                       f"({self._elapsed_minutes(step_time)} minutes).")
 
-            step_time = perf_counter()
-            self._log(". Exporting style to client-side style package...")
-            style = self._export_maplibre_style(temp_dir, styled_layer)
-            self._log(f". Successfully exported client-side style package "
-                      f"({self._elapsed_minutes(step_time)} minutes).")
-
-            step_time = perf_counter()
-            self._log(". Building the search index...")
-            if self._build_search_index(layers, rules, temp_dir):
-                self._log(f". Successfully built the search index "
-                          f"({self._elapsed_minutes(step_time)} minutes).")
-
-            step_time = perf_counter()
+            # The tiles need only the converted style (the fields it uses);
+            # ogr2ogr makes them in other processes while this thread writes
+            # the style package (sprites, glyphs) and the search index.
+            style_exporter = self._maplibre_style_exporter(temp_dir, styled_layer)
+            style = style_exporter.convert()
+            tiles, generator = None, None
+            tiles_time = perf_counter()
             if self._has_features(layers):
                 self._log(". Generating tiles...")
-                self._generate_tiles(layers, temp_dir, style)
-                self._log(f". Successfully generated tiles "
+                generator = GDALTilesGenerator(
+                    layers, deepcopy(style), temp_dir, self.extent, self.cpu_percent, self.feedback
+                )
+                tiles = _Background(generator.generate)
+
+            try:
+                step_time = perf_counter()
+                self._log(". Exporting style to client-side style package...")
+                style_exporter.save_to_file()
+                self._log(f". Successfully exported client-side style package "
                           f"({self._elapsed_minutes(step_time)} minutes).")
+
+                step_time = perf_counter()
+                self._log(". Building the search index...")
+                if self._build_search_index(layers, rules, temp_dir):
+                    self._log(f". Successfully built the search index "
+                              f"({self._elapsed_minutes(step_time)} minutes).")
+            except BaseException:
+                if generator is not None:
+                    generator.cancel()
+                    tiles.wait()
+                raise
+
+            if tiles is not None:
+                _, self.min_zoom = tiles.result()
+                self._log(f". Successfully generated tiles "
+                          f"({self._elapsed_minutes(tiles_time)} minutes).")
             self._log(f". Vector tiles package generation completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
             self._log("")
@@ -187,21 +234,14 @@ class QGIS2VectorTiles:
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
         return any(layer.featureCount() > 0 for layer in layers)
 
-    def _generate_tiles(self, layers: List[QgsVectorLayer], temp_dir: str, style: dict) -> str:
-        tiles_uri, min_zoom = GDALTilesGenerator(
-            layers, style, temp_dir, self.extent, self.cpu_percent, self.feedback
-        ).generate()
-        self.min_zoom = min_zoom
-        return tiles_uri
-
     def _style_tiles(self, rules, temp_dir) -> Optional[QgsVectorTileLayer]:
         return TilesStyler(rules, temp_dir).apply_styling()
 
-    def _export_maplibre_style(self, temp_dir, styled_layer):
+    def _maplibre_style_exporter(self, temp_dir, styled_layer) -> QgisMapLibreStyleExporter:
         return QgisMapLibreStyleExporter(
             temp_dir, self.utils_dir, styled_layer, self.min_zoom, self.max_zoom,
             extent=self.extent,
-        ).export()
+        )
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(

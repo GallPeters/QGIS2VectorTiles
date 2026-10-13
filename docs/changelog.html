@@ -138,7 +138,9 @@
       <li><strong>One web map, two viewers</strong>: every export opens in MapLibre or OpenLayers, with a switch in the page that keeps the place and zoom. The Output Viewer parameter is gone.</li>
       <li>Both viewers show the <strong>same zoom numbers</strong> for the same scale, and the zoom range you choose means the same in both.</li>
       <li>The viewer page reopens in the <strong>viewer you used last</strong>.</li>
-      <li>Tidier viewer layout: the search bar with the zoom level beside it, a foldable <strong>Map settings</strong> card (popups, viewer, background) and the drawing tools in one column that never overlaps, and larger zoom buttons, alike in both viewers.</li>
+      <li>Tidier viewer layout, alike in both viewers: on the left, the search bar and the zoom level (as tall as it) above a foldable <strong>Map settings</strong> card (popups, viewer, background), one neat block; on the right, larger zoom buttons with the <strong>drawing tools</strong> under them, as wide as they are.</li>
+      <li><strong>Faster runs</strong> again (about 40% less time on large projects, and up to twice as fast for a few zoom levels): tiles are built in memory when it is free, split by area across the cores when there are fewer zoom levels than cores, and made while the style and search index are written; source layers are read and prepared by GDAL.</li>
+      <li>The lowest zoom levels, where the export fits in a few tiles, <strong>keep all their features</strong>: crowded tiles were thinned to stay under the tile size limit.</li>
       <li>Note for OpenLayers users: zoom levels now follow MapLibre's numbering, so a project re-run with the same zoom range gets one more level of detail (up to zoom 15).</li>
     </ul>
   </article>
