@@ -20,7 +20,9 @@
       frame.src = liveMap.dataset.src;
       frame.title = 'Natural Earth live web map';
       frame.setAttribute('allow', 'fullscreen');
-      frame.addEventListener('load', function () { liveMap.classList.add('is-loaded'); });
+      // Shown a moment after its page loads, once the map has drawn (the page
+      // itself is white until then).
+      frame.addEventListener('load', function () { setTimeout(function () { liveMap.classList.add('is-loaded'); }, 1500); });
       liveMap.insertBefore(frame, activate);
     };
     var liveSince = 0;

@@ -69,6 +69,7 @@
   <symbol id="i-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
 </svg>
 
@@ -138,7 +139,6 @@
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Large datasets</span>
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Complex cartography</span>
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Tight data-style coupling</span>
-              <button class="hero-tag hero-tag-more" type="button" id="complex-toggle" aria-expanded="false" aria-controls="complex-panel"><svg><use href="#i-layers"/></svg><span>Check every supported QGIS setting</span><svg class="caret"><use href="#i-down"/></svg></button>
             </div>
           </div>
         </div>
@@ -149,7 +149,11 @@
             <p class="h2">Natural Earth, live.</p>
           </div>
           <div class="live-demo" data-reveal style="--d:2">
-            <p class="live-caption"><strong><a class="link" href="https://www.naturalearthdata.com/">Natural Earth</a>: hundreds of layers, converted in 8 minutes (zoom 0–8).</strong> The output folder, uploaded to GitHub Pages as is. Explore it.</p>
+            <ul class="live-facts">
+              <li><svg aria-hidden="true"><use href="#i-globe"/></svg><span><b>Project:</b> <a class="link" href="https://www.naturalearthdata.com/">Natural Earth</a>, hundreds of layers and data sources.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent, zoom levels 0–8, <strong>8 minutes!</strong></span></li>
+              <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to GitHub Pages as is. Explore it!</span></li>
+            </ul>
             <figure class="window">
               <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>Natural Earth · live web map</span><a class="window-link" href="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/" target="_blank" rel="noopener">Full screen<svg><use href="#i-arrow"/></svg></a></div>
               <div class="live-map" data-src="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/">
@@ -482,19 +486,6 @@
 
 <nav class="dots" aria-label="Sections"></nav>
 
-<div class="complex-panel" id="complex-panel" popover role="dialog" aria-labelledby="complex-title">
-  <div class="complex-head">
-    <p class="complex-title" id="complex-title">Everything the export supports</p>
-    <p class="complex-sub" id="complex-sub">Every supported QGIS setting, by category. Search to check any setting.</p>
-    <label class="complex-search">
-      <span class="visually-hidden">Search QGIS styling settings</span>
-      <svg aria-hidden="true"><use href="#i-search"/></svg>
-      <input type="search" id="complex-search" placeholder="Search a setting, e.g. halo" autocomplete="off" spellcheck="false">
-    </label>
-  </div>
-  <div class="complex-list" id="complex-list" aria-live="polite"><p class="complex-empty">Loading the supported settings…</p></div>
-  <a class="complex-foot" id="complex-guide" href="compatibility.html">Open the full styling guide<svg><use href="#i-arrow"/></svg></a>
-</div>
 <dialog class="module-dialog" id="module-dialog" aria-labelledby="module-title">
   <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
   <div class="dialog-inner">

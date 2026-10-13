@@ -522,10 +522,22 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   40% { box-shadow: 0 0 0 5px rgba(152, 176, 35, 0.18); }
 }
 
-/* The live demo: a caption and the real web map of a published export. */
-.live-demo { display: flex; flex-direction: column; gap: 12px; }
-.live-caption { font-size: 14.5px; line-height: 1.5; color: var(--text-2); }
-.live-caption strong { color: var(--text); font-weight: 600; }
+/* The live demo: what was converted, how, and the real web map of the
+   published export, grouped on one quiet card. */
+.live-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+  background: rgba(255, 255, 255, 0.03);
+}
+.live-facts { display: grid; gap: 7px; font-size: 14px; line-height: 1.45; color: var(--text-2); }
+.live-facts li { display: flex; align-items: flex-start; gap: 10px; }
+.live-facts svg { flex: none; width: 17px; height: 17px; margin-top: 1px; color: var(--brand-hi); }
+.live-facts b { font-weight: 600; color: var(--text); }
+.live-facts strong { font-weight: 700; color: var(--brand-hi); }
 .live-map {
   position: relative;
   aspect-ratio: 1315 / 1089;
@@ -569,6 +581,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   background: rgba(9, 9, 11, 0.82);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  white-space: nowrap;
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
@@ -591,14 +604,21 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .window-link svg { width: 13px; height: 13px; }
 .window-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
+/* Desktop: the card is exactly as tall as the text column beside it; the
+   map takes the height left under the facts. */
 @media (min-width: 961px) {
+  .hero-inner { align-items: stretch; }
+  .hero-copy { align-self: center; }
   .hero .live-demo {
     width: 100%;
-    max-width: calc((100vh - var(--header-h) - 270px) * 1.2);
-    max-width: calc((100dvh - var(--header-h) - 270px) * 1.2);
+    max-width: calc((100vh - var(--header-h) - 300px) * 1.25 + 34px);
+    max-width: calc((100dvh - var(--header-h) - 300px) * 1.25 + 34px);
     min-width: 340px;
     justify-self: center;
+    align-self: stretch;
   }
+  .hero .live-demo .window { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .hero .live-map { flex: 1 1 auto; aspect-ratio: auto; min-height: 0; }
 }
 @media (max-width: 960px) {
   .hero-inner { grid-template-columns: 1fr; }
@@ -1790,8 +1810,9 @@ td.prop { color: var(--text); font-weight: 500; }
 
 
   .hero .live-demo { margin-top: 0; width: 100%; max-width: 640px; margin-inline: auto; gap: 10px; }
-  .hero .live-demo .window { width: 100%; max-width: min(560px, calc((var(--screen) - 380px) * 1.2)); margin-inline: auto; }
-  .live-caption { font-size: 13.5px; text-align: center; }
+  .hero .live-demo .window { width: 100%; max-width: min(560px, calc((var(--screen) - 570px) * 1.3)); margin-inline: auto; }
+  .hero .live-demo { padding: 12px; gap: 12px; }
+  .live-facts { gap: 5px; font-size: 13px; }
   .hero .screen-head .lead, .hero .window-bar span { display: none; }
   .hero .works-with { margin-top: 4px; }
   .works-with ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
