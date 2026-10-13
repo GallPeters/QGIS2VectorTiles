@@ -3,8 +3,10 @@
 // worker (maplibre-gl-worker.mjs) from the same folder.
 
 import * as maplibregl from './maplibre-gl.mjs';
+import { Protocol } from 'pmtiles';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import { startViewer } from '../shared/app.js';
+import { archives, loadStyle, tileUrls } from '../shared/style.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
@@ -18,9 +20,16 @@ const config = window.Q2VT_CONFIG;
 maplibregl.setRTLTextPlugin(new URL('mapbox-gl-rtl-text.js', import.meta.url).href, true)
     .catch((error) => console.warn('RTL text plugin not loaded:', error));
 
+// The tiles are read from the export's PMTiles file; the protocol reuses
+// the archives the style loader opened (and their cached directories).
+const style = await loadStyle(config.styleUrl, tileUrls.maplibre);
+const protocol = new Protocol();
+for (const archive of archives.values()) protocol.add(archive);
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
 const map = new maplibregl.Map({
     container: 'map',
-    style: config.styleUrl,
+    style,
     center: config.center,
     zoom: config.startZoom ?? config.minZoom,
 });

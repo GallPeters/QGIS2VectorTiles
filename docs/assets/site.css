@@ -491,6 +491,13 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   font-weight: 700;
 }
 .pill svg { width: 14px; height: 14px; }
+/* An upcoming release: outlined rather than filled. */
+.pill b.soon {
+  background: transparent;
+  color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand-line);
+}
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 480px) { .pill .more { display: none; } }
 
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: clamp(18px, 4vh, 36px); }

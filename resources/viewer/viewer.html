@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web map</title>
+    <link rel="icon" href="data:,">
     <style>
         /* MapLibre viewer */
         .q2vt-ml .maplibregl-popup-content { padding: 8px; border-radius: 6px; }
@@ -32,8 +33,9 @@
             minZoom: _Q2VT_MINZOOM,
             center: _Q2VT_CENTER,
             storageKey: "_Q2VT_STORAGE_KEY",
-            styleUrl: "/style/style.json",
-            searchUrl: "/style/search.json",
+            // Relative to this page, so the folder works on any web server.
+            styleUrl: "style/style.json",
+            searchUrl: "style/search.json",
         };
 
         // The map library: ?viewer=ml|ol (set by the viewer switch), else the

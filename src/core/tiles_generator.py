@@ -3,7 +3,8 @@ tiles_generator.py
 
 GDALTilesGenerator — builds a multi-layer OGR VRT from the exported
 datasets and calls ogr2ogr to produce MVT (Mapbox Vector Tiles) in MBTiles
-format.
+format, then copies them into the export's single PMTiles file
+(pmtiles_writer).
 
 The MVT driver works a run's zoom levels one after another and gains
 nothing from GDAL_NUM_THREADS (measured slower), so the zoom levels are
@@ -38,6 +39,7 @@ from xml.sax.saxutils import escape, quoteattr
 from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
+from .pmtiles_writer import mbtiles_to_pmtiles
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -94,8 +96,24 @@ class GDALTilesGenerator:
         self._cancelled.set()
 
     def generate(self) -> Tuple[str, int]:
-        """Build the VRTs, run ogr2ogr, return (mbtiles URI, min_zoom)."""
-        output, uri = self._prepare_output_paths()
+        """Build the VRTs, run ogr2ogr, return (PMTiles path, min_zoom).
+
+        The runs write MBTiles (which merge cheaply), copied at the end into
+        the export's one PMTiles file.
+        """
+        pmtiles = join(self.output_dir, "tiles.pmtiles")
+        output = join(QgsProcessingUtils.tempFolder(), f"tiles_{uuid4().hex}.mbtiles")
+        try:
+            min_zoom = self._generate_mbtiles(output)
+            if self._cancelled.is_set() or (self.feedback is not None and self.feedback.isCanceled()):
+                raise RuntimeError("Tile generation cancelled.")
+            mbtiles_to_pmtiles(output, pmtiles)
+        finally:
+            self._remove(output)
+        return pmtiles, min_zoom
+
+    def _generate_mbtiles(self, output: str) -> int:
+        """Make the tiles into the MBTiles ``output``; returns min_zoom."""
         min_zoom = self._get_global_min_zoom()
         max_zoom = self._get_global_max_zoom()
         first = min(min_zoom, _TILES_MAX_ZOOM)
@@ -122,7 +140,7 @@ class GDALTilesGenerator:
             finally:
                 for run in runs:
                     self._remove(run.output)
-        return uri, min_zoom
+        return min_zoom
 
     def _worker_count(self) -> int:
         return max(1, int((cpu_count() or 1) * self.cpu_percent / 100))
@@ -541,10 +559,6 @@ class GDALTilesGenerator:
                 os.remove(path)
         except OSError:
             pass
-
-    def _prepare_output_paths(self) -> Tuple[str, str]:
-        output = join(self.output_dir, "tiles.mbtiles")
-        return output, f"type=mbtiles&url={output}"
 
     @staticmethod
     def _layer_name(layer: QgsVectorLayer) -> str:

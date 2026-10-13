@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v4.0</strong>, 13 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every improvement to QGIS2VectorTiles, from the latest release back to the first. Latest: <strong class="text-brand">v3.9</strong>, 13 Oct 2026. Coming soon: <strong class="text-brand">v4.0</strong>.</p>
     </div>
   </section>
 
@@ -86,7 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
-        <li><a href="#v4-0">v4.0<small>Oct 2026</small></a></li>
+        <li><a href="#v4-0">v4.0<small>Coming soon</small></a></li>
         <li><a href="#v3-9">v3.9<small>Oct 2026</small></a></li>
         <li><a href="#v3-8">v3.8<small>Oct 2026</small></a></li>
         <li><a href="#v3-7">v3.7<small>Oct 2026</small></a></li>
@@ -128,13 +128,14 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
-  <article class="release latest" id="v4-0">
+  <article class="release" id="v4-0">
     <div class="release-meta">
       <h2>v4.0</h2>
-      <time datetime="2026-10-13">13 Oct 2026</time>
-      <span class="tag">Latest</span>
+      <span class="tag muted">Coming soon</span>
     </div>
     <ul>
+      <li><strong>Ready to publish</strong>: the export folder is a complete static web map (the viewer as <code>index.html</code>, the style and one <strong>PMTiles</strong> file, <code>tiles.pmtiles</code>). Upload it to <strong>GitHub Pages</strong> or any web host as it is; the included local server still opens it on your computer.</li>
+      <li>The tiles layer is no longer added to the QGIS project, and the <code>.qlr</code> and <code>.mbtiles</code> files are no longer written: the web map is the result.</li>
       <li><strong>One web map, two viewers</strong>: every export opens in MapLibre or OpenLayers, with a switch in the page that keeps the place and zoom. The Output Viewer parameter is gone.</li>
       <li>Both viewers show the <strong>same zoom numbers</strong> for the same scale, and the zoom range you choose means the same in both.</li>
       <li>The viewer page reopens in the <strong>viewer you used last</strong>.</li>
@@ -144,10 +145,11 @@
       <li>Note for OpenLayers users: zoom levels now follow MapLibre's numbering, so a project re-run with the same zoom range gets one more level of detail (up to zoom 15).</li>
     </ul>
   </article>
-  <article class="release" id="v3-9">
+  <article class="release latest" id="v3-9">
     <div class="release-meta">
       <h2>v3.9</h2>
       <time datetime="2026-10-13">13 Oct 2026</time>
+      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Faster runs</strong>: tiles are made for all zoom levels at once, and simple rules are written directly by GDAL (about 3 times faster on large projects).</li>

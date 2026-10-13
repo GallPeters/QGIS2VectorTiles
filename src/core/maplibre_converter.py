@@ -1720,21 +1720,27 @@ class QgisMapLibreStyleExporter:
         return layer
 
     def _build_style_skeleton(self) -> dict:
-        """Build the empty MapLibre style document with sources and sprite refs."""
+        """Build the empty MapLibre style document with sources and sprite refs.
+
+        Its URLs are relative to style.json, so the export works from any
+        web server or static host; the viewers resolve them. The tiles are
+        one PMTiles file (the version token, unique per export, is set by
+        ServerInitializer).
+        """
         return {
             "version": 8,
             "name": f"{self.source_name}_style",
             "sources": {
                 self.source_name: {
                     "type": "vector",
-                    "tiles": ["http://localhost:9000/tiles/tiles/{z}/{x}/{y}.pbf?v=10031993"],
+                    "url": "pmtiles://../tiles.pmtiles?v=10031993",
                     # The highest zoom with tiles; viewers enlarge its tiles
                     # beyond it rather than request tiles that don't exist.
                     "maxzoom": max(0, min(self.maxzoom, _TILES_MAX_ZOOM)),
                 }
             },
-            "glyphs": "http://localhost:9000/style/glyphs/{fontstack}/{range}.pbf",
-            "sprite": "http://localhost:9000/style/sprite/sprite",
+            "glyphs": "glyphs/{fontstack}/{range}.pbf",
+            "sprite": "sprite/sprite",
             "layers": [],
         }
 

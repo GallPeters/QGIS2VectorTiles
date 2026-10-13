@@ -1,27 +1,26 @@
-"""Serve mbtiles, style.json, sprite — and the offline viewer.
+"""Serve an exported web map folder: the viewer, the style and the tiles.
 
-The viewer has to be served over HTTP (not opened as file://) because
-modern browsers refuse to load ES-module bundles and reject fetch()
-calls when the page origin is a file:// URL. Hosting everything from
-one localhost server avoids that and avoids CORS hassles too.
+The export is a folder of plain files (index.html, ml/, ol/, style/,
+tiles.pmtiles) that works from any web server or static host, such as
+GitHub Pages. It has to be served over HTTP rather than opened as file://,
+because browsers refuse to load ES modules and to fetch() from file://
+pages; this small server does that locally.
+
+The viewers read tiles.pmtiles in pieces with HTTP range requests, which
+this server answers (Python's own http.server does not).
 
 Directory layout assumed:
     <root>/
-        *.mbtiles
-        style/
-            style.json
-            sprite/                       # sprite.json, sprite.png, sprite@2x.*
-        utils/
-            tile_server.py                # ← this file
-            viewer/                       # viewer.html, bundle.js, ol.css …
+        index.html                    # the viewer page
+        ml/, ol/                      # the viewers' scripts
+        style/                        # style.json, sprite/, glyphs/, search.json
+        tiles.pmtiles
+        server/
+            tiles_server.py           # ← this file
 """
 
 import argparse
-import hashlib
-import queue
-import sqlite3
-import threading
-from contextlib import contextmanager
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -30,277 +29,156 @@ from urllib.parse import unquote
 # ----------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------
-HERE        = Path(__file__).resolve().parent
-ROOT_DIR    = HERE.parent
-STYLE_DIR   = ROOT_DIR / "style"
-VIEWER_DIR  = HERE / "viewer"
+HERE     = Path(__file__).resolve().parent
+ROOT_DIR = HERE.parent
 
-
-# Read connections per .mbtiles file: tiles are read this many at a time.
-CONNECTIONS = 8
-
-# Tiles requested with a version (?v=..., unique per export) never change
+# Files requested with a version (?v=..., unique per export) never change
 # under that URL, so browsers may keep them; others are revalidated.
 VERSIONED_CACHE = "public, max-age=31536000, immutable"
 
-# Pre-built mime map — avoids per-request mimetypes.guess_type() overhead
 MIME_TYPES = {
-    ".json":  "application/json",
-    ".html":  "text/html; charset=utf-8",
-    ".js":    "application/javascript",
-    ".mjs":   "application/javascript",
-    ".css":   "text/css",
-    ".png":   "image/png",
-    ".jpg":   "image/jpeg",
-    ".jpeg":  "image/jpeg",
-    ".webp":  "image/webp",
-    ".svg":   "image/svg+xml",
-    ".ico":   "image/x-icon",
-    ".woff":  "font/woff",
-    ".woff2": "font/woff2",
-    ".map":   "application/json",
-    ".pbf":   "application/x-protobuf",
+    ".json":    "application/json",
+    ".html":    "text/html; charset=utf-8",
+    ".js":      "application/javascript",
+    ".mjs":     "application/javascript",
+    ".css":     "text/css",
+    ".png":     "image/png",
+    ".jpg":     "image/jpeg",
+    ".jpeg":    "image/jpeg",
+    ".webp":    "image/webp",
+    ".svg":     "image/svg+xml",
+    ".ico":     "image/x-icon",
+    ".woff":    "font/woff",
+    ".woff2":   "font/woff2",
+    ".map":     "application/json",
+    ".md":      "text/markdown; charset=utf-8",
+    ".pbf":     "application/x-protobuf",
+    ".pmtiles": "application/octet-stream",
 }
 
+_RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
-# ----------------------------------------------------------------------
-# MBTiles
-# ----------------------------------------------------------------------
-def xyz_y_to_tms(zoom: int, y: int) -> int:
-    """Flip Y between XYZ (browser) and TMS (mbtiles) tile schemes."""
-    return (1 << zoom) - 1 - y
-
-
-def _connect(path: Path) -> sqlite3.Connection:
-    """A read-only, memory-mapped connection with a generous page cache."""
-    conn = sqlite3.connect(
-        f"file:{path}?mode=ro&immutable=1",
-        uri=True,
-        check_same_thread=False,
-        isolation_level=None,
-    )
-    conn.execute("PRAGMA query_only   = ON")
-    conn.execute("PRAGMA temp_store   = MEMORY")
-    conn.execute("PRAGMA mmap_size    = 268435456")   # 256 MB
-    conn.execute("PRAGMA cache_size   = -16384")      # 16 MB per connection
-    conn.execute("PRAGMA journal_mode = OFF")
-    conn.execute("PRAGMA synchronous  = OFF")
-    return conn
-
-
-class ConnectionPool:
-    """A few connections to one .mbtiles file, so that the server's threads
-    read tiles in parallel instead of one at a time."""
-
-    def __init__(self, path: Path, size: int):
-        self._idle: "queue.Queue[sqlite3.Connection]" = queue.Queue()
-        self._all = [_connect(path) for _ in range(size)]
-        for conn in self._all:
-            self._idle.put(conn)
-
-    @contextmanager
-    def connection(self):
-        conn = self._idle.get()
-        try:
-            yield conn
-        finally:
-            self._idle.put(conn)
-
-    def close(self):
-        for conn in self._all:
-            try:
-                conn.close()
-            except sqlite3.Error:
-                pass
-
-
-def load_mbtiles(directory: Path) -> dict:
-    """Open every .mbtiles in *directory* read-only with aggressive SQLite tuning."""
-    layers = {}
-    for f in directory.glob("*.mbtiles"):
-        try:
-            pool = ConnectionPool(f, CONNECTIONS)
-            with pool.connection() as conn:
-                meta = dict(conn.execute("SELECT name, value FROM metadata").fetchall())
-
-            layers[f.stem] = {
-                "pool":    pool,
-                "minzoom": int(meta.get("minzoom", 0)),
-                "maxzoom": int(meta.get("maxzoom", 14)),
-            }
-            print(f"Loaded {f.name} "
-                  f"(zoom {layers[f.stem]['minzoom']}-{layers[f.stem]['maxzoom']})")
-        except (sqlite3.Error, OSError) as e:
-            print(f"Failed to load {f.name}: {e}")
-    return layers
-
-
-# ----------------------------------------------------------------------
-# Static cache (style/, sprite/, viewer/)
-# Stores (data, mime, etag) per file. ETag is a content hash, so any
-# change to the file on disk between server runs produces a different
-# tag and any browser cache entry pinned to the old tag is invalidated.
-# ----------------------------------------------------------------------
-class StaticCache:
-    """Lazy thread-safe in-memory cache, scoped to a list of allowed dirs."""
-
-    __slots__ = ("_cache", "_lock", "_allowed")
-
-    def __init__(self, allowed_dirs):
-        self._cache   = {}
-        self._lock    = threading.Lock()
-        self._allowed = [d.resolve() for d in allowed_dirs]
-
-    def get(self, file_path: Path):
-        """Return (bytes, mime, etag) — or None if missing or out of scope."""
-        target = file_path.resolve()
-
-        if not any(self._is_under(target, d) for d in self._allowed):
-            return None      # path-traversal guard
-
-        key    = str(target)
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
-
-        with self._lock:
-            cached = self._cache.get(key)
-            if cached is not None:
-                return cached
-            if not target.is_file():
-                return None
-            data  = target.read_bytes()
-            mime  = MIME_TYPES.get(target.suffix.lower(),
-                                   "application/octet-stream")
-            etag  = '"' + hashlib.md5(data, usedforsecurity=False).hexdigest()[:16] + '"'
-            entry = (data, mime, etag)
-            self._cache[key] = entry
-            return entry
-
-    @staticmethod
-    def _is_under(target: Path, parent: Path) -> bool:
-        try:
-            target.relative_to(parent)
-            return True
-        except ValueError:
-            return False
+# Files read at once; bigger ones (the tiles) are streamed in pieces.
+_CHUNK = 1 << 20
 
 
 # ----------------------------------------------------------------------
 # HTTP handler
 # ----------------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
-    """Serves /viewer/*, /style/*, /tiles/{layer}/{z}/{x}/{y}.pbf — and nothing else."""
+    """Serves the files under ROOT_DIR (GET and HEAD, with byte ranges)."""
 
     # HTTP/1.1 keep-alive (tile bursts reuse a single TCP connection)
     # and TCP_NODELAY for low-latency response delivery.
     protocol_version        = "HTTP/1.1"
     disable_nagle_algorithm = True
 
-    # ---- routing ----
     def do_GET(self):
-        path, _, query = unquote(self.path).lstrip("/").partition("?")
+        self._serve(send_body=True)
 
-        # Root / bare /viewer  → viewer home page
-        if path in ("", "viewer", "viewer/"):
-            return self._serve_static(VIEWER_DIR / "viewer.html")
+    def do_HEAD(self):
+        self._serve(send_body=False)
 
-        # Viewer assets (bundle.js, ol.css, etc.)
-        if path.startswith("viewer/"):
-            return self._serve_static(VIEWER_DIR / path[len("viewer/"):])
-
-        # Tiles
-        if path.startswith("tiles/"):
-            return self._serve_tile(path, versioned="v=" in query)
-
-        # Style + sprites
-        if path == "style" or path.startswith("style/"):
-            return self._serve_static(ROOT_DIR / path)
-
-        self._send_status(404)
-
-    # ---- tiles ----
-    def _serve_tile(self, path: str, versioned: bool = False):
-        parts = path.split("/")
-        if len(parts) < 5:
-            return self._send_status(400)
-
-        try:
-            z = int(parts[2])
-            x = int(parts[3])
-            y = int(parts[4].split(".", 1)[0])
-        except ValueError:
-            return self._send_status(400)
-
-        layer = self.server.layers.get(parts[1])
-        if layer is None:
+    def _serve(self, send_body: bool):
+        path, _, query = unquote(self.path).partition("?")
+        path = path.split("#", 1)[0].lstrip("/")
+        target = self._resolve(path or "index.html")
+        if target is not None and target.is_dir():
+            target = self._resolve(f"{path.rstrip('/')}/index.html")
+        if target is None or not target.is_file():
             return self._send_status(404)
 
-        tms_y = xyz_y_to_tms(z, y)
+        stat = target.stat()
+        size = stat.st_size
+        # Strong ETag from the file's size and time: a PMTiles reader checks
+        # that every piece comes from the same version of the file.
+        etag = f'"{stat.st_mtime_ns:x}-{size:x}"'
+        cache_control = VERSIONED_CACHE if "v=" in query else "no-cache"
+        mime = MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
 
-        with layer["pool"].connection() as conn:
-            row = conn.execute(
-                "SELECT tile_data FROM tiles "
-                "WHERE zoom_level=? AND tile_column=? AND tile_row=?",
-                (z, x, tms_y),
-            ).fetchone()
-
-        cache_control = VERSIONED_CACHE if versioned else "no-cache"
-        if row is None:
-            self.send_response(204)
-            self.send_header("Content-Length", "0")
-            self.send_header("Cache-Control", cache_control)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            return
-
-        data = row[0]
-
-        self.send_response(200)
-        self.send_header("Content-Type",   "application/x-protobuf")
-        if data[:2] == b"\x1f\x8b":
-            self.send_header("Content-Encoding", "gzip")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control",  cache_control)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(data)
-
-    # ---- static (viewer + style + sprite + glyphs) ----
-    def _serve_static(self, target: Path):
-        entry = self.server.static_cache.get(target)
-        if entry is None:
-            return self._send_status(404)
-
-        data, mime, etag = entry
-
-        if self.headers.get("If-None-Match") == etag:
+        start, end = 0, size - 1
+        partial = False
+        requested = self.headers.get("Range")
+        if requested and self.headers.get("If-Range", etag) == etag:
+            match = _RANGE.match(requested.strip())
+            if match is None or (not match.group(1) and not match.group(2)):
+                return self._send_range_error(size)
+            if match.group(1):
+                start = int(match.group(1))
+                if match.group(2):
+                    end = min(int(match.group(2)), size - 1)
+            else:  # The last N bytes.
+                start = max(0, size - int(match.group(2)))
+            if start >= size or start > end:
+                return self._send_range_error(size)
+            partial = True
+        elif self.headers.get("If-None-Match") == etag:
             self.send_response(304)
             self.send_header("ETag", etag)
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", cache_control)
             self.send_header("Content-Length", "0")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._common_headers()
             self.end_headers()
             return
 
-        self.send_response(200)
+        length = end - start + 1 if size else 0
+        self.send_response(206 if partial else 200)
         self.send_header("Content-Type", mime)
-        
-        if mime == "application/x-protobuf" and data[:2] == b"\x1f\x8b":
+        # Glyphs may be stored gzip-compressed; tiles in the PMTiles file
+        # are decompressed by the viewer itself.
+        if mime == "application/x-protobuf" and not partial and self._is_gzip(target):
             self.send_header("Content-Encoding", "gzip")
-
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(length))
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("ETag", etag)
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", cache_control)
+        self._common_headers()
         self.end_headers()
-        self.wfile.write(data)
+        if not send_body or not length:
+            return
+        with open(target, "rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(_CHUNK, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     # ---- helpers ----
+    @staticmethod
+    def _resolve(path: str):
+        """The file for a URL path, or None outside the served folder."""
+        target = (ROOT_DIR / path).resolve()
+        try:
+            target.relative_to(ROOT_DIR)
+        except ValueError:
+            return None  # path-traversal guard
+        return target
+
+    @staticmethod
+    def _is_gzip(target: Path) -> bool:
+        with open(target, "rb") as f:
+            return f.read(2) == b"\x1f\x8b"
+
+    def _common_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Expose-Headers", "ETag, Content-Range, Content-Length")
+
+    def _send_range_error(self, size: int):
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{size}")
+        self.send_header("Content-Length", "0")
+        self._common_headers()
+        self.end_headers()
+
     def _send_status(self, code: int):
         self.send_response(code)
         self.send_header("Content-Length", "0")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._common_headers()
         self.end_headers()
 
     def log_message(self, fmt, *args):   # noqa: A002
@@ -312,34 +190,22 @@ class Handler(BaseHTTPRequestHandler):
 # Entry point
 # ----------------------------------------------------------------------
 def run(port: int = 18111991):
-
-    layers = load_mbtiles(ROOT_DIR)
-    if not layers:
-        print("No .mbtiles found in:", ROOT_DIR)
-
     server                = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
-    server.layers         = layers
-    server.static_cache   = StaticCache([VIEWER_DIR, STYLE_DIR])
 
-    print(f"\nServer running at http://localhost:{port}")
-    print(f"  Viewer:  http://localhost:{port}/viewer/viewer.html")
-    print( "  Style:   /style/style.json")
-    print( "  Sprite:  /style/sprite/sprite.{json,png}")
-    print( "  Tiles:   /tiles/{layer}/{z}/{x}/{y}.pbf\n")
+    print(f"\nServing {ROOT_DIR}")
+    print(f"  Web map: http://localhost:{port}/\n")
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
-        for layer in layers.values():
-            layer["pool"].close()
         server.server_close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="MBTiles tile server")
+    parser = argparse.ArgumentParser(description="Serve an exported web map folder")
     parser.add_argument("--port", type=int, default=18111991,
                         help="TCP port to listen on (1–65535, default %(default)s)")
     args = parser.parse_args()

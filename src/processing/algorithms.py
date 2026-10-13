@@ -324,8 +324,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     def postProcessAlgorithm(self, context, feedback):
         """Runs on QGIS's main thread after processAlgorithm.
 
-        Adding the tiles layer here, not in the processing thread, keeps the
-        project's layer tree owned by the main thread.
+        Project changes are made here, not in the processing thread, so the
+        project's layer tree stays owned by the main thread.
         """
         if self._finish_args is not None:
             QGIS2VectorTiles.finish(*self._finish_args)

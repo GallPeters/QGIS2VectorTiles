@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=3.9.0">
+<link rel="stylesheet" href="assets/site.css?v=3.9.1">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -120,7 +120,10 @@
       <div class="hero-inner">
         <div class="screen">
           <div class="hero-copy">
-            <a class="pill" href="changelog.html" data-reveal><b>v3.9</b>About 3 times faster, closer to QGIS<span class="more">. See what's new</span> <svg><use href="#i-chevron"/></svg></a>
+            <div class="pills" data-reveal>
+              <a class="pill" href="changelog.html#v3-9"><b>v3.9</b><span>Latest<span class="more">: about 3× faster</span></span><svg><use href="#i-chevron"/></svg></a>
+              <a class="pill" href="changelog.html#v4-0"><b class="soon">v4.0</b><span>Coming soon<span class="more">: host on GitHub</span></span><svg><use href="#i-chevron"/></svg></a>
+            </div>
             <h1 class="h1" id="hero-title" data-reveal style="--d:1">QGIS projects to <span class="text-gradient">web maps</span>, in a single run.</h1>
             <p class="lead" data-reveal style="--d:2">QGIS2VectorTiles packs your styled project into lightweight vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet connection or additional server installation required: a built-in local server opens the viewer at the end of each run.</p>
             <div class="hero-actions" data-reveal style="--d:3">
@@ -291,17 +294,16 @@
         </div>
         <div class="pipeline-side">
           <div class="panel" data-reveal style="--d:1">
-            <div class="panel-head"><span>Output package</span><span class="mono">6 parts</span></div>
+            <div class="panel-head"><span>Output package</span><span class="mono">5 parts</span></div>
             <ul class="tree">
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-grid"/></svg></span><span class="tree-name">Vector tiles archive</span><span class="tree-ext">.mbtiles</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-file"/></svg></span><span class="tree-name">Styled QGIS layer</span><span class="tree-ext">.qlr</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-grid"/></svg></span><span class="tree-name">Vector tiles archive</span><span class="tree-ext">.pmtiles</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-globe"/></svg></span><span class="tree-name">MapLibre style sheet</span><span class="tree-ext">.json</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-image"/></svg></span><span class="tree-name">Icon sprites</span><span class="tree-ext">.png &amp; .json</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Web viewer &amp; local tile server</span><span class="tree-ext">.html &amp; .py</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Web viewer &amp; local server</span><span class="tree-ext">.html &amp; .py</span></li>
               <li class="tree-row"><span class="tree-icon"><svg><use href="#i-type"/></svg></span><span class="tree-name">Font glyphs</span><span class="tree-ext">.pbf</span></li>
             </ul>
           </div>
-          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it in a browser or in QGIS.</strong> At the end of each run the included local server starts and opens the web viewer; a launcher in the folder starts it again later. The <code>.qlr</code> layer opens the same tiles back in QGIS.</span></p>
+          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it in a browser or publish it.</strong> At the end of each run the included local server starts and opens the web viewer; a launcher in the folder starts it again later. The folder is a complete static web map: upload it to GitHub Pages or any web host as it is.</span></p>
         </div>
       </div>
     </div>
@@ -497,7 +499,7 @@
 </dialog>
 
 
-<script src="assets/site.js?v=3.9.0" defer></script>
-<script src="assets/home.js?v=3.9.0" defer></script>
+<script src="assets/site.js?v=3.9.1" defer></script>
+<script src="assets/home.js?v=3.9.1" defer></script>
 </body>
 </html>

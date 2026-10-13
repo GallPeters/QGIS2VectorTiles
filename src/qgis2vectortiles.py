@@ -10,7 +10,7 @@ pipeline from QGIS project styling to vector tiles:
   4. Style tiles    (TilesStyler)
   5. Export MapLibre style (QgisMapLibreStyleExporter)
      and the viewers' search index (SearchIndexBuilder)
-  6. Serve tiles via local HTTP server
+  6. Lay out the web map folder and serve it locally
 """
 
 from copy import deepcopy
@@ -93,8 +93,7 @@ class QGIS2VectorTiles:
         self.included_fields = included_fields
         self.cpu_percent = min(cpu_percent, 90)
         self.feedback = feedback or QgsProcessingFeedback()
-        # Set when a run completes; finish_in_main_thread() then adds the
-        # tiles layer to the project.
+        # The export folder, set when a run completes.
         self.temp_dir: Optional[str] = None
 
     def convert_project_to_vector_tiles(self) -> Optional[QgsVectorTileLayer]:
@@ -185,10 +184,9 @@ class QGIS2VectorTiles:
 
         The project and its layer tree belong to the main thread; changing
         them from the processing thread can crash QGIS later (e.g. on exit).
+        The result is the web map folder; nothing is added to the project.
         """
         cls.clear_project()
-        if temp_dir:
-            ServerInitializer(extent, min_zoom, temp_dir).add_tiles_layer()
 
     @staticmethod
     def clear_project():

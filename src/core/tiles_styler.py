@@ -3,18 +3,16 @@ tiles_styler.py
 
 TilesStyler — takes the list of FlattenedRules produced by RulesFlattener /
 RulesExporter and applies matching QgsVectorTileBasicRenderer /
-QgsVectorTileBasicLabeling styles to a new QgsVectorTileLayer, then saves
-the layer style to a QLR file.
+QgsVectorTileBasicLabeling styles to a new QgsVectorTileLayer, which the
+MapLibre style exporter then converts (the layer itself is never loaded).
 
 Depends on: config, flattened_rule
 """
 
-from os import makedirs
 from os.path import join
 from typing import List, Optional
 
 from qgis.core import (
-    QgsProject,
     QgsVectorTileLayer,
     QgsVectorTileBasicRenderer,
     QgsVectorTileBasicRendererStyle,
@@ -25,7 +23,6 @@ from qgis.core import (
     QgsMarkerSymbol,
     QgsLineSymbol,
     QgsFillSymbol,
-    QgsLayerDefinition,
     QgsLabelThinningSettings,
     QgsProcessingUtils,
     QgsProperty,
@@ -64,13 +61,12 @@ class TilesStyler:
         self.labeling_styles: List[QgsVectorTileBasicLabelingStyle] = []
 
     def apply_styling(self) -> QgsVectorTileLayer:
-        """Apply all rule styles to the tiles layer and save the QLR definition."""
+        """Apply all rule styles to the tiles layer."""
         self._draw_order = self._get_draw_order()
         sorted_rules = reversed(sorted(self.flattened_rules, key=lambda x:self.get_label_priority(x)))
         for rule in sorted_rules:
             self._create_style_from_rule(rule)
         self._apply_styles_to_layer()
-        # self._save_style()
         return self.tiles_layer
 
     def _get_draw_order(self) -> dict:
@@ -265,11 +261,3 @@ class TilesStyler:
 
         self.tiles_layer.setRenderer(renderer)
         self.tiles_layer.setLabeling(labeling)
-
-    def _save_style(self):
-        """Export the tiles layer definition to a QLR file."""
-        style_dir = join(self.output_dir, "style")
-        makedirs(style_dir, exist_ok=True)
-        qlr_path = join(style_dir, "tiles.qlr")
-        node = QgsProject.instance().layerTreeRoot().findLayer(self.tiles_layer.id())
-        QgsLayerDefinition().exportLayerDefinition(qlr_path, [node])
