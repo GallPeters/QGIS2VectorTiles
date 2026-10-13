@@ -1,0 +1,40 @@
+2026/10/12 11:09:03 Starting OSGeo4W install, version 2.579
+2026/10/12 11:09:03 using locales .1252
+2026/10/12 11:09:03 
+Command Line Options:
+ -A --advanced                     Advanced install (default)
+ -a --arch                         architecture to install (x86_64 or x86)
+ -k --autoaccept                   Accept all licenses
+ -C --categories                   Specify entire categories to install
+ -o --delete-orphans               remove orphaned packages
+ -T --desktop                      Enable creation of desktop shortcuts
+ -b --disable-buggy-antivirus      Disable known or suspected buggy anti virus
+                                   software packages during execution.
+ -D --download                     Download from internet
+ -E --express                      Express install (as opposed to Advanced)
+ -h --help                         print help
+    --lang                         language to show ui in
+ -L --local-install                Install from local directory
+ -l --local-package-dir            Local package directory
+ -m --menu-name                    Menu name
+ -d --no-desktop                   Disable creation of desktop shortcuts
+                                   (default)
+ -r --no-replaceonreboot           Disable replacing in-use files on next
+                                   reboot.
+ -n --no-shortcuts                 Disable creation of desktop and start menu
+                                   shortcuts
+ -N --no-startmenu                 Disable creation of start menu shortcuts
+ -O --only-site                    Ignore all sites except for -s
+ -M --package-manager              Semi-attended chooser-only mode
+ -P --packages                     Specify packages to install
+ -p --proxy                        HTTP/FTP proxy (host:port)
+ -q --quiet-mode                   Unattended setup mode
+ -c --remove-categories            Specify categories to uninstall
+ -x --remove-packages              Specify packages to uninstall
+ -R --root                         Root installation directory
+ -S --safe                         Safe Mode (Skip some admin actions)
+ -s --site                         Download site
+ -t --test                         Use setup_test.ini
+ -g --upgrade-also                 also upgrade installed packages
+    --user-agent                   User agent string for HTTP requests
+Ending OSGeo4W install
