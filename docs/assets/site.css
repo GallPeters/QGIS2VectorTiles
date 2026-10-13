@@ -498,26 +498,46 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .hero-tag-more svg:first-child { width: 19px; height: 19px; }
 .hero-tag-more .caret { width: 18px; height: 18px; color: var(--text-2); transition: transform 0.25s var(--ease); }
 .hero-tag-more[aria-expanded="true"] .caret { transform: rotate(180deg); }
-/* Desktop: every part of the text column ends at its right edge: the
-   pills and the two buttons share their rows, the intro and the panel
-   button fill it, and from 1280 px the four facts spread across one row. */
+/* Desktop: two rectangles of one height. The text column: every line
+   ends at its right edge (the headline sized to fill it, line by line;
+   the intro justified; the pills and buttons sharing their rows). The
+   comparison window beside it, as tall. The column's width follows the
+   window height, so the section fits one screen. */
+.h1-line { display: inline; }
 @media (min-width: 1025px) {
-  .hero-copy .h1 { max-width: 560px; }
-  .hero-copy .lead { max-width: none; }
+  /* The headline is the column width / 6.5 and three lines tall, so the
+     column is as wide as the height left for it allows (--hero-rest: the
+     height of everything else in the section). */
+  .hero { --hero-rest: 560px; }
+  .hero-inner {
+    grid-template-columns: min(calc((100vh - var(--header-h) - var(--hero-rest)) * 2.1), 54%) minmax(0, 1fr);
+    grid-template-columns: min(calc((100dvh - var(--header-h) - var(--hero-rest)) * 2.1), 54%) minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .hero-copy { container: hero-copy / inline-size; align-self: center; }
+  .hero-copy .h1 { max-width: none; font-size: calc(100cqi / 6.5); line-height: 1.02; }
+  .h1-line { display: block; white-space: nowrap; text-align: justify; text-align-last: justify; }
+  .hero-copy .lead { max-width: none; text-align: justify; hyphens: auto; }
   .pills .pill { flex: 1 1 auto; }
   .pills .pill svg { margin-left: auto; }
-  .hero-actions .btn { flex: 1 1 0; }
+  .hero-copy .hero-actions .btn { flex: 1 1 0; }
   .hero-tags { max-width: none; }
+  .hero .window { display: flex; flex-direction: column; justify-self: stretch; width: auto; max-width: none; min-width: 0; }
+  .hero .compare { flex: 1 1 auto; aspect-ratio: auto; min-height: 0; }
 }
-@media (min-width: 1025px) and (max-width: 1279px) {
-  .hero-tags { gap: 8px 20px; }
-  .hero-tag { font-size: 14px; }
-  .hero-tag-more { padding: 9px 12px; font-size: 14px; }
-  .hero .lead { font-size: 16px; }
+/* The four facts always share one row, and the panel button one line:
+   their text scales with the column. */
+@container hero-copy (min-width: 1px) {
+  .hero-tags { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 8px; }
+  .hero-tag { font-size: clamp(12px, 2.42cqi, 15px); gap: 0.55em; }
+  .hero-tag svg { width: 1.1em; height: 1.1em; }
+  .hero-tag-more { flex: 1 0 100%; padding: 0.75em 1em; font-size: clamp(12px, 2.5cqi, 15.5px); white-space: nowrap; }
 }
-@media (min-width: 1280px) {
-  .hero-tags { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 16px; }
-  .hero-tag-more { flex: 1 0 100%; }
+/* Short desktop windows: the "Output works with" strip (its brands are in
+   Use cases too) gives its height to the headline. */
+@media (min-width: 1025px) and (max-height: 819px) {
+  .hero { --hero-rest: 430px; }
+  .hero .works-with { display: none; }
 }
 @keyframes beckon {
   0%, 100% { box-shadow: 0 0 0 0 rgba(152, 176, 35, 0); }
@@ -1029,6 +1049,13 @@ a.chip:hover { border-color: var(--line-strong); background: var(--fill-hover); 
 .chip .chip-glyph { display: grid; place-items: center; padding: 0; background: var(--brand-soft); color: var(--brand-hi); }
 .chip .chip-glyph svg { width: 21px; height: 21px; }
 .usecase-note { margin-top: auto; padding-top: clamp(12px, 2.4vh, 20px); font-size: 13.5px; color: var(--text-3); }
+/* Desktop: the cards' parts line up across the three cards (number,
+   title, text, brand chips, note), each card taking five rows of the
+   section's grid. */
+@media (min-width: 1025px) {
+  .usecase { display: grid; grid-row: span 5; grid-template-rows: subgrid; row-gap: 0; }
+  .usecase-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
 /* Brand chips: boxes of one width, centered under the card's text, two
    per row (a lone last one centered), or one per row when stacked. */
 .usecase .chips {
