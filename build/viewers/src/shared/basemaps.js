@@ -28,7 +28,7 @@ const STORAGE_KEY = 'q2vt:basemap';
 
 /** The basemap choice, as a segmented control; ``apply(basemap)`` shows it. */
 export function createBasemapControl({ apply }) {
-    let current = BASEMAPS.find((b) => b.id === load(STORAGE_KEY, 'osm')) || BASEMAPS[1];
+    let current = BASEMAPS.find((b) => b.id === load(STORAGE_KEY, 'none')) || BASEMAPS[0];
     const control = createSegmented({
         label: 'Background',
         options: BASEMAPS.map((b) => ({ id: b.id, label: b.name, title: b.title })),
