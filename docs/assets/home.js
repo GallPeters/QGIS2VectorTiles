@@ -185,27 +185,63 @@
     }
   }
 
-  // --- Desktop: one wheel step glides to the next section ----------------
-  // With mandatory snapping, a wheel step first scrolls a little and the
-  // browser snaps the rest a moment later, which feels jerky. Here a wheel
-  // step scrolls straight to the next section in one smooth move, as Page
-  // Down does. A section taller than the window scrolls normally until its
-  // edge; a trackpad swipe and its fading momentum move one section only.
+  // --- Desktop: wheel and keys glide between sections ------------------
+  // One wheel notch or key press glides to the next section in a short
+  // animation of its own (the browser's smooth scroll varies in speed and
+  // can't be redirected). A press during a glide redirects it at once, from
+  // where it is, to one section beyond where it was heading, so Page Down
+  // twice runs two sections in one smooth move, and the opposite key turns
+  // back. Snapping is paused while gliding so it can't fight the animation.
+  // A section taller than the window scrolls normally until its edge; a
+  // trackpad swipe and its fading momentum move one section only.
   var snapScreens = window.matchMedia('(min-width: 1025px) and (min-height: 540px)');
   var allSlides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
   if (allSlides.length > 1) {
-    var gliding = false;
-    var glideTimer = 0;
+    var root = document.documentElement;
+    var GLIDE_MS = 520;
+    var glide = null;          // {from, to, start, duration, target}
+    var heading = null;        // index of the section being glided to
     var lastWheel = 0;
     var lastDelta = 0;
-    var endGlide = function () { gliding = false; clearTimeout(glideTimer); };
-    window.addEventListener('scrollend', endGlide);
+    var easeOut = function (t) { return 1 - Math.pow(1 - t, 3); };
     var pageTop = function (el) { return el.getBoundingClientRect().top + window.scrollY; };
+    var nearest = function () {
+      var y = window.scrollY, best = 0;
+      allSlides.forEach(function (slide, i) {
+        if (Math.abs(pageTop(slide) - y) < Math.abs(pageTop(allSlides[best]) - y)) best = i;
+      });
+      return best;
+    };
+    var step = function (now) {
+      if (!glide) return;
+      var t = Math.min(1, (now - glide.start) / glide.duration);
+      window.scrollTo({ top: glide.from + (glide.to - glide.from) * easeOut(t), behavior: 'instant' });
+      if (t < 1) { window.requestAnimationFrame(step); return; }
+      glide = null;
+      heading = null;
+      root.style.scrollSnapType = '';
+    };
+    var glideTo = function (index) {
+      index = Math.max(0, Math.min(allSlides.length - 1, index));
+      heading = index;
+      var to = Math.round(pageTop(allSlides[index]));
+      if (reduceMotion) { window.scrollTo({ top: to, behavior: 'instant' }); heading = null; return; }
+      var running = !!glide;
+      root.style.scrollSnapType = 'none';
+      glide = { from: window.scrollY, to: to, start: performance.now(),
+                duration: Math.min(GLIDE_MS, 260 + Math.abs(to - window.scrollY) * 0.25) };
+      if (!running) window.requestAnimationFrame(step);
+    };
     var inScrollable = function (el) {
       for (; el && el !== document.body; el = el.parentElement) {
         if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return true;
       }
       return false;
+    };
+    // A section taller than the window still has room to scroll that way.
+    var roomInSection = function (index, dir) {
+      var slide = allSlides[index], y = window.scrollY, top = pageTop(slide);
+      return dir > 0 ? top + slide.offsetHeight > y + window.innerHeight + 4 : top < y - 4;
     };
     window.addEventListener('wheel', function (e) {
       if (!snapScreens.matches || e.ctrlKey || e.defaultPrevented) return;
@@ -215,76 +251,43 @@
       var delta = Math.abs(e.deltaY);
       // A new step: after a pause, or a full wheel-notch-sized one. Small,
       // quick events are a trackpad swipe still going on.
-      var newStep = now - lastWheel > 150 || (delta >= 40 && delta >= lastDelta);
+      var newStep = now - lastWheel > 160 || (delta >= 40 && delta > lastDelta * 1.5);
       lastWheel = now;
       lastDelta = delta;
-      if (gliding) {
+      var dir = e.deltaY > 0 ? 1 : -1;
+      if (heading === null) {
+        var current = nearest();
+        if (roomInSection(current, dir)) return;
+        if (!allSlides[current + dir]) return;
         e.preventDefault();
+        if (newStep) glideTo(current + dir);
         return;
       }
-      var dir = e.deltaY > 0 ? 1 : -1;
-      var y = window.scrollY;
-      var current = 0;
-      allSlides.forEach(function (slide, i) { if (pageTop(slide) <= y + 4) current = i; });
-      var slideTop = pageTop(allSlides[current]);
-      var slideBottom = slideTop + allSlides[current].offsetHeight;
-      if (dir > 0 && slideBottom > y + window.innerHeight + 4) return;
-      if (dir < 0 && slideTop < y - 4) return;
-      var target = allSlides[current + dir];
-      if (!target) return;
       e.preventDefault();
-      if (!newStep) return;
-      gliding = true;
-      // Browsers without the scrollend event end the glide by time.
-      glideTimer = setTimeout(endGlide, 900);
-      window.scrollTo({ top: pageTop(target), behavior: reduceMotion ? 'auto' : 'smooth' });
+      if (newStep) glideTo(heading + dir);
     }, { passive: false });
 
-    // Keys move whole sections too. Each press counts from where the page
-    // is heading, not where it is mid-glide: Page Down twice glides two
-    // sections down in one smooth move, and the opposite key turns it
-    // around at once, instead of the native keyboard scroll fighting the
-    // snapping.
     var KEYS = { PageDown: 1, PageUp: -1, ArrowDown: 1, ArrowUp: -1, ' ': 1, Home: -Infinity, End: Infinity };
-    var heading = null;
-    var keyTimer = 0;
     // Keys a focused field (or, for Space, a focused button) handles itself.
     var ownsKey = function (el, key) {
       if (!el) return false;
       if (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|VIDEO)$/.test(el.tagName)) return true;
       return key === ' ' && /^(BUTTON|A|SUMMARY)$/.test(el.tagName);
     };
-    window.addEventListener('scrollend', function () { heading = null; });
     window.addEventListener('keydown', function (e) {
       if (!snapScreens.matches || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
-      var step = KEYS[e.key];
-      if (step === undefined || ownsKey(document.activeElement, e.key)) return;
-      if (document.querySelector('dialog[open], .complex-panel:popover-open, .complex-panel.is-open')) return;
-      if (e.key === ' ' && e.shiftKey) step = -1;
-      var y = window.scrollY;
+      var move = KEYS[e.key];
+      if (move === undefined || ownsKey(document.activeElement, e.key)) return;
+      if (document.querySelector('dialog[open]')) return;
+      if (e.key === ' ' && e.shiftKey) move = -1;
       var from = heading;
       if (from === null) {
-        // The section whose top is nearest.
-        from = 0;
-        allSlides.forEach(function (slide, i) {
-          if (Math.abs(pageTop(slide) - y) < Math.abs(pageTop(allSlides[from]) - y)) from = i;
-        });
+        from = nearest();
         // In a section taller than the window, arrows scroll it natively.
-        var slide = allSlides[from];
-        if (Math.abs(step) === 1 && e.key.indexOf('Arrow') === 0 &&
-            (step > 0 ? pageTop(slide) + slide.offsetHeight > y + window.innerHeight + 4 : pageTop(slide) < y - 4)) return;
+        if (Math.abs(move) === 1 && e.key.indexOf('Arrow') === 0 && roomInSection(from, move)) return;
       }
-      var to = Math.max(0, Math.min(allSlides.length - 1, from + (isFinite(step) ? step : step > 0 ? allSlides.length : -allSlides.length)));
       e.preventDefault();
-      if (to === heading) return;
-      heading = to;
-      gliding = true;
-      clearTimeout(glideTimer);
-      glideTimer = setTimeout(endGlide, 900);
-      // Browsers without scrollend forget the heading by time.
-      clearTimeout(keyTimer);
-      keyTimer = setTimeout(function () { heading = null; }, 1200);
-      window.scrollTo({ top: pageTop(allSlides[to]), behavior: reduceMotion ? 'auto' : 'smooth' });
+      glideTo(isFinite(move) ? from + move : move > 0 ? allSlides.length - 1 : 0);
     });
   }
 

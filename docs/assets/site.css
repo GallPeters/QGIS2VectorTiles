@@ -209,14 +209,13 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   z-index: 100;
   height: var(--header-h);
   border-bottom: 1px solid transparent;
-  transition: background-color 0.3s, border-color 0.3s, backdrop-filter 0.3s;
+  transition: background-color 0.3s, border-color 0.3s;
 }
 .site-header.is-scrolled,
 .site-header.is-open {
-  background: rgba(9, 9, 11, 0.82);
+  /* Solid, not a backdrop blur: a blur is redrawn on every scrolled frame. */
+  background: rgba(9, 9, 11, 0.96);
   border-bottom-color: var(--line);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  backdrop-filter: blur(16px) saturate(150%);
 }
 .site-header .container {
   display: flex;
@@ -396,6 +395,7 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
    contours, each placed differently. */
 .slide:nth-of-type(even):not(.hero) { background: var(--bg-raised); }
 .slide:not(.hero) { isolation: isolate; }
+.slide:not(.hero)::before, .hero-bg::before { will-change: transform; transform: translateZ(0); }
 .slide:not(.hero)::before {
   content: '';
   position: absolute;
@@ -530,12 +530,11 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   flex-direction: column;
   gap: 16px;
   padding: 16px;
-  /* Frosted glass: a light tint over the dark page, blurring the contours. */
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  /* A soft white tint over the dark page (no backdrop blur, which would be
+     redrawn on every scrolled frame). */
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius-l);
-  background: rgba(255, 255, 255, 0.07);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.07)), var(--bg);
 }
 .live-facts { display: grid; gap: 7px; font-size: 14px; line-height: 1.45; color: var(--text-2); }
 .live-facts li { display: flex; align-items: flex-start; gap: 10px; }
