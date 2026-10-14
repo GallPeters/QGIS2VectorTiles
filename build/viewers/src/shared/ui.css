@@ -189,6 +189,10 @@ body { font-family: var(--q2vt-font); }
 .ol-zoom button:hover, .ol-zoom button:focus { background: #f3f4f6; color: var(--q2vt-text); outline: none; }
 .ol-zoom .ol-zoom-in { border-bottom: 1px solid var(--q2vt-border); }
 
+/* ---- Embedded (?embed=1): only the map, its zoom buttons and scale ---- */
+.q2vt-embed .q2vt-top-left,
+.q2vt-embed .q2vt-draw { display: none !important; }
+
 /* ---- Bottom: pointer coordinates ------------------------------------- */
 .q2vt-coords {
     position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 4;

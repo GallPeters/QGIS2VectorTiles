@@ -158,6 +158,29 @@ def merge_rule_layers(layers: List[dict]) -> List[dict]:
     return merged
 
 
+def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
+    """Widen each data layer's zoom range by one zoom on each side where the
+    tiles there don't hold its data, so the map never goes blank between zooms.
+
+    While a new zoom's tiles load, MapLibre draws the previous zoom's tiles in
+    their place; a layer shown only from the new zoom has no data in them. Each
+    dataset is written only into its own zooms' tiles (tiles_generator CONF),
+    so the extra zoom only ever draws it from those stand-in tiles, never twice.
+    Beyond the archive's last zoom its tiles are enlarged and do hold the data,
+    so ranges are not widened there.
+    """
+    for layer_def in layers:
+        if "source-layer" not in layer_def:
+            continue  # background
+        low = layer_def.get("minzoom")
+        high = layer_def.get("maxzoom")
+        if low is not None and 0 < low <= archive_max_zoom:
+            layer_def["minzoom"] = low - 1
+        if high is not None and high <= archive_max_zoom:
+            layer_def["maxzoom"] = high + 1
+    return layers
+
+
 class PropertyExtractor:
     """Utility class for extracting and converting PyQGIS properties to MapLibre format.
 
@@ -1789,6 +1812,9 @@ class QgisMapLibreStyleExporter:
                 self._convert_labeling_style(style)
 
         self.style["layers"] = merge_rule_layers(self.style["layers"])
+        # After merging, which compares the layers' zoom ranges.
+        archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
+        self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
         return self.style
 
     def _set_map_units(self) -> None:
