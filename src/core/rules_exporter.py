@@ -337,6 +337,9 @@ class _SourceSnapshot:
     live: Optional[_LiveSource] = None
     # The layer's CRS in QGIS (which may differ from the file's), as WKT.
     crs_wkt: str = ""
+    # Whether a rule reads q2vt_biggest (the largest part of each feature):
+    # otherwise GDAL-built base layers leave it at 1 for every part.
+    needs_biggest: bool = True
 
     @property
     def needs_serial_read(self) -> bool:
@@ -1180,6 +1183,12 @@ class RulesExporter:
                 required_fields=self._required_source_fields(groups),
                 live=_LiveSource.of(layer) if layer.providerType() in _LIVE_PROVIDERS else None,
                 crs_wkt=layer.crs().toWkt(Qgis.CrsWktVariant.Preferred) if layer.crs().isValid() else "",
+                needs_biggest=any(
+                    grp.keep_biggest_part or any(
+                        _BIGGEST_FIELD in expr for m in grp.members for _, expr, _ in m.expression_fields
+                        if isinstance(expr, str))
+                    for grp in groups
+                ),
             )
 
         return sources, rule_groups
@@ -1621,7 +1630,8 @@ class RulesExporter:
             self._remove_file(stage)
             plan["dataset"] = None  # Closes the source.
         self._check_cancel()
-        self._flag_biggest_parts(path, family)
+        if src.needs_biggest:
+            self._flag_biggest_parts(path, family)
 
     def _flag_biggest_parts(self, path: str, family: int) -> None:
         """Clear q2vt_biggest on all but the largest part of each multi-part
@@ -1635,6 +1645,9 @@ class RulesExporter:
         if not self._has_repeated_values(path, orig_name):
             return
         temp_path = join(self.utils_dir, f"flags_{uuid4().hex}.{_TEMP_LAYER_FORMAT}")
+        if self._flag_biggest_parts_sqlite(path, family, temp_path):
+            os.replace(temp_path, path)
+            return
         src_ds = ogr.Open(path)
         out_ds = None
         try:
@@ -1686,6 +1699,62 @@ class RulesExporter:
             src_ds = None
         out_ds = None  # Closes and flushes the file.
         os.replace(temp_path, path)
+
+    def _flag_biggest_parts_sqlite(self, path: str, family: int, temp_path: str) -> bool:
+        """_flag_biggest_parts in C++: one SQLite statement ranks each
+        feature's parts by area (length for lines) with a window function,
+        the first of equal parts first, keeping the layer's order and schema.
+        Returns False (nothing written) if GDAL can't run it."""
+        sqlite, spatialite = _sqlite_capabilities()
+        if not sqlite or (family != 2 and not spatialite):
+            return False
+        ds = ogr.Open(path)
+        if ds is None:
+            return False
+        layer = ds.GetLayer(0)
+        defn = layer.GetLayerDefn()
+        fields, columns = [], []
+        for i in range(defn.GetFieldCount()):
+            field = defn.GetFieldDefn(i)
+            name = field.GetName()
+            subtype = field.GetSubType()
+            fields.append(
+                f'<Field name="{xml_escape(name)}" type="{ogr.GetFieldTypeName(field.GetType())}"'
+                + (f' subtype="{ogr.GetFieldSubTypeName(subtype)}"' if subtype != ogr.OFSTNone else "")
+                + "/>")
+            if name != _BIGGEST_FIELD:
+                columns.append(f'"{_sql_name(name)}"')
+        layer_name = layer.GetName()
+        ds = None
+        size = {0: "ST_Area(GEOMETRY)", 1: "ST_Length(GEOMETRY)"}.get(family, "0")
+        orig = f'"{_FIELD_PREFIX}_orig_id"'
+        # SQL over the plugin's own base layer; every name is quoted.
+        sql = (
+            f"SELECT {', '.join(columns)}, CASE WHEN ROW_NUMBER() OVER (PARTITION BY {orig} "
+            f"ORDER BY {size} DESC, ROWID) = 1 THEN 1 ELSE 0 END AS \"{_BIGGEST_FIELD}\", "
+            f'GEOMETRY FROM "{_sql_name(layer_name)}" ORDER BY ROWID'  # nosec B608
+        )
+        vrt_path = f"{temp_path}.vrt"
+        try:
+            with open(vrt_path, "w", encoding="utf-8") as f:
+                f.write(
+                    f'<OGRVRTDataSource><OGRVRTLayer name="{xml_escape(layer_name)}">'
+                    f"<SrcDataSource>{xml_escape(path)}</SrcDataSource>"
+                    f'<SrcSQL dialect="SQLITE">{xml_escape(sql)}</SrcSQL>'
+                    f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
+                    "</OGRVRTLayer></OGRVRTDataSource>"
+                )
+            self._gdal_translate(temp_path, vrt_path, gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName=layer_name, layerCreationOptions=["SPATIAL_INDEX=NO"],
+                geometryType=_OGR_OUTPUT[family][0], callback=self._gdal_progress,
+            ))
+            return True
+        except (RuntimeError, OSError) as e:
+            self._remove_file(temp_path)
+            self.feedback.pushDebugInfo(f"Largest parts flagged by Python ({path}): {e}")
+            return False
+        finally:
+            self._remove_file(vrt_path)
 
     @staticmethod
     def _has_repeated_values(path: str, field_name: str) -> bool:

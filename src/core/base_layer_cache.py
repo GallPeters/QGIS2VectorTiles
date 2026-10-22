@@ -35,7 +35,7 @@ from ..utils.config import (
 
 # Bump whenever the way base layers are built changes, to invalidate entries
 # made by older code.
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 # Providers whose URI starts with a local file path.
 _FILE_PROVIDERS = frozenset({"ogr"})
@@ -74,6 +74,8 @@ class BaseLayerCache:
             None if src.extent is None else [repr(v) for v in src.extent],
             None if src.required_fields is None else sorted(src.required_fields),
             signature, _EPSG_CRS, _DATA_SIMPLIFICATION_TOLERANCE,
+            # Built without largest-part flags when no rule reads them.
+            bool(getattr(src, "needs_biggest", True)),
         ])
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
         return join(self.directory, f"base_{digest}.{self.extension}")
