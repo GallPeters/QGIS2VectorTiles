@@ -22,7 +22,7 @@ import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
 import { TerraDrawOpenLayersAdapter } from 'terra-draw-openlayers-adapter';
 import { startViewer } from '../shared/app.js';
-import { loadStyle, readPmtilesTile, tileUrls } from '../shared/style.js';
+import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
@@ -32,7 +32,19 @@ const config = window.Q2VT_CONFIG;
 // page's settings, the zoom shown, the viewer switch): OpenLayers numbers the
 // same scale one higher (its zoom 0 is a 256 px world, MapLibre's 512 px).
 const OL_ZOOM_OFFSET = 1;
-const startZoom = (config.startZoom ?? config.minZoom) + OL_ZOOM_OFFSET;
+let startZoom = (config.startZoom ?? config.minZoom) + OL_ZOOM_OFFSET;
+let startCenter = config.center;
+
+/** Without a zoom in the address, open fitted to the export extent (not at
+ * the lowest zoom, whose few tiles hold all the data at once). */
+function fitStart(view) {
+    if (config.startZoom !== undefined || !Array.isArray(config.bounds)) return;
+    const extent = transformExtent(config.bounds, 'EPSG:4326', 'EPSG:3857');
+    const [width, height] = map.getSize() || [800, 600];
+    const resolution = view.getResolutionForExtent(extent, [Math.max(width - 40, 1), Math.max(height - 40, 1)]);
+    startZoom = Math.max(view.getZoomForResolution(resolution), config.minZoom + OL_ZOOM_OFFSET);
+    startCenter = toLonLat(getCenter(extent));
+}
 
 // The zoom buttons, the reset-north button (shown once the map is turned)
 // and the drawing tools stack in one column on the right, as in MapLibre.
@@ -80,14 +92,11 @@ const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => ap
 })).then(() => {
     // The style may constrain the view; allow every zoom, as before.
     const old = map.getView();
-    map.setView(new View({
-        center: fromLonLat(config.center),
-        zoom: Number.isFinite(startZoom) ? startZoom : old.getZoom(),
-        minZoom: 0,
-        maxZoom: 22,
-        constrainResolution: false,
-        showFullExtent: true,
-    }));
+    const view = new View({ minZoom: 0, maxZoom: 22, constrainResolution: false, showFullExtent: true });
+    fitStart(view);
+    view.setCenter(fromLonLat(startCenter));
+    view.setZoom(Number.isFinite(startZoom) ? startZoom : old.getZoom());
+    map.setView(view);
     map.addLayer(highlight);
     // Terra Draw listens on the map's top canvas, which exists once the
     // map has rendered.
@@ -110,7 +119,8 @@ const adapter = {
     featuresAt(point) {
         const found = [];
         map.forEachFeatureAtPixel(point, (feature) => {
-            found.push(feature.getProperties());
+            const properties = feature.getProperties();
+            found.push(withDescription(properties.layer ?? properties['mvt:layer'], properties));
             return true;  // The topmost feature only.
         }, { hitTolerance: 2, layerFilter: isDataLayer });
         return found;

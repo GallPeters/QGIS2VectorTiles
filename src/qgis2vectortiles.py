@@ -244,7 +244,22 @@ class QGIS2VectorTiles:
         return QgisMapLibreStyleExporter(
             temp_dir, self.utils_dir, styled_layer, self.min_zoom, self.max_zoom,
             extent=self.extent, zoom_ranges=self._styler.zoom_ranges,
+            descriptions=self._descriptions(self._styler.flattened_rules),
         )
+
+    @staticmethod
+    def _descriptions(rules: List[FlattenedRule]) -> dict:
+        """The viewers' popup description of each dataset's rows, by dataset
+        and rule number ("" for a dataset of one rule): kept in the style,
+        not repeated in every feature of the tiles. A dataset's rows are
+        described by their first (renderer) rule."""
+        descriptions: dict = {}
+        for rule in rules:
+            member = "" if rule.member is None else str(rule.member)
+            # get_description() is an expression's string literal: unquoted.
+            text = rule.get_description()[1:-1].replace("''", "'")
+            descriptions.setdefault(rule.output_dataset, {}).setdefault(member, text)
+        return descriptions
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(

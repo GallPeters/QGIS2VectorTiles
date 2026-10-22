@@ -1776,6 +1776,7 @@ class QgisMapLibreStyleExporter:
         maxzoom: int = 14,
         extent=None,
         zoom_ranges: Optional[Dict[str, tuple]] = None,
+        descriptions: Optional[Dict[str, Dict[str, str]]] = None,
     ):
         """Initialise the exporter.
 
@@ -1803,6 +1804,10 @@ class QgisMapLibreStyleExporter:
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
+        if descriptions:
+            # The viewers' popups describe a feature by its source-layer and
+            # q2vt_rule ("" without), from here rather than from the tiles.
+            self.style["metadata"] = {"q2vt:descriptions": descriptions}
         self.style["layers"].append(self._build_background_layer())
 
     def _resolve_layer(self, layer: Optional[QgsVectorTileLayer]) -> QgsVectorTileLayer:

@@ -32,6 +32,9 @@
         window.Q2VT_CONFIG = {
             minZoom: _Q2VT_MINZOOM,
             center: _Q2VT_CENTER,
+            // The export extent [west, south, east, north]: the map opens
+            // fitted to it (unless ?z= gives a zoom).
+            bounds: _Q2VT_BOUNDS,
             storageKey: "_Q2VT_STORAGE_KEY",
             // Relative to this page, so the folder works on any web server.
             styleUrl: "style/style.json",

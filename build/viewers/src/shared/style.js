@@ -17,6 +17,18 @@ const OL_TILE = /^(.+)#pmtiles=(\d+)\/(\d+)\/(\d+)$/;
 /** Open archives by URL, shared by the style and the tile requests. */
 export const archives = new Map();
 
+// The style's popup descriptions: {source-layer: {q2vt_rule or "": text}}.
+let descriptions = {};
+
+/** A feature's properties with its rule's description (q2vt_description),
+ * which the style keeps once per rule rather than the tiles per feature. */
+export function withDescription(sourceLayer, properties) {
+    const rules = descriptions[sourceLayer];
+    if (!rules || properties.q2vt_description !== undefined) return properties;
+    const text = rules[properties.q2vt_rule ?? ''] ?? rules[''];
+    return text === undefined ? properties : { q2vt_description: text, ...properties };
+}
+
 function archiveAt(url) {
     let archive = archives.get(url);
     if (!archive) {
@@ -48,6 +60,7 @@ export async function loadStyle(styleUrl, tileUrl) {
     const response = await fetch(base);
     if (!response.ok) throw new Error(`Cannot load the style (${response.status}): ${base}`);
     const style = await response.json();
+    descriptions = style.metadata?.['q2vt:descriptions'] || {};
     if (typeof style.glyphs === 'string') style.glyphs = resolveUrl(style.glyphs, base);
     if (typeof style.sprite === 'string') style.sprite = resolveUrl(style.sprite, base);
     for (const [id, source] of Object.entries(style.sources || {})) {

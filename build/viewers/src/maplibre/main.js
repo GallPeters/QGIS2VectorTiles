@@ -6,7 +6,7 @@ import * as maplibregl from './maplibre-gl.mjs';
 import { Protocol } from 'pmtiles';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import { startViewer } from '../shared/app.js';
-import { archives, loadStyle, tileUrls } from '../shared/style.js';
+import { archives, loadStyle, tileUrls, withDescription } from '../shared/style.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
@@ -33,6 +33,13 @@ const map = new maplibregl.Map({
     center: config.center,
     zoom: config.startZoom ?? config.minZoom,
 });
+// Without a zoom in the address, open fitted to the export extent (not at
+// the lowest zoom, whose few tiles hold all the data at once).
+if (config.startZoom === undefined && Array.isArray(config.bounds)) {
+    const [west, south, east, north] = config.bounds;
+    const camera = map.cameraForBounds([[west, south], [east, north]], { padding: 20 });
+    if (camera) map.jumpTo({ center: camera.center, zoom: Math.max(camera.zoom, config.minZoom) });
+}
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
@@ -60,7 +67,8 @@ const adapter = {
         lngLat: [e.lngLat.lng, e.lngLat.lat], point: [e.point.x, e.point.y],
     })),
     onPointerOut: (cb) => map.getCanvasContainer().addEventListener('mouseleave', cb),
-    featuresAt: (point) => map.queryRenderedFeatures(point, { layers: dataLayers() }).map((f) => f.properties),
+    featuresAt: (point) => map.queryRenderedFeatures(point, { layers: dataLayers() })
+        .map((f) => withDescription(f.sourceLayer, f.properties)),
     setCursor: (css) => { map.getCanvas().style.cursor = css; },
     showPopup: (lngLat, element) => popup.setLngLat(lngLat).setDOMContent(element).addTo(map),
     hidePopup: () => popup.remove(),

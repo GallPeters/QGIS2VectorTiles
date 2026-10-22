@@ -23,6 +23,7 @@ from typing import Optional
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsCsException,
     QgsProject,
 )
 
@@ -114,6 +115,19 @@ Set WshShell = Nothing
         center = transform.transform(self.extent.center())
         return f"[{center.x()}, {center.y()}]"
 
+    def _get_bounds_wgs84(self) -> str:
+        """The map extent as a '[west, south, east, north]' string in EPSG:4326."""
+        transform = QgsCoordinateTransform(
+            QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
+            QgsCoordinateReferenceSystem("EPSG:4326"),
+            QgsProject.instance().transformContext(),
+        )
+        try:
+            box = transform.transformBoundingBox(self.extent)
+        except QgsCsException:
+            return "null"
+        return f"[{box.xMinimum()}, {box.yMinimum()}, {box.xMaximum()}, {box.yMaximum()}]"
+
     @staticmethod
     def _get_python_exe() -> str:
         """Return the Python executable path for the current platform."""
@@ -144,6 +158,7 @@ Set WshShell = Nothing
             {
                 "_Q2VT_MINZOOM": str(self.min_zoom),
                 "_Q2VT_CENTER": center,
+                "_Q2VT_BOUNDS": self._get_bounds_wgs84(),
                 "_Q2VT_STORAGE_KEY": version,
             },
         )

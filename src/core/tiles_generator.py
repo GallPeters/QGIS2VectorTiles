@@ -25,6 +25,7 @@ import ctypes
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -56,6 +57,14 @@ _MEMORY_PER_DATASET_BYTE = 4
 
 # Share of the free memory the runs' in-memory databases may take together.
 _MEMORY_SHARE = 0.5
+
+# A tile's width in screen pixels (MapLibre's zoom levels).
+_TILE_PIXELS = 512
+
+# Polygons smaller than this share of a screen pixel are left out of the
+# tiles below the highest zoom: dense small polygons (parcels, buildings)
+# make the lowest zooms' tiles the heaviest, for specks hardly drawn.
+_MIN_POLYGON_PIXELS = 0.25
 
 
 @dataclass
@@ -318,21 +327,46 @@ class GDALTilesGenerator:
 
     # --- VRT construction ---
 
-    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None):
-        """Write an OGR VRT containing one entry per layer."""
+    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None, last_zoom: int = None):
+        """Write an OGR VRT containing one entry per layer, for a run whose
+        last zoom level is ``last_zoom`` (see _min_area)."""
         style_text = str(self.style)
+        min_area = self._min_area(last_zoom)
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(layer, style_text))
+                f.write(self._vrt_layer_block(layer, style_text, min_area))
             f.write("</OGRVRTDataSource>\n")
 
-    def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str) -> str:
-        """Return the VRT XML block for a single layer."""
+    def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
+        """The smallest polygon (EPSG:3857 square metres) a run's tiles
+        keep: _MIN_POLYGON_PIXELS of a screen pixel at its last zoom level,
+        below which a polygon shows as no more than a faint speck. None at
+        the tiles' highest zoom, whose tiles are enlarged beyond it."""
+        if last_zoom is None or last_zoom >= getattr(self, "_last_zoom", last_zoom):
+            return None
+        pixel = 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
+        return _MIN_POLYGON_PIXELS * pixel * pixel
+
+    def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
+                         min_area: Optional[float] = None) -> str:
+        """Return the VRT XML block for a single layer; a polygon layer's
+        smaller polygons than ``min_area`` are left out."""
         source = layer.source().split("|layername=")[0]
+        geometry = re.search(r"c(\d\d)", self._layer_name(layer))
+        src_sql = ""
+        if min_area and geometry and geometry.group(1) == "02":
+            ds = ogr.Open(source)
+            if ds is not None:
+                # OGR SQL over the plugin's own dataset; the name is quoted.
+                name = ds.GetLayer(0).GetName().replace('"', '""')
+                sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
+                src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
+                ds = None
         return (
             f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
             f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
+            f'{src_sql}'
             f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
             f'        <GeometryType>wkbUnknown</GeometryType>\n'
             f'{self._vrt_fields(source, style_text)}'
@@ -343,10 +377,13 @@ class GDALTilesGenerator:
     def _is_tiled_field(field_name: str, style_text: str) -> bool:
         """Whether a dataset field belongs in the tiles.
 
-        q2vt_orig_id only serves the rules export, and data-defined property
-        fields matter only if the style references them.
+        q2vt_orig_id only serves the rules export, q2vt_description is in
+        the style's metadata (one per rule, not per feature), and
+        data-defined property fields matter only if the style references
+        them.
         """
-        if field_name in (f"{_FIELD_PREFIX}_orig_id", f"{_FIELD_PREFIX}_biggest"):
+        if field_name in (f"{_FIELD_PREFIX}_orig_id", f"{_FIELD_PREFIX}_biggest",
+                          f"{_FIELD_PREFIX}_description"):
             return False
         if f"{_FIELD_PREFIX}_property_" in field_name:
             return field_name in style_text
@@ -387,7 +424,7 @@ class GDALTilesGenerator:
         tag = f"{lo}_{hi}_{uuid4().hex}"
         vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
         conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
-        self._build_vrt(vrt_path, [layer for layer, _, _ in run_layers.values()])
+        self._build_vrt(vrt_path, [layer for layer, _, _ in run_layers.values()], hi)
         self._build_layer_conf(conf_path, run_layers)
         # The temporary database is written heavily: in memory if it fits,
         # else on local disk, not next to the output (which may be a synced
