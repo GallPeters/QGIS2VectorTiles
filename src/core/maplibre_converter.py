@@ -122,6 +122,49 @@ def _match_value(value):
     return value
 
 
+# A layer id's parts that differ between the rules of one dataset: rule
+# depth and number, and the renderer rule a label was split by.
+_RULE_ID_PARTS = re.compile(r"[drf]\d\d")
+
+
+def _slot(layer_def: dict) -> tuple:
+    """What a layer draws regardless of its rule: its type and its id
+    without the rule's own parts (the symbol layer, the geometry)."""
+    return layer_def.get("type"), _RULE_ID_PARTS.sub("", layer_def.get("id", ""))
+
+
+def group_rule_layers(layers: List[dict]) -> List[dict]:
+    """Order each run of consecutive layers drawn from one shared dataset by
+    what they draw, keeping the rules' order within each: the fills of all
+    categories, then all their outlines (or all road casings, then all road
+    fills), as QGIS's symbol levels draw them. Rule by rule (category 1's
+    fill and outline, then category 2's...) no two layers of a kind are
+    next to each other, so none could merge.
+    """
+    result: List[dict] = []
+    block: List[dict] = []
+
+    def flush():
+        order: Dict[tuple, int] = {}
+        for layer_def in block:
+            order.setdefault(_slot(layer_def), len(order))
+        result.extend(sorted(block, key=lambda l: order[_slot(l)]))
+        block.clear()
+
+    for layer_def in layers:
+        if (block and _rule_of(layer_def) is not None
+                and layer_def.get("source-layer") == block[0].get("source-layer")):
+            block.append(layer_def)
+            continue
+        flush()
+        if _rule_of(layer_def) is not None:
+            block.append(layer_def)
+        else:
+            result.append(layer_def)
+    flush()
+    return result
+
+
 def merge_rule_layers(layers: List[dict]) -> List[dict]:
     """Merge consecutive layers of the rules sharing a dataset that differ
     only in properties MapLibre evaluates per feature (typically the
@@ -129,10 +172,14 @@ def merge_rule_layers(layers: List[dict]) -> List[dict]:
     one layer, the varying properties as ``match`` expressions on the rule
     number. Fewer layers render and place labels faster; features are then
     drawn in their own order, as QGIS draws them (without symbol levels).
+
+    A run holds each rule once: two layers of one rule (e.g. a road's
+    casing and fill) would need two values for one ``match`` label.
     """
     runs: List[List[dict]] = []
     for layer_def in layers:
-        if runs and _mergeable(runs[-1][0], layer_def):
+        if (runs and _mergeable(runs[-1][0], layer_def)
+                and _rule_of(layer_def) not in {_rule_of(l) for l in runs[-1]}):
             runs[-1].append(layer_def)
         else:
             runs.append([layer_def])
@@ -1811,7 +1858,7 @@ class QgisMapLibreStyleExporter:
             for style in labeling.styles():
                 self._convert_labeling_style(style)
 
-        self.style["layers"] = merge_rule_layers(self.style["layers"])
+        self.style["layers"] = merge_rule_layers(group_rule_layers(self.style["layers"]))
         # After merging, which compares the layers' zoom ranges.
         archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
         self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
