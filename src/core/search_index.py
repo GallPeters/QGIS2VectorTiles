@@ -18,24 +18,23 @@ Depends on: config, flattened_rule
 """
 
 import json
+import math
 from os import makedirs
 from os.path import dirname
 from typing import Any, Dict, List, Optional, Tuple
 
 from qgis.core import (
-    QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform,
-    QgsCsException,
     QgsFeatureRequest,
-    QgsProject,
     QgsRectangle,
     QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime
 
-from ..utils.config import _EPSG_CRS, _FIELD_PREFIX
+from ..utils.config import _FIELD_PREFIX
 from ..utils.flattened_rule import FlattenedRule
 
+# The Web Mercator (EPSG:3857) sphere's radius, in metres.
+_MERCATOR_RADIUS = 6378137.0
 # Features in the index at most; beyond it the index is cut and says so.
 _MAX_FEATURES = 200000
 # Longest field value kept, in characters.
@@ -152,12 +151,24 @@ class SearchIndexBuilder:
             return True
         return not name.startswith(f"{_FIELD_PREFIX}_") and name.lower() != "fid"
 
+    @staticmethod
+    def _to_wgs84(box: QgsRectangle) -> List[float]:
+        """A Web Mercator box as [west, south, east, north] in degrees.
+
+        Web Mercator maps longitude and latitude each on their own axis,
+        monotonically, so a box's corners are the corners of its box in
+        degrees: two formulas, not QGIS's densified box transform (about
+        a hundred projected points per box, seconds for a large index).
+        """
+        def lon(x: float) -> float:
+            return round(math.degrees(x / _MERCATOR_RADIUS), 6)
+
+        def lat(y: float) -> float:
+            return round(math.degrees(math.atan(math.sinh(y / _MERCATOR_RADIUS))), 6)
+
+        return [lon(box.xMinimum()), lat(box.yMinimum()), lon(box.xMaximum()), lat(box.yMaximum())]
+
     def _write(self, layers: List[_IndexedLayer], truncated: bool) -> None:
-        to_wgs84 = QgsCoordinateTransform(
-            QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
-            QgsCoordinateReferenceSystem("EPSG:4326"),
-            QgsProject.instance().transformContext(),
-        )
         layers_out: List[Dict[str, Any]] = []
         features_out: List[list] = []
         for layer in layers:
@@ -172,15 +183,10 @@ class SearchIndexBuilder:
                 "maxzoom": layer.maxzoom,
             })
             for values, box in layer.features.values():
-                try:
-                    wgs = to_wgs84.transformBoundingBox(box)
-                except QgsCsException:
-                    continue
                 features_out.append([
                     index,
                     [values.get(f) for f in layer.fields],
-                    [round(wgs.xMinimum(), 6), round(wgs.yMinimum(), 6),
-                     round(wgs.xMaximum(), 6), round(wgs.yMaximum(), 6)],
+                    self._to_wgs84(box),
                 ])
         makedirs(dirname(self.output_path), exist_ok=True)
         with open(self.output_path, "w", encoding="utf-8") as f:
