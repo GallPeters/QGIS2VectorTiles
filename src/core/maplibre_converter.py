@@ -2757,12 +2757,13 @@ class QgisMapLibreStyleExporter:
         """Serialise the in-memory style dict to a JSON string."""
         return json.dumps(self.style, indent=indent)
 
-    def save_to_file(self, filename: str = "style.json", indent: int = 2) -> str:
+    def save_to_file(self, filename: str = "style.json", indent: Optional[int] = None) -> str:
         """Write the style JSON and the sprite sheet to the output directory.
 
         Args:
             filename: Filename for the JSON file (relative to ``style/``).
-            indent:   JSON indentation level for human-readable output.
+            indent:   JSON indentation level for human-readable output; by
+                      default compact, the smallest for viewers to load.
 
         Returns:
             The absolute path of the written ``style.json`` file.
@@ -2786,7 +2787,8 @@ class QgisMapLibreStyleExporter:
         rounded_style = self.round_numeric_values(self.style)
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
-            json.dump(rounded_style, f, indent=indent)
+            json.dump(rounded_style, f, indent=indent,
+                      separators=None if indent else (",", ":"))
         return filepath
     
     def _use_fontstacks(self, fontstacks: Dict[str, str]) -> None:
