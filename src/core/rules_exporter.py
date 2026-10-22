@@ -266,6 +266,11 @@ _PERIMETER_PLACEMENTS = {
 # around its centroid: Horizontal (4) and Free (5).
 _POLYGON_INTERIOR_PLACEMENTS = frozenset({4, 5})
 
+# The expression function applying a text format's type case
+# (Qgis.Capitalization) to the label text: all uppercase, all lowercase,
+# small caps, title case, all small caps.
+_TYPE_CASE_FUNCTIONS = {1: "upper", 2: "lower", 4: "upper", 1004: "title", 1006: "upper"}
+
 # Ground size of one pixel at scale 1:1 (OGC's 0.28 mm rendering pixel).
 _METRES_PER_PIXEL_AT_SCALE_1 = 0.00028
 
@@ -368,6 +373,9 @@ class _RuleGroupSnapshot:
     layer_name: str = ""
     # Whether rules differing by filter may join this dataset.
     shareable: bool = True
+    # Line labels with "merge connected lines": after the export, touching
+    # lines with the same label (and other values) become one line.
+    merge_lines: bool = False
 
     @property
     def tagged(self) -> bool:
@@ -782,6 +790,7 @@ class RulesExporter:
                 return [], []
             
             rule_outputs = self._export_rules_parallel(rule_groups, base_layers)
+            self._merge_label_lines(rule_groups, rule_outputs)
             # Phase 4 — collect results on caller thread.
             return self._collect_results(rule_groups, rule_outputs)
         finally:
@@ -853,10 +862,12 @@ class RulesExporter:
                 flat_rules=flat_rules,
             )
             rule_type = primary.get_attr("t")
-            keep_biggest = self._keeps_biggest_part(primary)
+            merge_lines = self._merges_lines(primary, geom_target)
+            # Merged lines are made of all the parts of every feature.
+            keep_biggest = self._keeps_biggest_part(primary) and not merge_lines
             key = (
                 primary.layer.id(), rule_type, self._enum_int(geom_target), geom_expr,
-                keep_biggest, primary.get_attr("o"), primary.get_attr("i"),
+                keep_biggest, primary.get_attr("o"), primary.get_attr("i"), merge_lines,
             )
             # Rules drawn by symbol levels keep their own datasets: QGIS draws
             # them level by level, not feature by feature.
@@ -874,6 +885,7 @@ class RulesExporter:
                     keep_biggest_part=keep_biggest,
                     layer_name=primary.layer.name(),
                     shareable=shareable,
+                    merge_lines=merge_lines,
                 )
                 datasets[key].append(group)
                 rule_groups.append(group)
@@ -947,6 +959,17 @@ class RulesExporter:
     def _uses_symbol_levels(layer: QgsVectorLayer) -> bool:
         try:
             return bool(layer.renderer() and layer.renderer().usingSymbolLevels())
+        except (AttributeError, RuntimeError):
+            return False
+
+    @classmethod
+    def _merges_lines(cls, flat_rule: FlattenedRule, geom_target) -> bool:
+        """Whether a label rule labels its lines merged ("merge connected
+        lines"), as QGIS does before placing them."""
+        if flat_rule.get_attr("t") != 1 or cls._enum_int(geom_target) != 1:
+            return False
+        try:
+            return bool(flat_rule.rule.settings().lineSettings().mergeLines())
         except (AttributeError, RuntimeError):
             return False
 
@@ -2363,6 +2386,75 @@ class RulesExporter:
             member_expressions.setdefault(orig_id, f'"{orig_id}"')
         return columns, expressions
 
+    def _merge_label_lines(
+        self, rule_groups: List[_RuleGroupSnapshot], outputs: Dict[str, Optional[str]]
+    ) -> None:
+        """Merge the touching lines of "merge connected lines" label
+        datasets, as QGIS merges them before placing their labels: lines
+        with the same values (label text, rule, data-defined properties)
+        become one line per connected set. Caller thread."""
+        orig_name = f"{_FIELD_PREFIX}_orig_id"
+        for grp in rule_groups:
+            path = outputs.get(grp.output_dataset)
+            if not grp.merge_lines or not path or self._is_cancelled():
+                continue
+            merged_path = join(self.utils_dir, f"{grp.output_dataset}_merged.{_TEMP_RULE_FORMAT}")
+            # Read and written with OGR: a QGIS layer would keep the file
+            # open (its connection pool), and it is replaced here.
+            src_ds = out_ds = None
+            try:
+                src_ds = ogr.Open(path)
+                src_layer = src_ds.GetLayer(0)
+                defn = src_layer.GetLayerDefn()
+                orig_idx = defn.GetFieldIndex(orig_name)
+                count = defn.GetFieldCount()
+                groups: Dict[tuple, List[Any]] = {}
+                for feature in src_layer:
+                    values = [feature.GetField(i) if feature.IsFieldSetAndNotNull(i) else None
+                              for i in range(count)]
+                    key = tuple(repr(v) for i, v in enumerate(values) if i != orig_idx)
+                    entry = groups.setdefault(key, [values, []])
+                    if orig_idx >= 0 and values[orig_idx] is not None:
+                        current = entry[0][orig_idx]
+                        if current is None or values[orig_idx] < current:
+                            entry[0][orig_idx] = values[orig_idx]
+                    geometry = feature.GetGeometryRef()
+                    if geometry is not None:
+                        line = QgsGeometry()
+                        line.fromWkb(bytes(geometry.ExportToIsoWkb()))
+                        entry[1].append(line)
+                out_ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(merged_path)
+                out_layer = out_ds.CreateLayer(
+                    src_layer.GetName(), src_layer.GetSpatialRef(), ogr.wkbLineString,
+                    ["SPATIAL_INDEX=NO"],
+                )
+                for i in range(count):
+                    out_layer.CreateField(defn.GetFieldDefn(i))
+                out_defn = out_layer.GetLayerDefn()
+                src_ds = None
+                for values, geometries in groups.values():
+                    merged = QgsGeometry.unaryUnion(geometries).mergeLines()
+                    parts = merged.asGeometryCollection() if merged.isMultipart() else [merged]
+                    for part in parts:
+                        if part.isNull() or part.type() != Qgis.GeometryType.Line:
+                            continue
+                        out = ogr.Feature(out_defn)
+                        for i, value in enumerate(values):
+                            if value is None:
+                                out.SetFieldNull(i)
+                            else:
+                                out.SetField(i, value)
+                        out.SetGeometry(ogr.CreateGeometryFromWkb(bytes(part.asWkb())))
+                        out_layer.CreateFeature(out)
+                out_ds = None  # Closes and flushes the file.
+                os.replace(merged_path, path)
+            except (RuntimeError, OSError, AttributeError, TypeError, ValueError) as e:
+                src_ds = out_ds = None
+                self._remove_file(merged_path)
+                self.feedback.pushWarning(
+                    f"The lines of the {grp.label} could not be merged: {e}"
+                )
+
     # -------------------------------------------------------------------
     # Phase 4 — result collection (caller thread)
     # -------------------------------------------------------------------
@@ -2508,15 +2600,30 @@ class RulesExporter:
         if not label_exp:
             return fields
         field_name = f"{_FIELD_PREFIX}_label"
-        filter_exp = (
-            f'"{label_exp}"'
-            if not flat_rule.rule.settings().isExpression
-            else label_exp
-        )
-        fields.append((10, filter_exp, field_name))
-        flat_rule.rule.settings().isExpression = False
-        flat_rule.rule.settings().fieldName = field_name
+        settings = flat_rule.rule.settings()
+        filter_exp = f'"{label_exp}"' if not settings.isExpression else label_exp
+        fields.append((10, self._with_type_case(settings, filter_exp), field_name))
+        settings.isExpression = False
+        settings.fieldName = field_name
         return fields
+
+    @classmethod
+    def _with_type_case(cls, settings: QgsPalLayerSettings, label_exp: str) -> str:
+        """The label expression with the text format's type case applied.
+
+        The web map then shows the text as QGIS draws it, and its glyphs
+        (made from the exported text) include every letter it shows.
+        Title case becomes QGIS's title(); small capitals become capitals;
+        "first letter capital" and upper camel case are left as written.
+        The format is then set to mixed case.
+        """
+        text_format = settings.format()
+        function = _TYPE_CASE_FUNCTIONS.get(cls._enum_int(text_format.capitalization()))
+        if function is None:
+            return label_exp
+        text_format.setCapitalization(Qgis.Capitalization.MixedCase)
+        settings.setFormat(text_format)
+        return f"{function}(({label_exp}))"
 
     def _get_geometry_transformation(
         self, flat_rule: FlattenedRule

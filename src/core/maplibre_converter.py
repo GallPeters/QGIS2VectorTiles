@@ -1169,7 +1169,11 @@ class IconPropertyExtractor:
         """Return ``symbol-placement`` (``"point"``, ``"line"``, or ``"line-center"``).
 
         Mapped from ``QgsPalLayerSettings.placement``: line/curved/perimeter
-        placements become ``"line"``; everything else becomes ``"point"``.
+        placements follow the line, repeated along it ("line") when QGIS
+        repeats them (a repeat distance), else once in its middle
+        ("line-center"), as QGIS labels each line once; everything else is
+        "point" (outside-polygon labels too: they are placed around the
+        polygon's point, see get_text_variable_anchor).
         """
         if label_settings is None:
             return "point"
@@ -1177,10 +1181,13 @@ class IconPropertyExtractor:
             placement = PropertyExtractor.enum_int(label_settings.placement)
         except AttributeError:
             return "point"
-        # QgsPalLayerSettings placement enum: 2=Line, 3=Curved, 7=PerimeterCurved, 8=OutsidePolygons
-        line_placements = (2, 3, 7, 8)
-        if placement in line_placements:
-            return "line"
+        # QgsPalLayerSettings placement enum: 2=Line, 3=Curved, 7=PerimeterCurved
+        if placement in TextPropertyExtractor._LINE_PLACEMENTS:
+            try:
+                repeats = (label_settings.repeatDistance or 0) > 0
+            except (AttributeError, RuntimeError):
+                repeats = True
+            return "line" if repeats else "line-center"
         return "point"
 
     @staticmethod
@@ -1509,8 +1516,10 @@ class TextPropertyExtractor:
         return TextPropertyExtractor._AROUND_POINT_EM + TextPropertyExtractor._distance_em(
             label_settings, em)
 
-    # QGIS's "around point" and "cartographic" (ordered positions) placements.
-    _AROUND_POINT, _ORDERED_POSITIONS = 0, 6
+    # QGIS's "around point", "cartographic" (ordered positions) and
+    # "outside polygons" placements; the last is drawn around the polygon's
+    # point (MapLibre can't place a label outside a polygon's outline).
+    _AROUND_POINT, _ORDERED_POSITIONS, _OUTSIDE_POLYGONS = 0, 6, 8
     # QGIS's candidate order around a point: above right first.
     _AROUND_POINT_ANCHORS = [
         "bottom-left", "bottom-right", "top-left", "top-right", "left", "right", "bottom", "top",
@@ -1536,7 +1545,7 @@ class TextPropertyExtractor:
         if label_settings is None:
             return None
         placement = PropertyExtractor.enum_int(label_settings.placement)
-        if placement == TextPropertyExtractor._AROUND_POINT:
+        if placement in (TextPropertyExtractor._AROUND_POINT, TextPropertyExtractor._OUTSIDE_POLYGONS):
             return list(TextPropertyExtractor._AROUND_POINT_ANCHORS)
         if placement != TextPropertyExtractor._ORDERED_POSITIONS:
             return None
@@ -1684,7 +1693,10 @@ class TextPropertyExtractor:
             )
         except (AttributeError, RuntimeError):
             return "none"
-        # QgsStringUtils::Capitalization: 1=AllUppercase, 2=AllLowercase
+        # Qgis.Capitalization: 1=AllUppercase, 2=AllLowercase. The export
+        # usually bakes the type case into the label text (RulesExporter),
+        # which leaves MixedCase here.
+        cap = PropertyExtractor.enum_int(cap)
         if cap == 1:
             return "uppercase"
         if cap == 2:
