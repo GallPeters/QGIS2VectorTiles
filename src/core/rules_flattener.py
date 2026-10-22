@@ -426,6 +426,11 @@ class RulesFlattener:
                 symbol_type = 0
             else:
                 symbol_type = symbol_layer.type()
+                if int(symbol_type) == 1 and flat_rule.get_attr("g") == 2:
+                    # A line of a fill symbol (an outline): drawn along the
+                    # polygons' own rings, from their dataset (the web map
+                    # strokes polygons), not from a copy of their boundaries.
+                    symbol_type = 2
 
             rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
             rule_clone.set_attr("c", symbol_type)
@@ -443,8 +448,9 @@ class RulesFlattener:
                 continue
             if rule_clone and layer_type == "SimpleFill":
                 if clone_symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
+                    # Drawn along the polygons' rings, from their dataset.
                     outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
-                    outline_rule.set_attr("c", 1)
+                    outline_rule.set_attr("c", 2)
                     fill_symbol = outline_rule.rule.symbol()
                     outline_symbol = self._convert_fill_outline_to_line_symbol(fill_symbol)
                     if outline_symbol:
@@ -599,6 +605,8 @@ class RulesFlattener:
             max(rule_clone.rule.maximumScale(), renderer_rule.rule.maximumScale()))
 
         rule_clone.set_attr("f", renderer_idx)
+        rule_clone.renderer = renderer_rule
+        rule_clone.label_filter = label_filter or ""
         return rule_clone
 
     @staticmethod
@@ -727,6 +735,9 @@ class RulesFlattener:
         """Clone a rule with @map_scale replaced by the exact scale for the given zoom."""
         rule_clone = FlattenedRule(flat_rule.rule.clone(), flat_rule.layer)
         scale = str(ZoomLevels.zoom_to_scale(zoom))
+        rule_clone.renderer = flat_rule.renderer
+        if flat_rule.label_filter is not None:
+            rule_clone.label_filter = flat_rule.label_filter.replace("@map_scale", scale)
 
         filter_exp = flat_rule.rule.filterExpression()
         if "@map_scale" in filter_exp:

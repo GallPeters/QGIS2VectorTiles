@@ -37,6 +37,11 @@ class FlattenedRule:
     # In a dataset shared by rules differing by filter: this rule's number
     # (its rows' q2vt_rule value); None when the dataset is its own.
     member: Optional[int] = None
+    # A label rule split by a renderer rule: that renderer rule, and the
+    # label's own filter (without the renderer's). Such a label can be drawn
+    # from the renderer rule's rows (see RulesExporter._attach_label).
+    renderer: Optional["FlattenedRule"] = None
+    label_filter: Optional[str] = None
 
     def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""

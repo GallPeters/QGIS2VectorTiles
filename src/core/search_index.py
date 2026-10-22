@@ -113,6 +113,9 @@ class SearchIndexBuilder:
             (i, fields.at(i).name()) for i in range(fields.count())
             if self._searchable(fields.at(i).name())
         ]
+        # A dataset's label fields (q2vt_label, or q2vt_label_NNNN for labels
+        # drawn from their features' rows) are one "label" column.
+        searchable = [(i, _LABEL if name.startswith(_LABEL) else name) for i, name in searchable]
         for _, name in searchable:
             if name not in indexed.fields:
                 indexed.fields.append(name)
@@ -145,7 +148,7 @@ class SearchIndexBuilder:
     def _searchable(name: str) -> bool:
         """Output fields worth searching: the source's and the label text,
         not the plugin's other internal fields."""
-        if name == _LABEL:
+        if name.startswith(_LABEL):
             return True
         return not name.startswith(f"{_FIELD_PREFIX}_") and name.lower() != "fid"
 

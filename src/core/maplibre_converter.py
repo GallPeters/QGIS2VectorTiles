@@ -2609,11 +2609,10 @@ class QgisMapLibreStyleExporter:
         if text_field:
             layer_def["layout"]["text-field"] = text_field
         font = TextPropertyExtractor.get_text_font(text_format)
+        # The dataset and field holding this label's text, whose characters
+        # the font's glyphs are made for.
         dataset = join(self.utils_dir, f'{source_layer_name}.{_TEMP_RULE_FORMAT}')
-        if self.glyphs.get(font):
-            self.glyphs[font].append(dataset)
-        else:
-            self.glyphs[font] = [dataset]
+        self.glyphs.setdefault(font, []).append((dataset, label_settings.fieldName))
         layer_def["layout"].update({
             "text-font": [font],
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
@@ -2775,7 +2774,7 @@ class QgisMapLibreStyleExporter:
         if self.glyphs:
             glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
             os.mkdir(glyphs_dir)
-            fontstacks = GlyphGenerator(self.glyphs, 'q2vt_label', glyphs_dir).generate()
+            fontstacks = GlyphGenerator(self.glyphs, glyphs_dir).generate()
             self._use_fontstacks(fontstacks)
         else:
              del self.style["glyphs"]

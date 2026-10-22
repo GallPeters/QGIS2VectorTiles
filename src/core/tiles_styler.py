@@ -181,6 +181,9 @@ class TilesStyler:
                     new_symbol = self._marker_line_points_symbol(flat_rule, symbol_layer, sub_symbol)
             else:
                 new_symbol = self._create_transformed_symbol(target_geom, symbol_layer, symbol)
+        elif target_geom == 2 and symbol_layer.type() == Qgis.SymbolType.Line:
+            # A fill symbol's outline (line) layer, drawn along the polygons.
+            new_symbol = self._create_transformed_symbol(1, symbol_layer, symbol)
 
         new_symbol = new_symbol.clone()
         # The source layer's opacity, which the tiles layer has no place for.

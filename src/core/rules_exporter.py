@@ -834,6 +834,8 @@ class RulesExporter:
         # Snapshot rule groups, then gather them into shared datasets.
         datasets: Dict[tuple, List[_RuleGroupSnapshot]] = {}
         rule_groups: List[_RuleGroupSnapshot] = []
+        # Per renderer rule (by id): the dataset and member holding its rows.
+        placed: Dict[int, Tuple[_RuleGroupSnapshot, _MemberSnapshot]] = {}
         for output_dataset, flat_rules in rules_by_dataset.items():
             primary = flat_rules[0]
 
@@ -845,6 +847,9 @@ class RulesExporter:
                 # No geometry transformation → cannot be exported.
                 continue
             geom_target, geom_expr = transformation
+            if (primary.get_attr("t") == 1 and len(flat_rules) == 1
+                    and self._attach_label(primary, geom_target, geom_expr, placed)):
+                continue
 
             # Compute expression fields (data-defined properties, optional
             # label field) — these read from the rule symbol/settings.
@@ -872,8 +877,9 @@ class RulesExporter:
             # Rules drawn by symbol levels keep their own datasets: QGIS draws
             # them level by level, not feature by feature.
             shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
-            group = self._dataset_for(datasets.setdefault(key, []), member, shareable)
+            group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
             if group is None:
+                holder = member
                 group = _RuleGroupSnapshot(
                     output_dataset=primary.output_dataset,
                     layer_id=primary.layer.id(),
@@ -889,6 +895,9 @@ class RulesExporter:
                 )
                 datasets[key].append(group)
                 rule_groups.append(group)
+            if rule_type == 0:
+                for flat_rule in flat_rules:
+                    placed[id(flat_rule)] = (group, holder)
 
         # Point every rule at its dataset (and, if shared, its member number).
         for group in rule_groups:
@@ -921,9 +930,10 @@ class RulesExporter:
     @staticmethod
     def _dataset_for(
         candidates: List[_RuleGroupSnapshot], member: _MemberSnapshot, shareable: bool
-    ) -> Optional[_RuleGroupSnapshot]:
+    ) -> Tuple[Optional[_RuleGroupSnapshot], Optional[_MemberSnapshot]]:
         """Add ``member`` to one of the datasets it can share; return that
-        dataset, or None if it needs its own.
+        dataset and the member now holding its rules, or (None, None) if it
+        needs its own.
 
         A member writing the same rows as an existing one (the symbol layers
         of one rule: same filter and description) joins it, adding its
@@ -939,9 +949,9 @@ class RulesExporter:
                         f for f in member.expression_fields if f[2] not in names
                     )
                     existing.flat_rules.extend(member.flat_rules)
-                    return group
+                    return group, existing
         if not shareable:
-            return None
+            return None, None
         for group in candidates:
             if not group.shareable or len(group.members) >= _MAX_MEMBERS:
                 continue
@@ -952,8 +962,61 @@ class RulesExporter:
             if all(types.get(name, field_type) == field_type
                    for field_type, _, name in member.expression_fields):
                 group.members.append(member)
-                return group
-        return None
+                return group, member
+        return None, None
+
+    def _attach_label(
+        self,
+        label: FlattenedRule,
+        geom_target,
+        geom_expr: str,
+        placed: Dict[int, Tuple[_RuleGroupSnapshot, _MemberSnapshot]],
+    ) -> bool:
+        """Draw a label rule from its renderer rule's rows, without a
+        dataset of its own: its text (and data-defined values) become fields
+        of those rows, NULL where the label's own filter or "label every
+        part" leaves a feature unlabelled. Returns False (nothing changed)
+        when the label needs other rows: another geometry (polygon labels,
+        geometry generators, merged lines) or fields that would clash.
+
+        A point or line layer's labels would otherwise store every feature's
+        geometry in the tiles twice.
+        """
+        entry = placed.get(id(label.renderer)) if label.renderer is not None else None
+        if entry is None or label.label_filter is None:
+            return False
+        group, member = entry
+        if (geom_expr != "@geometry" or group.geometry_expression != "@geometry"
+                or self._enum_int(geom_target) != self._enum_int(group.geometry_target)
+                or self._merges_lines(label, geom_target)):
+            return False
+        renderer = member.flat_rules[0]
+        if (label.get_attr("o") < renderer.get_attr("o")
+                or label.get_attr("i") > renderer.get_attr("i")):
+            return False
+        settings = label.rule.settings()
+        if not settings or not settings.getLabelExpression().expression():
+            return False
+        # The fields the label adds, worked out on a copy first: the real
+        # fetch rewrites the label's properties to read them.
+        trial = FlattenedRule(label.rule.clone(), label.layer)
+        trial.rule.setDescription(label.rule.description())
+        new_fields = self._create_expression_fields([trial])
+        name = f"{_FIELD_PREFIX}_label_{label.get_attr('d'):02d}{label.get_attr('r'):02d}"
+        existing = {field_name: expr for _, expr, field_name in member.expression_fields}
+        if name in existing or any(
+                existing.get(field_name, expr) != expr for _, expr, field_name in new_fields):
+            return False
+        conditions = []
+        if label.label_filter:
+            conditions.append(f"({label.label_filter})")
+        if self._keeps_biggest_part(label):
+            conditions.append(f'"{_BIGGEST_FIELD}" = 1')
+        fields = self._create_expression_fields([label])
+        fields = self._add_label_expression_field(label, fields, name, " AND ".join(conditions))
+        member.expression_fields.extend(f for f in fields if f[2] not in existing)
+        member.flat_rules.append(label)
+        return True
 
     @staticmethod
     def _uses_symbol_levels(layer: QgsVectorLayer) -> bool:
@@ -2593,16 +2656,21 @@ class RulesExporter:
         self,
         flat_rule: FlattenedRule,
         fields: List[Tuple[int, str, str]],
+        field_name: str = f"{_FIELD_PREFIX}_label",
+        condition: str = "",
     ) -> List[Tuple[int, str, str]]:
+        """Add the label text field (NULL where ``condition`` is not met)."""
         if not flat_rule.rule.settings():
             return fields
         label_exp = flat_rule.rule.settings().getLabelExpression().expression()
         if not label_exp:
             return fields
-        field_name = f"{_FIELD_PREFIX}_label"
         settings = flat_rule.rule.settings()
         filter_exp = f'"{label_exp}"' if not settings.isExpression else label_exp
-        fields.append((10, self._with_type_case(settings, filter_exp), field_name))
+        text = self._with_type_case(settings, filter_exp)
+        if condition:
+            text = f"CASE WHEN {condition} THEN ({text}) END"
+        fields.append((10, text, field_name))
         settings.isExpression = False
         settings.fieldName = field_name
         return fields

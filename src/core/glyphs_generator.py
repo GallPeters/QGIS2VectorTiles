@@ -201,21 +201,16 @@ class GlyphGenerator:
 
     def __init__(
         self,
-        fonts_datasets: Dict[str, List[str]],
-        field_name: str,
+        fonts_datasets: Dict[str, List[Tuple[str, str]]],
         output_dir: str,
     ):
         """
         fonts_datasets: dict mapping a combined "Family + Style" string
             (e.g. "Open Sans Extra Bold", "David Bold") to a list of
-            dataset paths (Parquet, GeoPackage, etc. — anything OGR can
-            open) whose `field_name` field contains text that must be
-            renderable in that font.
-        field_name: the attribute field to scan for characters, in every
-            dataset, for every font.
+            (dataset path, field name) pairs (anything OGR can open) whose
+            field contains text that must be renderable in that font.
         """
         self.fonts_datasets = fonts_datasets
-        self.field_name = field_name
         self.output_dir = Path(output_dir)
 
         self.font_render_size = _FONT_RENDER_SIZE
@@ -275,11 +270,11 @@ class GlyphGenerator:
     # Character discovery via GDAL/OGR
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_unique_chars(dataset_paths: List[str], field_name: str) -> Set[str]:
+    def _extract_unique_chars(datasets: List[Tuple[str, str]]) -> Set[str]:
         """
-        Reads each dataset via GDAL/OGR (osgeo) — not pyqgis vector layers,
-        lower overhead for a read-only, single-field scan — and accumulates
-        the set of unique characters found in `field_name` across all of them.
+        Reads each (dataset, field) via GDAL/OGR (osgeo) — not pyqgis vector
+        layers, lower overhead for a read-only, single-field scan — and
+        accumulates the set of unique characters found in the fields.
         
         Uses SetIgnoredFields to achieve column-projection push-down and bypass
         geometry parsing entirely. Works with Parquet, GeoPackage, or any other
@@ -294,7 +289,7 @@ class GlyphGenerator:
 
         unique_chars: Set[str] = set()
 
-        for path in dataset_paths:
+        for path, field_name in datasets:
             ds = None
             try:
                 ds = ogr.Open(path)
@@ -365,9 +360,9 @@ class GlyphGenerator:
             family, style = resolved
             logger.info(f"Processing font '{font_key}' -> family='{family}', style='{style}'")
 
-            needed_chars = self._extract_unique_chars(dataset_paths, self.field_name)
+            needed_chars = self._extract_unique_chars(dataset_paths)
             if not needed_chars:
-                logger.warning(f"No characters found in field '{self.field_name}' for font '{font_key}'. Skipping.")
+                logger.warning(f"No label characters found for font '{font_key}'. Skipping.")
                 continue
 
             codepoints = sorted(_with_presentation_forms(
@@ -664,19 +659,17 @@ def main():
 
     output_directory = os.path.join(os.path.expanduser("~"), "maplibre_glyphs")
 
-    # Maps each "Family + Style" font key to the datasets (Parquet,
-    # GeoPackage, etc.) whose text field must be coverable by that font.
+    # Maps each "Family + Style" font key to the (dataset, field) pairs
+    # (GeoPackage, FlatGeobuf, etc.) whose text must be coverable by that font.
     fonts_datasets = {
         "Open Sans Extra Bold": [
-            "/path/to/dataset_labels_a.gpkg",
-            "/path/to/dataset_labels_b.gpkg",
+            ("/path/to/dataset_labels_a.gpkg", "label"),
+            ("/path/to/dataset_labels_b.gpkg", "label"),
         ],
         "David Bold": [
-            "/path/to/dataset_hebrew_labels.gpkg",
+            ("/path/to/dataset_hebrew_labels.gpkg", "label"),
         ],
     }
-
-    field_name = "label"
 
     print("Starting glyph generation...")
     print(f"Target directory: {output_directory}")
@@ -685,7 +678,6 @@ def main():
     # presets to choose from.
     generator = GlyphGenerator(
         fonts_datasets=fonts_datasets,
-        field_name=field_name,
         output_dir=output_directory,
     )
 
