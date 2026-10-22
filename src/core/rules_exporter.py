@@ -828,20 +828,22 @@ def _gdal_tool(arguments: List[str], cancelled=None, timeout: float = None) -> s
     reader = threading.Thread(target=lambda: output.append(process.stdout.read()), daemon=True)
     reader.start()
     waited = 0.0
-    while process.poll() is None:
-        if cancelled is not None and cancelled():
+    try:
+        while process.poll() is None:
+            if cancelled is not None and cancelled():
+                raise _Cancelled()
+            if timeout is not None and waited > timeout:
+                raise RuntimeError(f"{arguments[0]} timed out")
+            try:
+                process.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                waited += 0.25
+    finally:
+        if process.poll() is None:
             process.kill()
             process.wait()
-            raise _Cancelled()
-        if timeout is not None and waited > timeout:
-            process.kill()
-            process.wait()
-            raise RuntimeError(f"{arguments[0]} timed out")
-        try:
-            process.wait(timeout=0.25)
-        except subprocess.TimeoutExpired:
-            waited += 0.25
-    reader.join()
+        reader.join()
+        process.stdout.close()
     text = b"".join(output).decode("utf-8", "replace")
     if process.returncode != 0:
         raise RuntimeError(text.strip()[-500:] or f"{arguments[0]} failed ({process.returncode})")
@@ -2229,17 +2231,16 @@ class RulesExporter:
         ) as pool:
             # (kind, base layer path, groups) per running task.
             futures: Dict[Future, Tuple[str, str, List[_RuleGroupSnapshot]]] = {}
-            # Python passes over large base layers run in other processes
-            # (see _run_pass_processes), each split in up to this many parts.
-            process_parts = self._process_parts(pass_tasks, max_workers)
-
             def submit_pass(src_path: str, groups: List[_RuleGroupSnapshot],
                             in_process: bool = True) -> None:
                 # Each pass's expression context (global and project scopes)
                 # is made here, on the caller thread: the project must not be
                 # read from the pass threads, where it corrupted the heap.
                 context = QgsProject.instance().createExpressionContext()
-                if in_process and process_parts:
+                # A pass over a large base layer runs in other processes
+                # (see _run_pass_processes), split in this many parts.
+                process_parts = self._process_parts(src_path, len(pass_tasks)) if in_process else 0
+                if process_parts:
                     variables = self._portable_variables(context, groups)
                     if variables is not None:
                         fut = pool.submit(self._run_pass_processes, groups, src_path,
@@ -2295,21 +2296,21 @@ class RulesExporter:
     # -------------------------------------------------------------------
     # Phase 3, Python passes in other processes
     # -------------------------------------------------------------------
-    def _process_parts(self, pass_tasks, max_workers: int) -> int:
-        """How many processes each Python pass is split over; 0 to run them
-        in this process (small passes, where starting QGIS in another
-        process costs more than it saves, or no interpreter to start)."""
-        if not pass_tasks or not _PASS_PROCESSES:
+    def _process_parts(self, src_path: str, pass_count: int) -> int:
+        """How many processes a Python pass over ``src_path`` is split over;
+        0 to run it in this process: a small pass, where starting QGIS in
+        another process costs more than it saves, or no interpreter to
+        start. The workers are shared by the ``pass_count`` passes."""
+        if not _PASS_PROCESSES:
             return 0
         from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
         if python_executable() is None:
             return 0
-        features = sum(self._feature_count(src_path) for src_path, _ in pass_tasks)
+        features = self._feature_count(src_path)
         if features < _PROCESS_MIN_FEATURES:
             return 0
         workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
-        return max(1, min(workers // max(1, len(pass_tasks)),
-                          -(-features // _PROCESS_PART_FEATURES)))
+        return max(1, min(workers // max(1, pass_count), -(-features // _PROCESS_PART_FEATURES)))
 
     @staticmethod
     def _feature_count(path: str) -> int:
@@ -2374,7 +2375,9 @@ class RulesExporter:
                                self.extent.xMaximum(), self.extent.yMaximum()],
                     "utils_dir": self.utils_dir,
                     "fid_range": [bounds[i], bounds[i + 1]],
-                    "suffix": f"_part{tag}_{i}",
+                    # One part writes the datasets themselves (a dataset's
+                    # layer is named as its file: tiles_generator).
+                    "suffix": f"_part{tag}_{i}" if parts > 1 else "",
                     "variables": variables,
                     "cancel_file": cancel_file,
                     "result_path": join(self.utils_dir, f"pass_{tag}_{i}.json"),
@@ -2421,7 +2424,7 @@ class RulesExporter:
             paths = [r["outputs"].get(grp.output_dataset) for r in results]
             outputs[grp.output_dataset] = self._join_parts(
                 grp.output_dataset, [p for p in paths if p])
-        self._remove_parts(processes)
+        self._remove_parts(processes, succeeded=True)
         return outputs
 
     @staticmethod
@@ -2447,8 +2450,7 @@ class RulesExporter:
         if not parts:
             return None
         if len(parts) == 1:
-            os.replace(parts[0], output_path)
-            return output_path
+            return parts[0]  # Written under the dataset's own name.
         vrt_path = join(self.utils_dir, f"{name}.parts.vrt")
         layers = ""
         for i, part in enumerate(parts):
@@ -2471,12 +2473,15 @@ class RulesExporter:
                 self._remove_file(p)
         return output_path
 
-    def _remove_parts(self, processes) -> None:
-        """A failed or finished multi-process pass's job, result and part files."""
+    def _remove_parts(self, processes, succeeded: bool = False) -> None:
+        """A failed or finished multi-process pass's job, result and part
+        files (a finished single part's files are its datasets: kept)."""
         for job, _ in processes:
             self._remove_file(job["result_path"])
             self._remove_file(job["result_path"].replace(".json", ".job.json"))
             self._remove_file(job["result_path"].replace(".json", ".job.json.log"))
+            if succeeded and not job["suffix"]:
+                continue
             for grp in job["groups"]:
                 self._remove_file(join(
                     self.utils_dir, f"{grp['output_dataset']}{job['suffix']}.{_TEMP_RULE_FORMAT}"))
