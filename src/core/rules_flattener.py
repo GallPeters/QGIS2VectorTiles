@@ -702,8 +702,13 @@ class RulesFlattener:
         vis_prop = symbol_layer.dataDefinedProperties().property(44)
         if vis_prop and vis_prop.isActive():
             min_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
-            zoom_expr = vis_prop.expressionString().replace("@map_scale", min_scale)
-            evaluation = QgsExpression(zoom_expr).evaluate()
+            zoom_expr = QgsExpression(vis_prop.expressionString().replace("@map_scale", min_scale))
+            # Only an expression of the scale alone tells (one reading the
+            # feature can't be evaluated without one: some functions crash).
+            if (zoom_expr.hasParserError() or zoom_expr.referencedColumns()
+                    or zoom_expr.needsGeometry() or zoom_expr.referencedVariables()):
+                return True
+            evaluation = zoom_expr.evaluate()
             if evaluation is not None and not evaluation:
                 return False
         return True

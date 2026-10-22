@@ -124,6 +124,17 @@ class DataDefinedPropertiesFetcher:
 
             self._results.append([field_type, expression, field_name])
 
+    @staticmethod
+    def _static_value(qexpr: QgsExpression):
+        """The expression's value if it reads no feature, field, geometry or
+        variable (a constant); None otherwise. Evaluating one that does
+        without a feature gives a meaningless value (coalesce("x", 5) is
+        not 5 for every feature), and some functions crash QGIS then."""
+        if (qexpr.hasParserError() or qexpr.referencedColumns() or qexpr.needsGeometry()
+                or qexpr.referencedVariables()):
+            return None
+        return qexpr.evaluate()
+
     def _process_boolean_prop(self, prop, props_collection, key: int, field_name: str) -> str:
         """Replace boolean property with a field reference; return original expression."""
         exp_prop = QgsProperty()
@@ -148,7 +159,7 @@ class DataDefinedPropertiesFetcher:
         expression = _to_color_hex_expr(raw) if is_color else raw
 
         qexpr = QgsExpression(expression)
-        static_value = qexpr.evaluate()
+        static_value = self._static_value(qexpr)
         if static_value:
             prop.setExpressionString(f"'{str(static_value)}'")
             return None
