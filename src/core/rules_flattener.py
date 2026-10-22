@@ -591,6 +591,12 @@ class RulesFlattener:
             rule_clone.set_attr("o", renderer_min)
         if label_max > renderer_max:
             rule_clone.set_attr("i", renderer_max)
+        # Shown where both are: the narrower scale range (the style draws
+        # the exact zooms of the scales, see TilesStyler).
+        rule_clone.rule.setMinimumScale(
+            min(rule_clone.rule.minimumScale(), renderer_rule.rule.minimumScale()))
+        rule_clone.rule.setMaximumScale(
+            max(rule_clone.rule.maximumScale(), renderer_rule.rule.maximumScale()))
 
         rule_clone.set_attr("f", renderer_idx)
         return rule_clone

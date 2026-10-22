@@ -35,6 +35,7 @@ from qgis.core import (
 
 
 from .utils.flattened_rule import FlattenedRule
+from .utils.zoom_levels import ZoomLevels
 from .core.rules_flattener import RulesFlattener
 from .core.rules_exporter import RulesExporter
 from .core.tiles_generator import GDALTilesGenerator
@@ -107,6 +108,9 @@ class QGIS2VectorTiles:
             temp_dir = self._create_temp_directory()
             # The processing algorithm logs the start as soon as it runs.
             start_time = perf_counter()
+            # Scales as QGIS measures them at the data's latitude.
+            ZoomLevels.configure(ZoomLevels.latitude_scale_factor(
+                QgsProject.instance().crs(), self.extent))
 
             self._log(". Extracting rules...")
             rules = self._flatten_rules()
@@ -233,12 +237,13 @@ class QGIS2VectorTiles:
         return any(layer.featureCount() > 0 for layer in layers)
 
     def _style_tiles(self, rules, temp_dir) -> Optional[QgsVectorTileLayer]:
-        return TilesStyler(rules, temp_dir).apply_styling()
+        self._styler = TilesStyler(rules, temp_dir)
+        return self._styler.apply_styling()
 
     def _maplibre_style_exporter(self, temp_dir, styled_layer) -> QgisMapLibreStyleExporter:
         return QgisMapLibreStyleExporter(
             temp_dir, self.utils_dir, styled_layer, self.min_zoom, self.max_zoom,
-            extent=self.extent,
+            extent=self.extent, zoom_ranges=self._styler.zoom_ranges,
         )
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:

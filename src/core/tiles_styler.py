@@ -10,7 +10,7 @@ Depends on: config, flattened_rule
 """
 
 from os.path import join
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from qgis.core import (
     QgsVectorTileLayer,
@@ -31,6 +31,7 @@ from qgis.core import (
 )
 
 from ..utils.config import _REMOVE_DUPLICATES_DISTANCE
+from ..utils.zoom_levels import ZoomLevels
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX,
     marker_angle_field,
@@ -59,6 +60,10 @@ class TilesStyler:
         self._draw_order: dict = {}
         self.renderer_styles: List[QgsVectorTileBasicRendererStyle] = []
         self.labeling_styles: List[QgsVectorTileBasicLabelingStyle] = []
+        # Per style name (unique): the exact, fractional zooms its rule is
+        # drawn from and until (exclusive), from the rule's scale range.
+        # The styles' whole zoom levels are the tiles that hold the data.
+        self.zoom_ranges: Dict[str, Tuple[float, float]] = {}
 
     def apply_styling(self) -> QgsVectorTileLayer:
         """Apply all rule styles to the tiles layer."""
@@ -230,9 +235,14 @@ class TilesStyler:
         """Apply zoom levels, layer name, and geometry type to any style type."""
         style.setEnabled(True)
         style.setLayerName(flat_rule.output_dataset)
-        style.setStyleName(flat_rule.rule.description())
-        style.setMinZoomLevel(flat_rule.get_attr("o"))
-        style.setMaxZoomLevel(flat_rule.get_attr("i"))
+        name = flat_rule.rule.description()
+        if name in self.zoom_ranges:  # Style names are the web layers' ids.
+            name = next(f"{name}_{n}" for n in range(2, 10000) if f"{name}_{n}" not in self.zoom_ranges)
+        style.setStyleName(name)
+        low, high = flat_rule.get_attr("o"), flat_rule.get_attr("i")
+        style.setMinZoomLevel(low)
+        style.setMaxZoomLevel(high)
+        self.zoom_ranges[name] = self._exact_zooms(flat_rule.rule, low, high)
         if flat_rule.member is not None:
             # A dataset shared by rules differing by filter: this rule's rows.
             style.setFilterExpression(f'"{RULE_FIELD}" = {flat_rule.member}')
@@ -240,6 +250,18 @@ class TilesStyler:
         style.setGeometryType(
             self._GEOM_TYPE_MAP.get(geom_code, QgsWkbTypes.PointGeometry)
         )
+
+    @staticmethod
+    def _exact_zooms(rule, low: int, high: int) -> Tuple[float, float]:
+        """The fractional zooms a rule is drawn from and until: its scale
+        range as zooms, within its whole zoom levels low..high (high's
+        tiles are drawn up to the next zoom)."""
+        start, end = float(low), float(high + 1)
+        if rule.minimumScale() > 0:
+            start = max(start, ZoomLevels.fractional_zoom(rule.minimumScale()))
+        if rule.maximumScale() > 0:
+            end = min(end, ZoomLevels.fractional_zoom(rule.maximumScale()))
+        return start, max(start, end)
 
     def _copy_data_driven_properties(self, source_obj, target_obj):
         """Copy all active data-driven properties from source to target object."""

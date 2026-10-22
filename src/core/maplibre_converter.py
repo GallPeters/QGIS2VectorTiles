@@ -215,15 +215,19 @@ def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
     so the extra zoom only ever draws it from those stand-in tiles, never twice.
     Beyond the archive's last zoom its tiles are enlarged and do hold the data,
     so ranges are not widened there.
+
+    Only whole-zoom edges are widened: an edge within a zoom level (a scale
+    limit's exact zoom) has the data in that zoom's tiles on both sides of
+    it, and widening it would draw the layer beyond its scale range.
     """
     for layer_def in layers:
         if "source-layer" not in layer_def:
             continue  # background
         low = layer_def.get("minzoom")
         high = layer_def.get("maxzoom")
-        if low is not None and 0 < low <= archive_max_zoom:
+        if low is not None and 0 < low <= archive_max_zoom and float(low).is_integer():
             layer_def["minzoom"] = low - 1
-        if high is not None and high <= archive_max_zoom:
+        if high is not None and high <= archive_max_zoom and float(high).is_integer():
             layer_def["maxzoom"] = high + 1
     return layers
 
@@ -1747,6 +1751,7 @@ class QgisMapLibreStyleExporter:
         minzoom: int = 0,
         maxzoom: int = 14,
         extent=None,
+        zoom_ranges: Optional[Dict[str, tuple]] = None,
     ):
         """Initialise the exporter.
 
@@ -1765,6 +1770,9 @@ class QgisMapLibreStyleExporter:
         self.maxzoom = maxzoom
         # The export extent (EPSG:3857), whose latitude sizes ground lengths.
         self.extent = extent
+        # Per style name: the exact zooms it is drawn from and until
+        # (TilesStyler.zoom_ranges); otherwise its whole zoom levels.
+        self.zoom_ranges = zoom_ranges or {}
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
@@ -1886,8 +1894,7 @@ class QgisMapLibreStyleExporter:
         """Convert a single ``QgsVectorTileBasicRendererStyle`` into MapLibre layer(s)."""
         if not style.isEnabled() or not style.symbol():
             return
-        min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1
+        min_zoom, max_zoom = self._zooms_of(style)
         first = len(self.style["layers"])
         self._convert_symbol(
             style.symbol(), style.styleName(), style.layerName(),
@@ -1899,14 +1906,21 @@ class QgisMapLibreStyleExporter:
         """Convert a single ``QgsVectorTileBasicLabelingStyle`` into a MapLibre symbol layer."""
         if not style.isEnabled() or not style.labelSettings():
             return
-        min_zoom = style.minZoomLevel()
-        max_zoom = style.maxZoomLevel() + 1
+        min_zoom, max_zoom = self._zooms_of(style)
         first = len(self.style["layers"])
         self._convert_label(
             style.labelSettings(), style.styleName(), style.layerName(),
             self.source_name, min_zoom, max_zoom,
         )
         self._apply_rule_filter(style, first)
+
+    def _zooms_of(self, style) -> tuple:
+        """(minzoom, maxzoom) of a style's layers: the exact zooms of its
+        rule's scale range, else its whole zoom levels (maxzoom exclusive)."""
+        exact = self.zoom_ranges.get(style.styleName())
+        if exact is not None:
+            return exact
+        return style.minZoomLevel(), style.maxZoomLevel() + 1
 
     def _apply_rule_filter(self, style, first: int) -> None:
         """Filter the layers converted from ``style`` (from index ``first``)
