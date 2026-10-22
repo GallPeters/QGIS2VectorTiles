@@ -95,7 +95,10 @@ QgsTask. This is intentional:
    * No QCoreApplication.processEvents() polling loop.
 """
 
+import json
 import os
+import subprocess
+import sys
 import threading
 import platform
 from collections import deque
@@ -111,6 +114,7 @@ from qgis.PyQt.QtCore import QMetaType, QVariant
 from processing import run as run_processing
 from qgis.core import (
     Qgis,
+    QgsApplication,
     QgsCoordinateReferenceSystem,
     QgsCsException,
     QgsDistanceArea,
@@ -192,6 +196,17 @@ _WRITE_BATCH_SIZE = 1000
 # Most rule outputs one pass writes at once, as each holds an open file and a
 # write buffer; groups beyond this go to further passes.
 _MAX_GROUPS_PER_PASS = 64
+
+# Python passes run in other processes (pass_worker.py), which use several
+# cores where this process's threads share one interpreter, when their base
+# layers have at least _PROCESS_MIN_FEATURES features in all (starting QGIS
+# in a process takes a second or two); a pass is split into parts of about
+# _PROCESS_PART_FEATURES features. Q2VT_NO_PASS_PROCESSES=1 keeps them here.
+_PASS_PROCESSES = os.environ.get("Q2VT_NO_PASS_PROCESSES") != "1"
+_PROCESS_MIN_FEATURES = 200000
+_PROCESS_PART_FEATURES = 100000
+_PASS_WORKER = join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "processing", "pass_worker.py")
 
 # Output WKB type per geometrybyexpression OUTPUT_GEOMETRY code
 # (0 = polygon, 1 = line, 2 = point), already exploded to single parts.
@@ -403,6 +418,69 @@ class _RuleGroupSnapshot:
     def label(self) -> str:
         rule_type = 'labeling' if self.rule_type == 1 else 'symbology'
         return f'{rule_type} of the "{self.layer_name or self.layer_id}" layer'
+
+
+def group_to_dict(grp: _RuleGroupSnapshot) -> dict:
+    """A rule group as JSON data, for a pass run in another process
+    (pass_worker.py); its members' rules stay here."""
+    return {
+        "output_dataset": grp.output_dataset,
+        "layer_id": grp.layer_id,
+        "rule_type": grp.rule_type,
+        "geometry_target": RulesExporter._enum_int(grp.geometry_target),
+        "geometry_expression": grp.geometry_expression,
+        "copied_fields": None if grp.copied_fields is None else list(grp.copied_fields),
+        "members": [
+            {
+                "filter_expression": m.filter_expression,
+                "expression_fields": [
+                    [None if t is None else RulesExporter._enum_int(t), expr, name]
+                    for t, expr, name in m.expression_fields
+                ],
+                "description": m.description,
+            }
+            for m in grp.members
+        ],
+        "keep_biggest_part": grp.keep_biggest_part,
+        "layer_name": grp.layer_name,
+        "shareable": grp.shareable,
+        "merge_lines": grp.merge_lines,
+        "geometry_sql": grp.geometry_sql,
+    }
+
+
+def group_from_dict(data: dict) -> _RuleGroupSnapshot:
+    """group_to_dict's group back (without its members' rules)."""
+    members = [
+        _MemberSnapshot(
+            filter_expression=m["filter_expression"],
+            expression_fields=[tuple(f) for f in m["expression_fields"]],
+            description=m["description"],
+            flat_rules=[],
+        )
+        for m in data["members"]
+    ]
+    copied = data["copied_fields"]
+    return _RuleGroupSnapshot(
+        output_dataset=data["output_dataset"], layer_id=data["layer_id"],
+        rule_type=data["rule_type"], geometry_target=data["geometry_target"],
+        geometry_expression=data["geometry_expression"],
+        copied_fields=None if copied is None else tuple(copied), members=members,
+        keep_biggest_part=data["keep_biggest_part"], layer_name=data["layer_name"],
+        shareable=data["shareable"], merge_lines=data["merge_lines"],
+        geometry_sql=data["geometry_sql"],
+    )
+
+
+def group_expressions(grp: _RuleGroupSnapshot) -> List[str]:
+    """Every QGIS expression a rule group's pass evaluates."""
+    expressions = [grp.geometry_expression]
+    for member in grp.members:
+        if member.filter_expression:
+            expressions.append(member.filter_expression)
+        expressions.extend(expr for _, expr, _ in member.expression_fields
+                           if isinstance(expr, str) and expr.strip())
+    return expressions
 
 
 class _BaseBuild:
@@ -2104,15 +2182,24 @@ class RulesExporter:
         ) as pool:
             # (kind, base layer path, groups) per running task.
             futures: Dict[Future, Tuple[str, str, List[_RuleGroupSnapshot]]] = {}
+            # Python passes over large base layers run in other processes
+            # (see _run_pass_processes), each split in up to this many parts.
+            process_parts = self._process_parts(pass_tasks, max_workers)
 
-            def submit_pass(src_path: str, groups: List[_RuleGroupSnapshot]) -> None:
+            def submit_pass(src_path: str, groups: List[_RuleGroupSnapshot],
+                            in_process: bool = True) -> None:
                 # Each pass's expression context (global and project scopes)
                 # is made here, on the caller thread: the project must not be
                 # read from the pass threads, where it corrupted the heap.
-                fut = pool.submit(
-                    self._export_rule_pass, groups, src_path,
-                    QgsProject.instance().createExpressionContext(),
-                )
+                context = QgsProject.instance().createExpressionContext()
+                if in_process and process_parts:
+                    variables = self._portable_variables(context, groups)
+                    if variables is not None:
+                        fut = pool.submit(self._run_pass_processes, groups, src_path,
+                                          variables, process_parts)
+                        futures[fut] = ("process", src_path, groups)
+                        return
+                fut = pool.submit(self._export_rule_pass, groups, src_path, context)
                 futures[fut] = ("pass", src_path, groups)
 
             for src_path, grp, job in gdal_tasks:
@@ -2141,6 +2228,11 @@ class RulesExporter:
                             # Redo it the general way.
                             submit_pass(src_path, groups)
                             continue
+                        if kind == "process":
+                            # Redo it in this process.
+                            self.feedback.pushDebugInfo(f"Pass process failed, run here: {e}")
+                            submit_pass(src_path, groups, in_process=False)
+                            continue
                         for grp in groups:
                             self.feedback.pushWarning(
                                 f"A rule in the {grp.label} was skipped: {e}"
@@ -2152,6 +2244,195 @@ class RulesExporter:
                     else:
                         outputs.update(result)
         return outputs
+
+    # -------------------------------------------------------------------
+    # Phase 3, Python passes in other processes
+    # -------------------------------------------------------------------
+    def _process_parts(self, pass_tasks, max_workers: int) -> int:
+        """How many processes each Python pass is split over; 0 to run them
+        in this process (small passes, where starting QGIS in another
+        process costs more than it saves, or no interpreter to start)."""
+        if not pass_tasks or not _PASS_PROCESSES:
+            return 0
+        from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
+        if python_executable() is None:
+            return 0
+        features = sum(self._feature_count(src_path) for src_path, _ in pass_tasks)
+        if features < _PROCESS_MIN_FEATURES:
+            return 0
+        workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
+        return max(1, min(workers // max(1, len(pass_tasks)),
+                          -(-features // _PROCESS_PART_FEATURES)))
+
+    @staticmethod
+    def _feature_count(path: str) -> int:
+        ds = ogr.Open(path)
+        try:
+            return max(0, ds.GetLayer(0).GetFeatureCount()) if ds is not None else 0
+        finally:
+            ds = None
+
+    @staticmethod
+    def _portable_variables(context: QgsExpressionContext, groups) -> Optional[dict]:
+        """The context's variables as JSON, for a pass in another process;
+        None if an expression of the groups reads one that isn't plain data
+        (e.g. @layers), which only this process can give it."""
+        variables, others = {}, set()
+        for name in context.variableNames():
+            value = context.variable(name)
+            try:
+                json.dumps(value)
+                variables[name] = value
+            except (TypeError, ValueError):
+                others.add(name)
+        for grp in groups:
+            for expression in group_expressions(grp):
+                if others & set(QgsExpression(expression).referencedVariables()):
+                    return None
+        return variables
+
+    def _run_pass_processes(
+        self, groups: List[_RuleGroupSnapshot], src_path: str, variables: dict, parts: int,
+    ) -> Dict[str, Optional[str]]:
+        """Worker: a Python pass run by pass_worker.py processes, each over
+        one range of the base layer's features (by q2vt_orig_id, so that
+        a feature's parts stay together); the parts' outputs are then
+        joined in order. Raises if a process fails (the caller then runs
+        the pass here)."""
+        from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
+        self._check_cancel()
+        low, high = self._orig_id_range(src_path)
+        step = (high - low) / parts if high > low else 1.0
+        bounds = [low + i * step for i in range(parts)] + [high + 1]
+        package_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        tag = uuid4().hex
+        cancel_file = join(self.utils_dir, f"cancel_{tag}")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+        env["PYTHONIOENCODING"] = "utf-8"
+        kwargs = {}
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x08000000 | 0x00004000  # No window, below normal.
+        processes = []
+        try:
+            for i in range(parts):
+                job = {
+                    "plugins_dir": os.path.dirname(package_dir),
+                    "package": os.path.basename(package_dir),
+                    "prefix_path": QgsApplication.prefixPath(),
+                    "profile_dir": QgsApplication.qgisSettingsDirPath(),
+                    "base_path": src_path,
+                    "groups": [group_to_dict(grp) for grp in groups],
+                    "extent": [self.extent.xMinimum(), self.extent.yMinimum(),
+                               self.extent.xMaximum(), self.extent.yMaximum()],
+                    "utils_dir": self.utils_dir,
+                    "fid_range": [bounds[i], bounds[i + 1]],
+                    "suffix": f"_part{tag}_{i}",
+                    "variables": variables,
+                    "cancel_file": cancel_file,
+                    "result_path": join(self.utils_dir, f"pass_{tag}_{i}.json"),
+                }
+                job_path = join(self.utils_dir, f"pass_{tag}_{i}.job.json")
+                with open(job_path, "w", encoding="utf-8") as f:
+                    json.dump(job, f)
+                # Its error output goes to a file (a pipe nobody reads while
+                # waiting could fill and stall it).
+                with open(f"{job_path}.log", "w", encoding="utf-8") as log:
+                    processes.append((job, subprocess.Popen(
+                        [python_executable(), "-u", _PASS_WORKER, job_path],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
+                        env=env, cwd=self.utils_dir, **kwargs,
+                    )))
+            results = []
+            for job, process in processes:
+                while process.poll() is None:
+                    if self._is_cancelled():
+                        open(cancel_file, "w").close()
+                        process.wait(timeout=60)
+                        raise _Cancelled()
+                    try:
+                        process.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                if process.returncode != 0 or not exists(job["result_path"]):
+                    log_path = job["result_path"].replace(".json", ".job.json.log")
+                    with open(log_path, encoding="utf-8", errors="replace") as log:
+                        raise RuntimeError(f"exit code {process.returncode}: {log.read()[-500:]}")
+                with open(job["result_path"], encoding="utf-8") as f:
+                    results.append(json.load(f))
+        except BaseException:
+            for _, process in processes:
+                if process.poll() is None:
+                    process.kill()
+            self._remove_parts(processes)
+            raise
+        for result in results:
+            for warning in result["warnings"]:
+                self.feedback.pushWarning(warning)
+        outputs = {}
+        for grp in groups:
+            paths = [r["outputs"].get(grp.output_dataset) for r in results]
+            outputs[grp.output_dataset] = self._join_parts(
+                grp.output_dataset, [p for p in paths if p])
+        self._remove_parts(processes)
+        return outputs
+
+    @staticmethod
+    def _orig_id_range(path: str) -> Tuple[float, float]:
+        """The lowest and highest q2vt_orig_id of a base layer."""
+        ds = ogr.Open(path)
+        try:
+            layer_name = ds.GetLayer(0).GetName()
+            orig = f'"{_FIELD_PREFIX}_orig_id"'
+            # OGR SQL over the plugin's own base layer; the name is quoted.
+            result = ds.ExecuteSQL(
+                f'SELECT MIN({orig}), MAX({orig}) FROM "{_sql_name(layer_name)}"')  # nosec B608
+            feature = result.GetNextFeature()
+            low, high = feature.GetFieldAsDouble(0), feature.GetFieldAsDouble(1)
+            ds.ReleaseResultSet(result)
+            return low, high
+        finally:
+            ds = None
+
+    def _join_parts(self, name: str, parts: List[str]) -> Optional[str]:
+        """One dataset's part files (in order) as its output file."""
+        output_path = join(self.utils_dir, f"{name}.{_TEMP_RULE_FORMAT}")
+        if not parts:
+            return None
+        if len(parts) == 1:
+            os.replace(parts[0], output_path)
+            return output_path
+        vrt_path = join(self.utils_dir, f"{name}.parts.vrt")
+        layers = ""
+        for i, part in enumerate(parts):
+            ds = ogr.Open(part)
+            layer_name = ds.GetLayer(0).GetName()
+            ds = None
+            layers += (f'<OGRVRTLayer name="p{i}"><SrcDataSource>{xml_escape(part)}</SrcDataSource>'
+                       f"<SrcLayer>{xml_escape(layer_name)}</SrcLayer></OGRVRTLayer>")
+        try:
+            with open(vrt_path, "w", encoding="utf-8") as f:
+                f.write(f'<OGRVRTDataSource><OGRVRTUnionLayer name="{xml_escape(name)}">'
+                        f"<FieldStrategy>FirstLayer</FieldStrategy>{layers}"
+                        "</OGRVRTUnionLayer></OGRVRTDataSource>")
+            self._gdal_translate(output_path, vrt_path, gdal.VectorTranslateOptions(
+                format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
+            ))
+        finally:
+            self._remove_file(vrt_path)
+            for p in parts:
+                self._remove_file(p)
+        return output_path
+
+    def _remove_parts(self, processes) -> None:
+        """A failed or finished multi-process pass's job, result and part files."""
+        for job, _ in processes:
+            self._remove_file(job["result_path"])
+            self._remove_file(job["result_path"].replace(".json", ".job.json"))
+            self._remove_file(job["result_path"].replace(".json", ".job.json.log"))
+            for grp in job["groups"]:
+                self._remove_file(join(
+                    self.utils_dir, f"{grp['output_dataset']}{job['suffix']}.{_TEMP_RULE_FORMAT}"))
 
     @staticmethod
     def _pass_tasks(
@@ -2517,7 +2798,8 @@ class RulesExporter:
         return expr_str
 
     def _export_rule_pass(
-        self, groups: List[_RuleGroupSnapshot], source_path: str, context: QgsExpressionContext
+        self, groups: List[_RuleGroupSnapshot], source_path: str, context: QgsExpressionContext,
+        fid_range: Optional[Tuple[float, float]] = None, suffix: str = "",
     ) -> Dict[str, Optional[str]]:
         """Worker: export rule groups that share a base layer in a single
         streaming pass.
@@ -2527,16 +2809,21 @@ class RulesExporter:
         geometrybyexpression → clip to the extent → removenullgeometries →
         multiparttosingleparts, but every feature is read once for all the
         groups and only the final outputs are written to disk.
+
+        With ``fid_range`` (low, high), only the base features whose
+        q2vt_orig_id is in [low, high) are read, and the outputs are named
+        with ``suffix``: one part of a pass split over several processes.
         """
         self._check_cancel()
         layer = QgsVectorLayer(source_path, "base", "ogr")
         try:
-            return self._export_rule_pass_from(groups, layer, context)
+            return self._export_rule_pass_from(groups, layer, context, fid_range, suffix)
         finally:
             self._dispose_layer(layer)
 
     def _export_rule_pass_from(
-        self, groups: List[_RuleGroupSnapshot], layer: QgsVectorLayer, context: QgsExpressionContext
+        self, groups: List[_RuleGroupSnapshot], layer: QgsVectorLayer, context: QgsExpressionContext,
+        fid_range: Optional[Tuple[float, float]] = None, suffix: str = "",
     ) -> Dict[str, Optional[str]]:
         """_export_rule_pass, once the base layer is open; ``context`` is this
         pass's own expression context, made on the caller thread."""
@@ -2572,7 +2859,7 @@ class RulesExporter:
             # rules. Reading and writing features stays parallel.
             with _PASS_SETUP_LOCK:
                 for grp in groups:
-                    output_path = join(self.utils_dir, f"{grp.output_dataset}.{_TEMP_RULE_FORMAT}")
+                    output_path = join(self.utils_dir, f"{grp.output_dataset}{suffix}.{_TEMP_RULE_FORMAT}")
                     if exists(output_path):
                         results[grp.output_dataset] = output_path
                         continue
@@ -2595,6 +2882,11 @@ class RulesExporter:
             request.setInvalidGeometryCheck(
                 QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
             )
+            if fid_range is not None:
+                # The provider filters it (OGR SQL), before any feature is built.
+                orig = f"{_FIELD_PREFIX}_orig_id"
+                request.setFilterExpression(
+                    f'"{orig}" >= {fid_range[0]!r} AND "{orig}" < {fid_range[1]!r}')
             for n, feature in enumerate(layer.getFeatures(request)):
                 if n % _WRITE_BATCH_SIZE == 0:
                     self._check_cancel()
