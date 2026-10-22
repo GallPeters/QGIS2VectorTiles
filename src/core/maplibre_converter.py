@@ -135,8 +135,10 @@ _RULE_ID_PARTS = re.compile(r"[drf]\d\d")
 
 def _slot(layer_def: dict) -> tuple:
     """What a layer draws regardless of its rule: its type and its id
-    without the rule's own parts (the symbol layer, the geometry)."""
-    return layer_def.get("type"), _RULE_ID_PARTS.sub("", layer_def.get("id", ""))
+    without the rule's own parts (the symbol layer, the geometry) or the
+    _N that keeps ids unique (a fill and its outline share a rule's name)."""
+    name = re.sub(r"_\d+$", "", _RULE_ID_PARTS.sub("", layer_def.get("id", "")))
+    return layer_def.get("type"), name
 
 
 def group_rule_layers(layers: List[dict]) -> List[dict]:

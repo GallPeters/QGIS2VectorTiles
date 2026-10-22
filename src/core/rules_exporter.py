@@ -99,6 +99,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import platform
 from collections import deque
@@ -808,39 +809,77 @@ _SQLITE_CAPS: Optional[Tuple[bool, bool]] = None
 _SQLITE_CAPS_LOCK = threading.Lock()
 
 
+# SQL in GDAL's SQLite dialect never runs in this process: each statement
+# opens a SQLite connection with SpatiaLite, whose setup calls setlocale,
+# which races with every other thread's GDAL work (access violations, heap
+# corruption). It runs in GDAL's command-line tools instead (ogr2ogr,
+# ogrinfo), one process per statement, still in C++ and in parallel.
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def _gdal_tool(arguments: List[str], cancelled=None, timeout: float = None) -> str:
+    """Run a GDAL command-line tool; returns its output. Raises
+    RuntimeError if it fails (or _Cancelled once ``cancelled()``)."""
+    kwargs = {"creationflags": _CREATE_NO_WINDOW} if os.name == "nt" else {}
+    with open(os.devnull, "rb") as stdin:
+        process = subprocess.Popen(
+            arguments, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
+    output: List[bytes] = []
+    reader = threading.Thread(target=lambda: output.append(process.stdout.read()), daemon=True)
+    reader.start()
+    waited = 0.0
+    while process.poll() is None:
+        if cancelled is not None and cancelled():
+            process.kill()
+            process.wait()
+            raise _Cancelled()
+        if timeout is not None and waited > timeout:
+            process.kill()
+            process.wait()
+            raise RuntimeError(f"{arguments[0]} timed out")
+        try:
+            process.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            waited += 0.25
+    reader.join()
+    text = b"".join(output).decode("utf-8", "replace")
+    if process.returncode != 0:
+        raise RuntimeError(text.strip()[-500:] or f"{arguments[0]} failed ({process.returncode})")
+    return text
+
+
 def _sqlite_capabilities() -> Tuple[bool, bool]:
-    """Whether GDAL runs SQL in the SQLite dialect over any dataset, and
-    with SpatiaLite's geometry functions (ST_Centroid...)."""
+    """Whether GDAL's tools run SQL in the SQLite dialect, and with
+    SpatiaLite's geometry functions (ST_Centroid...)."""
     global _SQLITE_CAPS  # pylint: disable=global-statement
     with _SQLITE_CAPS_LOCK:
         if _SQLITE_CAPS is not None:
             return _SQLITE_CAPS
         caps = [False, False]
-        path = f"/vsimem/q2vt_probe_{uuid4().hex}.fgb"
-        gdal.PushErrorHandler("CPLQuietErrorHandler")
+        path = os.path.join(tempfile.gettempdir(), f"q2vt_probe_{uuid4().hex}.fgb")
         try:
             ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(path)
-            ds.CreateLayer("probe", None, ogr.wkbPoint)
+            layer = ds.CreateLayer("probe", None, ogr.wkbPoint)
+            feature = ogr.Feature(layer.GetLayerDefn())
+            feature.SetGeometry(ogr.CreateGeometryFromWkt("POINT (0 0)"))
+            layer.CreateFeature(feature)
             ds = None
-            ds = ogr.Open(path)
-            probes = ("SELECT 1 AS x",
-                      "SELECT ST_Area(GeomFromText('POLYGON((0 0, 1 0, 1 1, 0 0))')) AS x")
+            probes = ("SELECT 1234567 AS x FROM probe",
+                      "SELECT ST_Area(ST_Buffer(GEOMETRY, 1000)) > 3000000 AS x FROM probe")
             for i, sql in enumerate(probes):
                 try:
-                    result = ds.ExecuteSQL(sql, dialect="SQLITE")
-                except RuntimeError:
-                    result = None
-                if result is not None:
-                    feature = result.GetNextFeature()
-                    caps[i] = feature is not None and feature.IsFieldSetAndNotNull(0)
-                    ds.ReleaseResultSet(result)
-            ds = None
-        except (RuntimeError, AttributeError):
+                    out = _gdal_tool(["ogrinfo", "-ro", "-q", path, "-dialect", "SQLITE", "-sql", sql],
+                                     timeout=60)
+                except (RuntimeError, OSError):
+                    continue
+                caps[i] = ("1234567" in out) if i == 0 else ("x (Integer) = 1" in out)
+        except (RuntimeError, AttributeError, OSError):
             pass
         finally:
-            gdal.PopErrorHandler()
-            if gdal.VSIStatL(path) is not None:
-                gdal.Unlink(path)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         _SQLITE_CAPS = (caps[0], caps[0] and caps[1])
         return _SQLITE_CAPS
 
@@ -1023,7 +1062,9 @@ class _SqliteCompiler:
         if self._NULL in (a, b):
             return True
         numbers = (self._INT, self._REAL)
-        return (a in numbers and b in numbers) or (a == b == self._STR) or (a == b == self._BOOL)
+        # A boolean compares as 1 / 0 in both (an ELSE rule's "(...) IS 1").
+        bool_int = {a, b} == {self._BOOL, self._INT}
+        return (a in numbers and b in numbers) or (a == b == self._STR) or (a == b == self._BOOL) or bool_int
 
     def _common(self, kinds: List[str], node) -> str:
         """The one kind of several results (NULLs fit any)."""
@@ -1823,10 +1864,7 @@ class RulesExporter:
                     f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
                     "</OGRVRTLayer></OGRVRTDataSource>"
                 )
-            self._gdal_translate(temp_path, vrt_path, gdal.VectorTranslateOptions(
-                format="FlatGeobuf", layerName=layer_name, layerCreationOptions=["SPATIAL_INDEX=NO"],
-                geometryType=_OGR_OUTPUT[family][0], callback=self._gdal_progress,
-            ))
+            self._ogr2ogr(temp_path, vrt_path, ["-nln", layer_name, "-nlt", _OGR_OUTPUT[family][0]])
             return True
         except (RuntimeError, OSError) as e:
             self._remove_file(temp_path)
@@ -1834,6 +1872,14 @@ class RulesExporter:
             return False
         finally:
             self._remove_file(vrt_path)
+
+    def _ogr2ogr(self, dest: str, src: str, arguments: List[str]) -> None:
+        """Write ``src`` (a VRT running SQLite-dialect SQL) to the
+        FlatGeobuf ``dest`` with ogr2ogr, in its own process (see
+        _gdal_tool); raises RuntimeError if it fails."""
+        self._check_cancel()
+        _gdal_tool(["ogr2ogr", "-f", "FlatGeobuf", "-lco", "SPATIAL_INDEX=NO", *arguments, dest, src],
+                   cancelled=self._is_cancelled)
 
     @staticmethod
     def _has_repeated_values(path: str, field_name: str) -> bool:
@@ -2564,13 +2610,16 @@ class RulesExporter:
         elif single_scan:
             return None
         else:
-            statements = []
+            selects = []
             for condition, member_values in zip(conditions, values):
                 selected = ", ".join(
                     f'{v} AS "{_sql_name(name)}"' for v, (name, _) in zip(member_values, columns))
                 where = " AND ".join(([f"({condition})"] if condition else []) + extra)
                 where = f" WHERE {where}" if where else ""
-                statements.append(f"SELECT {selected}, {geometry_column} FROM {source}{where}")  # nosec B608
+                selects.append(f"SELECT {selected}, {geometry_column} FROM {source}{where}")  # nosec B608
+            # One statement, one VRT layer for ogr2ogr: the rules' rows one
+            # after another.
+            statements = [" UNION ALL ".join(selects)]
         return {"statements": statements, "geometry": output, "dialect": "SQLITE", "fields": declared}
 
     @staticmethod
@@ -2693,31 +2742,42 @@ class RulesExporter:
         if exists(output_path):
             return output_path
         vrt_path = join(self.utils_dir, f"{name}.gdal.vrt")
-        clipped_path = self._gdal_stage_path(f"{name}_{uuid4().hex}", self._file_size(src_path))
-        geometry_type, kept_types = job["geometry"]
         dialect = job.get("dialect", "OGRSQL")
+        if dialect == "SQLITE":
+            # Written by ogr2ogr in its own process (see _gdal_tool): on disk.
+            clipped_path = join(self.utils_dir, f"{name}_{uuid4().hex}.{_TEMP_LAYER_FORMAT}")
+        else:
+            clipped_path = self._gdal_stage_path(f"{name}_{uuid4().hex}", self._file_size(src_path))
+        geometry_type, kept_types = job["geometry"]
         # Declared fields (the SQLite dialect's): the dataset's types,
         # whatever the values look like.
         fields = "".join(
-            f'<Field name="{xml_escape(name)}" type="{ogr_type}"'
+            f'<Field name="{xml_escape(field_name)}" type="{ogr_type}"'
             + (f' subtype="{subtype}"' if subtype else "") + "/>"
-            for name, ogr_type, subtype in job.get("fields", ())
+            for field_name, ogr_type, subtype in job.get("fields", ())
         )
-        layers = "".join(
-            f'<OGRVRTLayer name="m{i}"><SrcDataSource>{xml_escape(src_path)}</SrcDataSource>'
-            f'<SrcSQL dialect="{dialect}">{xml_escape(sql)}</SrcSQL>{fields}</OGRVRTLayer>'
-            for i, sql in enumerate(job["statements"])
-        )
+        layers = [
+            f'<SrcDataSource>{xml_escape(src_path)}</SrcDataSource>'
+            f'<SrcSQL dialect="{dialect}">{xml_escape(sql)}</SrcSQL>{fields}'
+            for sql in job["statements"]
+        ]
         e = self.extent
         bbox = [e.xMinimum(), e.yMinimum(), e.xMaximum(), e.yMaximum()]
         completed = False
         try:
             with open(vrt_path, "w", encoding="utf-8") as f:
-                f.write(
-                    f'<OGRVRTDataSource><OGRVRTUnionLayer name="{xml_escape(name)}">'
-                    f"<FieldStrategy>FirstLayer</FieldStrategy>{layers}"
-                    "</OGRVRTUnionLayer></OGRVRTDataSource>"
-                )
+                if dialect == "SQLITE":
+                    # One statement, one layer (see _sqlite_job).
+                    f.write(f'<OGRVRTDataSource><OGRVRTLayer name="{xml_escape(name)}">{layers[0]}'
+                            "</OGRVRTLayer></OGRVRTDataSource>")
+                else:
+                    members = "".join(f'<OGRVRTLayer name="m{i}">{layer}</OGRVRTLayer>'
+                                      for i, layer in enumerate(layers))
+                    f.write(
+                        f'<OGRVRTDataSource><OGRVRTUnionLayer name="{xml_escape(name)}">'
+                        f"<FieldStrategy>FirstLayer</FieldStrategy>{members}"
+                        "</OGRVRTUnionLayer></OGRVRTDataSource>"
+                    )
             kept = ", ".join(f"'{t}'" for t in kept_types)
             if geometry_type == "POINT" and dialect == "OGRSQL":
                 # A point's bounding box is the point: the spatial filter
@@ -2731,12 +2791,19 @@ class RulesExporter:
                     callback=self._gdal_progress,
                 ))
             else:
-                self._gdal_translate(clipped_path, vrt_path, gdal.VectorTranslateOptions(
-                    format="FlatGeobuf", layerName="clipped",
-                    layerCreationOptions=["SPATIAL_INDEX=NO"], spatFilter=bbox, clipDst=bbox,
-                    # Any geometry type: clipping makes multi-part geometries.
-                    geometryType="GEOMETRY", dim="XY", callback=self._gdal_progress,
-                ))
+                if dialect == "SQLITE":
+                    box = [repr(v) for v in bbox]
+                    self._ogr2ogr(clipped_path, vrt_path, [
+                        "-nln", "clipped", "-spat", *box, "-clipdst", *box,
+                        "-nlt", "GEOMETRY", "-dim", "XY",
+                    ])
+                else:
+                    self._gdal_translate(clipped_path, vrt_path, gdal.VectorTranslateOptions(
+                        format="FlatGeobuf", layerName="clipped",
+                        layerCreationOptions=["SPATIAL_INDEX=NO"], spatFilter=bbox, clipDst=bbox,
+                        # Any geometry type: clipping makes multi-part geometries.
+                        geometryType="GEOMETRY", dim="XY", callback=self._gdal_progress,
+                    ))
                 self._check_cancel()
                 # Clipping can leave parts of another type (a line touching
                 # the extent's edge leaves a point); like _parts_of_type,
@@ -2765,7 +2832,7 @@ class RulesExporter:
             self._remove_file(vrt_path)
 
     @staticmethod
-    def _gdal_translate(dest: str, src: str, options) -> None:
+    def _gdal_translate(dest: str, src, options) -> None:
         """gdal.VectorTranslate; raises RuntimeError on failure, whether GDAL
         reports it by exception or by result."""
         # GDAL's messages (this thread's only) are not shown: a failure
@@ -3264,10 +3331,7 @@ class RulesExporter:
                         f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
                         "</OGRVRTLayer></OGRVRTDataSource>"
                     )
-                self._gdal_translate(temp_path, vrt_path, gdal.VectorTranslateOptions(
-                    format="FlatGeobuf", layerName=layer_name,
-                    layerCreationOptions=["SPATIAL_INDEX=NO"], geometryType=multi,
-                ))
+                self._ogr2ogr(temp_path, vrt_path, ["-nln", layer_name, "-nlt", multi])
                 os.replace(temp_path, path)
             except (RuntimeError, OSError) as e:
                 self._remove_file(temp_path)
