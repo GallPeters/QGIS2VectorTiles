@@ -33,7 +33,9 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import GlyphGenerator
-from .sprite_generator import FillPattern, HashMark, LinePattern, SpriteGenerator
+from .sprite_generator import (
+    BrushPattern, FillPattern, HashMark, LinePattern, SpriteGenerator, sprite_key,
+)
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 
@@ -65,6 +67,10 @@ def _ramp_or_colors(symbol_layer, two_color_type: int) -> QColor:
         pass
     return symbol_layer.color()
 
+
+# Qt brush styles a simple fill draws as a repeated pattern: Dense1-7,
+# horizontal, vertical, cross, diagonal and diagonal cross hatching.
+_BRUSH_PATTERNS = frozenset(range(2, 15))
 
 # A style filter selecting one rule's rows of a shared dataset (TilesStyler).
 _RULE_FILTER = re.compile(r'"' + re.escape(RULE_FIELD) + r'" = (\d+)')
@@ -1765,6 +1771,8 @@ class QgisMapLibreStyleExporter:
         self.utils_dir = utils_dir
         self.marker_symbols: dict = {}
         self.marker_counter = 0
+        # Sprite name per image definition (see _register_sprite).
+        self._sprite_names: Dict[str, str] = {}
         self.glyphs = {}
         self.minzoom = minzoom
         self.maxzoom = maxzoom
@@ -1991,8 +1999,6 @@ class QgisMapLibreStyleExporter:
         the MapLibre layer should reference via ``line-pattern`` or
         ``fill-pattern``.
         """
-        pattern_name = f"pattern_{self.marker_counter}"
-        self.marker_counter += 1
         try:
             symbol_or_layer = symbol_or_layer.clone()
         except (AttributeError, RuntimeError):
@@ -2000,8 +2006,24 @@ class QgisMapLibreStyleExporter:
         if FillPropertyExtractor.is_pattern_fill(symbol_or_layer):
             width, height = FillPropertyExtractor.get_pattern_tile_size(symbol_or_layer)
             symbol_or_layer = FillPattern(symbol_or_layer, width, height)
-        self.marker_symbols[pattern_name] = symbol_or_layer
-        return pattern_name
+        return self._register_sprite(symbol_or_layer, "pattern")
+
+    def _register_sprite(self, source, prefix: str) -> str:
+        """The sprite name of an image to draw (a symbol or pattern).
+
+        An image drawn the same way as one already registered (the same
+        marker in several rules, categories or zoom bands) reuses its name,
+        so the sprite sheet holds it once.
+        """
+        key = sprite_key(source, 1)
+        if key is not None and key in self._sprite_names:
+            return self._sprite_names[key]
+        name = f"{prefix}_{self.marker_counter}"
+        self.marker_counter += 1
+        self.marker_symbols[name] = source
+        if key is not None:
+            self._sprite_names[key] = name
+        return name
 
     def _convert_marker_symbol(
         self,
@@ -2018,10 +2040,8 @@ class QgisMapLibreStyleExporter:
             "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
 
-        marker_name = f"marker_{self.marker_counter}"
-        self.marker_counter += 1
         sprite_symbol, ground_icon_size = self._sprite_marker(symbol)
-        self.marker_symbols[marker_name] = sprite_symbol
+        marker_name = self._register_sprite(sprite_symbol, "marker")
 
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
@@ -2169,8 +2189,6 @@ class QgisMapLibreStyleExporter:
             "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
 
-        marker_name = f"marker_{self.marker_counter}"
-        self.marker_counter += 1
         icon_rotate = 0
         if LinePropertyExtractor.is_hashed_line(symbol_layer):
             # A hashed line: a short stroke of its line sub-symbol, drawn
@@ -2179,11 +2197,11 @@ class QgisMapLibreStyleExporter:
                 symbol_layer.hashLength(),
                 PropertyExtractor.get_attribute(symbol_layer, "hashLengthUnit"),
             )
-            self.marker_symbols[marker_name] = HashMark(sub_symbol.clone(), max(length, 1.0))
+            marker_name = self._register_sprite(HashMark(sub_symbol.clone(), max(length, 1.0)), "marker")
             icon_rotate = symbol_layer.hashAngle()
             icon_size = 1.0 / _SPRITE_QUALITY
         else:
-            self.marker_symbols[marker_name] = sub_symbol.clone()
+            marker_name = self._register_sprite(sub_symbol.clone(), "marker")
             icon_size = IconPropertyExtractor.get_icon_size(sub_symbol.symbolLayer(0), 1.0)
 
         rotate_with_line = LinePropertyExtractor.get_marker_line_rotate_symbols(symbol_layer)
@@ -2299,11 +2317,9 @@ class QgisMapLibreStyleExporter:
             # width (MapLibre draws a pattern at the line's width).
             width = LinePropertyExtractor.get_line_width(symbol_layer)
             height = width if isinstance(width, (int, float)) and width > 0 else 4.0
-            pattern_name = f"pattern_{self.marker_counter}"
-            self.marker_counter += 1
-            self.marker_symbols[pattern_name] = LinePattern(
+            pattern_name = self._register_sprite(LinePattern(
                 LinePropertyExtractor.get_line_pattern_path(symbol_layer), height
-            )
+            ), "pattern")
             layer_def["paint"].update({
                 "line-pattern": pattern_name,
                 "line-width": width,
@@ -2348,7 +2364,22 @@ class QgisMapLibreStyleExporter:
             "fill", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
 
-        if isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
+        brush = PropertyExtractor.enum_int(symbol_layer.brushStyle()) if isinstance(
+            symbol_layer, QgsSimpleFillSymbolLayer) else None
+        if brush in _BRUSH_PATTERNS:
+            # Hatching and the like: the brush pattern, repeated. (A flat
+            # fill would hide everything below it.)
+            pattern_name = self._register_sprite(BrushPattern(
+                symbol_layer.color().name(QColor.NameFormat.HexArgb), brush), "pattern")
+            layer_def["paint"].update({
+                "fill-pattern": pattern_name,
+                "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
+                "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
+                "fill-translate": FillPropertyExtractor.get_fill_translate(),
+                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+            })
+            layer_def["layout"]["visibility"] = "visible"
+        elif isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
             if symbol_layer.brushStyle() != Qt.BrushStyle.NoBrush:
                 layer_def["paint"].update({
                     "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
@@ -2500,10 +2531,7 @@ class QgisMapLibreStyleExporter:
         try:
             marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
             if marker and marker.type() == QgsSymbol.SymbolType.Marker:
-                marker_name = f"marker_{self.marker_counter}"
-                self.marker_counter += 1
-                self.marker_symbols[marker_name] = marker.clone()
-                layer_def["layout"]["icon-image"] = marker_name
+                layer_def["layout"]["icon-image"] = self._register_sprite(marker.clone(), "marker")
             else:
                 layer_def["layout"]["icon-image"] = style_name
         except (RuntimeError, AttributeError):

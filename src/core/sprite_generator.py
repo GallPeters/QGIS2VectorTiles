@@ -39,11 +39,11 @@ from ..utils.config import _CACHE_DIR_NAME, _CACHE_MAX_AGE_DAYS, _CACHE_MAX_MB
 _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
     from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, Qt
-    from PyQt5.QtGui import QImage, QPainter, QPolygonF
+    from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPolygonF
     _IO_READ_WRITE = QIODevice.ReadWrite
 else:
     from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, Qt
-    from PyQt6.QtGui import QImage, QPainter, QPolygonF
+    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPolygonF
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
 Img: TypeAlias = Image.Image
@@ -54,6 +54,9 @@ _PX_PER_MM = 96 / 25.4
 _PATTERN_RENDER_PX = 1024  # Largest repeat drawn before downscaling to the tile
 # Pixel ratios of the sprite sheets written, and their file name suffixes.
 _SHEETS = ((1, ""), (2, "@2x"))
+# Transparent pixels between images on the sheet: enough to keep a
+# neighbour from bleeding in when an icon is scaled.
+_SPRITE_GAP = 2
 # Bump when rendering changes, so cached images drawn the old way are not reused.
 _RENDER_VERSION = "2"
 
@@ -86,7 +89,17 @@ class HashMark:
     length: float
 
 
-SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark]
+@dataclass
+class BrushPattern:
+    """A simple fill's Qt brush pattern (hatching, crossing, dense dots) in
+    a colour: one repeat of it, as Qt paints it (8 x 8 screen pixels)."""
+
+    color: str        # #AARRGGBB
+    style: int        # Qt.BrushStyle value
+    size: int = 8
+
+
+SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern]
 
 
 class _RenderCache:
@@ -153,12 +166,18 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
             definition = f"line{source.path}|{stat.st_mtime_ns}|{stat.st_size}|{source.height!r}"
         elif isinstance(source, HashMark):
             definition = "hash" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(source.length)
+        elif isinstance(source, BrushPattern):
+            definition = f"brush{source.color}|{source.style}|{source.size}"
         else:
             definition = "symbol" + QgsSymbolLayerUtils.symbolProperties(source)
     except (OSError, RuntimeError, AttributeError, TypeError):
         return None
     text = f"{_RENDER_VERSION}|{scale_factor!r}|{definition}"
     return hashlib.sha1(text.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+# What an image source draws, as a key: equal keys draw equal images.
+sprite_key = _source_key
 
 
 @dataclass
@@ -186,6 +205,8 @@ class SymbolImage:
                 self._render_line_pattern()
             elif isinstance(self.symbol, HashMark):
                 self._render_hash()
+            elif isinstance(self.symbol, BrushPattern):
+                self._render_brush()
             else:
                 self._render()
             if self.cache:
@@ -314,6 +335,25 @@ class SymbolImage:
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
 
+    def _render_brush(self):
+        """One repeat of a Qt brush pattern, scaled by the scale factor
+        (each pattern pixel becomes a block of that many pixels)."""
+        brush = self.symbol
+        try:
+            scale = max(1, round(self.scale_factor))
+            size = brush.size * scale
+            qt_img = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+            qt_img.fill(0)
+            painter = QPainter(qt_img)
+            painter.scale(scale, scale)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(brush.color), Qt.BrushStyle(brush.style)))
+            painter.drawRect(0, 0, brush.size, brush.size)
+            painter.end()
+            self.img = self._qt_to_pil(qt_img)
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
+
     @staticmethod
     def _resize_tile(tile: Img, width: int, height: int) -> Img:
         """Resize a repeating tile, sampling across its edges as if it were repeated."""
@@ -345,7 +385,7 @@ class SpriteMatrix:
 
     imgs: list[SymbolImage]
     ratio: tuple[int, int] = (3, 4)
-    pixelspace: int = 20
+    pixelspace: int = _SPRITE_GAP
     shape: MatrixShape = field(init=False)
     imgsmatrix: list[list[SymbolImage]] = field(init=False)
     imgsrows: list[tuple] = field(init=False)
@@ -387,7 +427,7 @@ class SpriteImage:
     """Composite a sprite sheet from a SpriteMatrix and track image coordinates."""
 
     matrix: SpriteMatrix
-    pixelspace: int = 20
+    pixelspace: int = _SPRITE_GAP
     img: Img = field(init=False)
     imgscoords: dict = field(init=False)
 
