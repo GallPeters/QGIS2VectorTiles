@@ -119,6 +119,7 @@ from qgis.core import (
     QgsExpressionContextUtils,
     QgsExpressionNode,
     QgsExpressionNodeBinaryOperator,
+    QgsExpressionNodeUnaryOperator,
     QgsFeature,
     QgsFeatureSink,
     QgsField,
@@ -255,6 +256,13 @@ _OGR_SAFE_CASTS = {(2, 10), (4, 10), (2, 6), (4, 6), (2, 4)}
 _LOOKUP_INT_TYPES = frozenset({2, 3, 4, 5})
 _LOOKUP_STRING_TYPE = 10
 
+# A line's marker points per marker line placement, in GDAL's SQLite dialect.
+_MARKER_POINT_SQL = {
+    MARKER_FIRST_VERTEX: "ST_StartPoint(GEOMETRY)",
+    MARKER_LAST_VERTEX: "ST_EndPoint(GEOMETRY)",
+    MARKER_CENTRAL_POINT: "ST_Line_Interpolate_Point(GEOMETRY, 0.5)",
+}
+
 # Polygon "using perimeter" placements (QgsPalLayerSettings.placement codes)
 # and the line placement each becomes on the polygon's boundary.
 _PERIMETER_PLACEMENTS = {
@@ -376,6 +384,8 @@ class _RuleGroupSnapshot:
     # Line labels with "merge connected lines": after the export, touching
     # lines with the same label (and other values) become one line.
     merge_lines: bool = False
+    # geometry_expression in GDAL's SQLite dialect; None if it has none.
+    geometry_sql: Optional[str] = None
 
     @property
     def tagged(self) -> bool:
@@ -711,6 +721,248 @@ class _OgrSqlCompiler:
         raise _NotCompilable(node.dump())
 
 
+# GDAL's SQLite SQL dialect, and SpatiaLite's geometry functions in it:
+# (dialect, spatialite) availability, probed once (see _sqlite_capabilities).
+_SQLITE_CAPS: Optional[Tuple[bool, bool]] = None
+_SQLITE_CAPS_LOCK = threading.Lock()
+
+
+def _sqlite_capabilities() -> Tuple[bool, bool]:
+    """Whether GDAL runs SQL in the SQLite dialect over any dataset, and
+    with SpatiaLite's geometry functions (ST_Centroid...)."""
+    global _SQLITE_CAPS  # pylint: disable=global-statement
+    with _SQLITE_CAPS_LOCK:
+        if _SQLITE_CAPS is not None:
+            return _SQLITE_CAPS
+        caps = [False, False]
+        path = f"/vsimem/q2vt_probe_{uuid4().hex}.fgb"
+        gdal.PushErrorHandler("CPLQuietErrorHandler")
+        try:
+            ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(path)
+            ds.CreateLayer("probe", None, ogr.wkbPoint)
+            ds = None
+            ds = ogr.Open(path)
+            probes = ("SELECT 1 AS x",
+                      "SELECT ST_Area(GeomFromText('POLYGON((0 0, 1 0, 1 1, 0 0))')) AS x")
+            for i, sql in enumerate(probes):
+                try:
+                    result = ds.ExecuteSQL(sql, dialect="SQLITE")
+                except RuntimeError:
+                    result = None
+                if result is not None:
+                    feature = result.GetNextFeature()
+                    caps[i] = feature is not None and feature.IsFieldSetAndNotNull(0)
+                    ds.ReleaseResultSet(result)
+            ds = None
+        except (RuntimeError, AttributeError):
+            pass
+        finally:
+            gdal.PopErrorHandler()
+            if gdal.VSIStatL(path) is not None:
+                gdal.Unlink(path)
+        _SQLITE_CAPS = (caps[0], caps[0] and caps[1])
+        return _SQLITE_CAPS
+
+
+class _SqliteCompiler:
+    """Translates QGIS expressions to SQL in GDAL's SQLite dialect that
+    computes exactly what QGIS computes, for the export's GDAL path.
+
+    Only constructs whose SQLite results match QGIS's are accepted, typed
+    as they go (int, real, str, bool, null): field references and
+    literals; AND, OR, NOT; comparisons of numbers, = and <> of texts;
+    IS [NOT]; IN lists; + - * of numbers, / (as real), % of integers;
+    || of texts and integers; CASE WHEN; coalesce(), if(), upper(),
+    lower(), abs(). Text compares byte-wise and case-sensitively in both;
+    NULL propagates alike. Anything else raises _NotCompilable.
+    """
+
+    _Node = QgsExpressionNode.NodeType
+    _Op = QgsExpressionNodeBinaryOperator.BinaryOperator
+    _INT, _REAL, _STR, _BOOL, _NULL = "int", "real", "str", "bool", "null"
+    # QMetaType codes: bool; int, uint, long long, ulong long; double; string.
+    _FIELD_KINDS = {1: "bool", 2: "int", 3: "int", 4: "int", 5: "int", 6: "real", 10: "str"}
+    # Output field type (QMetaType code) -> SQLite CAST type, and the
+    # expression kinds QGIS converts to it exactly as the CAST does.
+    _OUTPUT = {
+        1: ("INTEGER", {"bool", "int", "null"}),
+        2: ("INTEGER", {"int", "bool", "null"}),
+        4: ("INTEGER", {"int", "bool", "null"}),
+        6: ("REAL", {"int", "real", "null"}),
+        10: ("TEXT", {"str", "int", "null"}),
+    }
+
+    def __init__(self, fields: QgsFields):
+        self.fields = fields
+        self._expressions: List[QgsExpression] = []
+        ops = self._Op
+        self._comparisons = {ops.boEQ: "=", ops.boNE: "<>", ops.boLT: "<", ops.boLE: "<=",
+                             ops.boGT: ">", ops.boGE: ">="}
+        self._arithmetic = {ops.boPlus: "+", ops.boMinus: "-", ops.boMul: "*"}
+
+    # --- entry points ---
+
+    def condition(self, expression: str) -> str:
+        """A filter: true exactly where QGIS's filter selects a feature."""
+        sql, kind = self._node(self._root(expression))
+        if kind not in (self._BOOL, self._NULL):
+            raise _NotCompilable(expression)  # QGIS's truthiness of other values differs.
+        return sql
+
+    def value(self, expression: str, field_type: int, src_fields: QgsFields) -> str:
+        """An output field's value, cast to the field's type as QGIS's
+        field conversion does."""
+        expr = QgsExpression(expression)
+        if expr.isField():
+            idx = src_fields.lookupField(next(iter(expr.referencedColumns())))
+            if idx >= 0 and RulesExporter._enum_int(src_fields.at(idx).type()) == field_type:
+                return f'"{_sql_name(src_fields.at(idx).name())}"'  # A copy, any type.
+        cast, kinds = self._OUTPUT.get(field_type, (None, ()))
+        sql, kind = self._node(self._root(expression))
+        if cast is None or kind not in kinds:
+            raise _NotCompilable(expression)
+        return f"CAST(({sql}) AS {cast})"
+
+    def _root(self, expression: str):
+        expr = QgsExpression(expression)
+        if expr.hasParserError() or expr.rootNode() is None or expr.referencedVariables():
+            raise _NotCompilable(expression)
+        # The nodes belong to the expression: it must outlive their use.
+        self._expressions.append(expr)
+        return expr.rootNode()
+
+    # --- nodes ---
+
+    def _node(self, node) -> Tuple[str, str]:
+        node_type = node.nodeType()
+        if node_type == self._Node.ntLiteral:
+            return self._literal(node.value())
+        if node_type == self._Node.ntColumnRef:
+            idx = self.fields.lookupField(node.name())
+            if idx < 0:
+                raise _NotCompilable(node.name())
+            field = self.fields.at(idx)
+            kind = self._FIELD_KINDS.get(RulesExporter._enum_int(field.type()))
+            if kind is None:
+                raise _NotCompilable(node.name())
+            return f'"{_sql_name(field.name())}"', kind
+        if node_type == self._Node.ntUnaryOperator:
+            sql, kind = self._node(node.operand())
+            if node.op() == QgsExpressionNodeUnaryOperator.UnaryOperator.uoNot and kind in (self._BOOL, self._NULL):
+                return f"NOT ({sql})", self._BOOL
+            if node.op() == QgsExpressionNodeUnaryOperator.UnaryOperator.uoMinus and kind in (self._INT, self._REAL):
+                return f"-({sql})", kind
+            raise _NotCompilable(node.dump())
+        if node_type == self._Node.ntBinaryOperator:
+            return self._binary(node)
+        if node_type == self._Node.ntInOperator:
+            sql, kind = self._node(node.node())
+            items = [self._node(item) for item in node.list().list()]
+            if not items or any(not self._comparable(kind, k) for _, k in items):
+                raise _NotCompilable(node.dump())
+            keyword = "NOT IN" if node.isNotIn() else "IN"
+            return f"({sql}) {keyword} ({', '.join(s for s, _ in items)})", self._BOOL
+        if node_type == self._Node.ntCondition:
+            parts, kinds = [], []
+            for when_then in node.conditions():
+                condition, ckind = self._node(when_then.whenExp())
+                if ckind not in (self._BOOL, self._NULL):
+                    raise _NotCompilable(node.dump())
+                result, rkind = self._node(when_then.thenExp())
+                parts.append(f"WHEN {condition} THEN {result}")
+                kinds.append(rkind)
+            otherwise = ""
+            if node.elseExp() is not None:
+                result, rkind = self._node(node.elseExp())
+                otherwise = f" ELSE {result}"
+                kinds.append(rkind)
+            return f"(CASE {' '.join(parts)}{otherwise} END)", self._common(kinds, node)
+        if node_type == self._Node.ntFunction:
+            return self._function(node)
+        raise _NotCompilable(node.dump())
+
+    def _binary(self, node) -> Tuple[str, str]:
+        op = node.op()
+        left, lkind = self._node(node.opLeft())
+        right, rkind = self._node(node.opRight())
+        if op in (self._Op.boAnd, self._Op.boOr):
+            if {lkind, rkind} <= {self._BOOL, self._NULL}:
+                joiner = "AND" if op == self._Op.boAnd else "OR"
+                return f"({left}) {joiner} ({right})", self._BOOL
+            raise _NotCompilable(node.dump())
+        if op in self._comparisons or op in (self._Op.boIs, self._Op.boIsNot):
+            if not self._comparable(lkind, rkind):
+                raise _NotCompilable(node.dump())
+            text = self._STR in (lkind, rkind)
+            if text and op not in (self._Op.boEQ, self._Op.boNE, self._Op.boIs, self._Op.boIsNot):
+                raise _NotCompilable(node.dump())  # Text order differs.
+            sql_op = {self._Op.boIs: "IS", self._Op.boIsNot: "IS NOT"}.get(op) or self._comparisons[op]
+            return f"({left}) {sql_op} ({right})", self._BOOL
+        numeric = {self._INT, self._REAL, self._NULL}
+        if op in self._arithmetic and {lkind, rkind} <= numeric:
+            kind = self._REAL if self._REAL in (lkind, rkind) else self._INT
+            return f"(({left}) {self._arithmetic[op]} ({right}))", kind
+        if op == self._Op.boDiv and {lkind, rkind} <= numeric:
+            return f"(CAST(({left}) AS REAL) / ({right}))", self._REAL
+        if op == self._Op.boMod and {lkind, rkind} <= {self._INT, self._NULL}:
+            return f"(({left}) % ({right}))", self._INT
+        if op == self._Op.boConcat and {lkind, rkind} <= {self._STR, self._INT, self._NULL}:
+            return f"(({left}) || ({right}))", self._STR
+        raise _NotCompilable(node.dump())
+
+    def _function(self, node) -> Tuple[str, str]:
+        name = QgsExpression.Functions()[node.fnIndex()].name().lower()
+        args = [self._node(arg) for arg in (node.args().list() if node.args() else [])]
+        kinds = [kind for _, kind in args]
+        if name == "coalesce" and args:
+            return f"COALESCE({', '.join(s for s, _ in args)})", self._common(kinds, node)
+        if name in ("upper", "lower") and len(args) == 1 and kinds[0] in (self._STR, self._NULL):
+            return f"{name.upper()}({args[0][0]})", self._STR
+        if name == "abs" and len(args) == 1 and kinds[0] in (self._INT, self._REAL, self._NULL):
+            return f"ABS({args[0][0]})", kinds[0]
+        if name == "if" and len(args) == 3 and kinds[0] in (self._BOOL, self._NULL):
+            return (f"(CASE WHEN {args[0][0]} THEN {args[1][0]} ELSE {args[2][0]} END)",
+                    self._common(kinds[1:], node))
+        raise _NotCompilable(node.dump())
+
+    def _literal(self, value) -> Tuple[str, str]:
+        if value is None or (hasattr(value, "isNull") and value.isNull()):
+            return "NULL", self._NULL
+        if isinstance(value, bool):
+            return ("1" if value else "0"), self._BOOL
+        if isinstance(value, int):
+            return str(value), self._INT
+        if isinstance(value, float):
+            return _sql_number(value), self._REAL
+        if isinstance(value, str):
+            return _sql_string(value), self._STR
+        raise _NotCompilable(repr(value))
+
+    def _comparable(self, a: str, b: str) -> bool:
+        if self._NULL in (a, b):
+            return True
+        numbers = (self._INT, self._REAL)
+        return (a in numbers and b in numbers) or (a == b == self._STR) or (a == b == self._BOOL)
+
+    def _common(self, kinds: List[str], node) -> str:
+        """The one kind of several results (NULLs fit any)."""
+        found = {k for k in kinds if k != self._NULL}
+        if not found:
+            return self._NULL
+        if found == {self._INT, self._REAL}:
+            return self._REAL
+        if len(found) != 1:
+            raise _NotCompilable(node.dump())
+        return found.pop()
+
+
+# OGR field type (and subtype) the GDAL path's virtual layers declare per
+# output field type (QMetaType code), so every dataset keeps its schema
+# whatever SQLite's values look like (an all-NULL column, say).
+_VRT_FIELD_TYPES = {1: ("Integer", "Boolean"), 2: ("Integer", None), 4: ("Integer64", None),
+                    6: ("Real", None), 10: ("String", None)}
+
+
 # ============================================================================
 # RulesExporter
 # ============================================================================
@@ -765,6 +1017,10 @@ class RulesExporter:
 
         # Cancellation flag. Workers check this between processing.run calls.
         self._cancelled = threading.Event()
+
+        # Per geometry expression the export made: the same geometry in
+        # GDAL's SQLite dialect (see _sql_for_geometry).
+        self._geometry_sql: Dict[str, str] = {}
 
     # -------------------------------------------------------------------
     # Public API
@@ -892,6 +1148,7 @@ class RulesExporter:
                     layer_name=primary.layer.name(),
                     shareable=shareable,
                     merge_lines=merge_lines,
+                    geometry_sql=self._sql_for_geometry(geom_expr),
                 )
                 datasets[key].append(group)
                 rule_groups.append(group)
@@ -1761,6 +2018,11 @@ class RulesExporter:
             ))
         if not gdal_tasks and not pass_tasks:
             return outputs
+        self.feedback.pushDebugInfo(
+            f"Rule export: {len(gdal_tasks)} datasets by GDAL "
+            f"({sum(1 for _, _, job in gdal_tasks if job.get('dialect') == 'SQLITE')} in SQLite), "
+            f"{sum(len(groups) for _, groups in pass_tasks)} in {len(pass_tasks)} Python passes."
+        )
         # Largest first, so that no big task starts last and holds up the end.
         gdal_tasks.sort(key=lambda task: self._file_size(task[0]), reverse=True)
         pass_tasks.sort(key=lambda task: self._file_size(task[0]) * len(task[1]), reverse=True)
@@ -1852,16 +2114,135 @@ class RulesExporter:
         if ds is None or ds.GetLayerCount() != 1:
             return {}
         layer_name = ds.GetLayer(0).GetName()
+        defn = ds.GetLayer(0).GetLayerDefn()
+        # Each source field's OGR type and subtype, declared for copies.
+        ogr_types = {}
+        for i in range(defn.GetFieldCount()):
+            field = defn.GetFieldDefn(i)
+            subtype = field.GetSubType()
+            ogr_types[field.GetName()] = (
+                ogr.GetFieldTypeName(field.GetType()),
+                ogr.GetFieldSubTypeName(subtype) if subtype != ogr.OFSTNone else None,
+            )
         ds = None
+        sqlite, spatialite = _sqlite_capabilities()
         jobs = {}
         for grp in groups:
-            try:
-                job = self._gdal_job(grp, src_fields, layer_name)
-            except (_NotCompilable, RuntimeError, ValueError, TypeError):
-                job = None
+            job = None
+            attempts = []
+            if sqlite and len(grp.members) > 1:
+                # One scan for all the rules of a categorized layer.
+                attempts.append(lambda g=grp: self._sqlite_job(
+                    g, src_fields, layer_name, ogr_types, spatialite, single_scan=True))
+            attempts.append(lambda g=grp: self._gdal_job(g, src_fields, layer_name))
+            if sqlite:
+                attempts.append(lambda g=grp: self._sqlite_job(
+                    g, src_fields, layer_name, ogr_types, spatialite, single_scan=False))
+            reason = ""
+            for attempt in attempts:
+                try:
+                    job = attempt()
+                except (_NotCompilable, RuntimeError, ValueError, TypeError, AttributeError) as e:
+                    job, reason = None, str(e)
+                if job is not None:
+                    break
             if job is not None:
                 jobs[grp.output_dataset] = job
+            else:
+                self.feedback.pushDebugInfo(
+                    f"The {grp.label} ({grp.output_dataset}) is exported by Python: {reason[:200]}")
         return jobs
+
+    def _sqlite_job(
+        self, grp: _RuleGroupSnapshot, src_fields: QgsFields, layer_name: str,
+        ogr_types: Dict[str, Tuple[str, Optional[str]]], spatialite: bool, single_scan: bool,
+    ) -> Optional[dict]:
+        """A dataset's GDAL job in GDAL's SQLite dialect (_SqliteCompiler),
+        for filters, fields and geometries (SpatiaLite) that OGR SQL lacks;
+        None if ``single_scan`` is asked and the rules' filters don't pick
+        disjoint values of one field.
+
+        Rules that pick disjoint values of one field (the categories of a
+        categorized renderer) are written by one statement, one scan of the
+        base layer, each rule's values chosen by CASE; others by one
+        statement per rule. The declared fields keep the dataset's schema.
+        """
+        geometry = grp.geometry_sql
+        if geometry is None or (geometry != "GEOMETRY" and not spatialite):
+            raise _NotCompilable(grp.geometry_expression)
+        output = _OGR_OUTPUT.get(abs(self._enum_int(grp.geometry_target) - 2))
+        if output is None:
+            raise _NotCompilable(grp.output_dataset)
+        compiler = _SqliteCompiler(src_fields)
+        columns, expressions = self._dataset_fields(grp, src_fields)
+        declared = []
+        for name, field_type in columns:
+            ogr_type = _VRT_FIELD_TYPES.get(field_type) or ogr_types.get(name)
+            if ogr_type is None:
+                raise _NotCompilable(name)
+            declared.append((name, *ogr_type))
+        conditions = [
+            compiler.condition(m.filter_expression) if m.filter_expression else None
+            for m in grp.members
+        ]
+        values = [
+            [compiler.value(member_expressions[name], field_type, src_fields)
+             if isinstance(member_expressions.get(name), str) and member_expressions[name].strip()
+             else "NULL"
+             for name, field_type in columns]
+            for member_expressions in expressions
+        ]
+        extra = []
+        if grp.keep_biggest_part and src_fields.lookupField(_BIGGEST_FIELD) >= 0:
+            extra.append(f'"{_BIGGEST_FIELD}" = 1')
+        source = f'"{_sql_name(layer_name)}"'
+        geometry_column = f"{geometry} AS GEOMETRY"
+        if self._disjoint_lookups(grp, src_fields):
+            selected = []
+            for c, (name, _) in enumerate(columns):
+                column = [member_values[c] for member_values in values]
+                if all(v == column[0] for v in column):
+                    selected.append(f'{column[0]} AS "{_sql_name(name)}"')
+                else:
+                    cases = " ".join(f"WHEN {cond} THEN {v}" for cond, v in zip(conditions, column))
+                    selected.append(f'(CASE {cases} END) AS "{_sql_name(name)}"')
+            where = " AND ".join([f"({' OR '.join(f'({c})' for c in conditions)})"] + extra)
+            # SQL over the plugin's own temporary base layer; every name and
+            # literal in it is quoted and escaped (_sql_name, _sql_string).
+            statements = [f"SELECT {', '.join(selected)}, {geometry_column} FROM {source} WHERE {where}"]  # nosec B608
+        elif single_scan:
+            return None
+        else:
+            statements = []
+            for condition, member_values in zip(conditions, values):
+                selected = ", ".join(
+                    f'{v} AS "{_sql_name(name)}"' for v, (name, _) in zip(member_values, columns))
+                where = " AND ".join(([f"({condition})"] if condition else []) + extra)
+                where = f" WHERE {where}" if where else ""
+                statements.append(f"SELECT {selected}, {geometry_column} FROM {source}{where}")  # nosec B608
+        return {"statements": statements, "geometry": output, "dialect": "SQLITE", "fields": declared}
+
+    @staticmethod
+    def _disjoint_lookups(grp: _RuleGroupSnapshot, src_fields: QgsFields) -> bool:
+        """Whether a dataset's rules each pick values of one same field
+        ("field" = literal / IN), no value picked by two: each feature
+        then belongs to one rule at most."""
+        if len(grp.members) < 2:
+            return False
+        field_idx, seen = None, set()
+        for member in grp.members:
+            if not member.filter_expression:
+                return False
+            lookup = _FilterMatcher._lookup_of(member.filter_expression, src_fields)
+            if lookup is None or lookup[2] is not None:
+                return False
+            if field_idx is None:
+                field_idx = lookup[0]
+            values = set(lookup[1])
+            if lookup[0] != field_idx or values & seen:
+                return False
+            seen |= values
+        return True
 
     def _gdal_job(
         self, grp: _RuleGroupSnapshot, src_fields: QgsFields, layer_name: str
@@ -1963,9 +2344,17 @@ class RulesExporter:
         vrt_path = join(self.utils_dir, f"{name}.gdal.vrt")
         clipped_path = self._gdal_stage_path(f"{name}_{uuid4().hex}", self._file_size(src_path))
         geometry_type, kept_types = job["geometry"]
+        dialect = job.get("dialect", "OGRSQL")
+        # Declared fields (the SQLite dialect's): the dataset's types,
+        # whatever the values look like.
+        fields = "".join(
+            f'<Field name="{xml_escape(name)}" type="{ogr_type}"'
+            + (f' subtype="{subtype}"' if subtype else "") + "/>"
+            for name, ogr_type, subtype in job.get("fields", ())
+        )
         layers = "".join(
             f'<OGRVRTLayer name="m{i}"><SrcDataSource>{xml_escape(src_path)}</SrcDataSource>'
-            f'<SrcSQL dialect="OGRSQL">{xml_escape(sql)}</SrcSQL></OGRVRTLayer>'
+            f'<SrcSQL dialect="{dialect}">{xml_escape(sql)}</SrcSQL>{fields}</OGRVRTLayer>'
             for i, sql in enumerate(job["statements"])
         )
         e = self.extent
@@ -1979,9 +2368,11 @@ class RulesExporter:
                     "</OGRVRTUnionLayer></OGRVRTDataSource>"
                 )
             kept = ", ".join(f"'{t}'" for t in kept_types)
-            if geometry_type == "POINT":
+            if geometry_type == "POINT" and dialect == "OGRSQL":
                 # A point's bounding box is the point: the spatial filter
-                # keeps exactly the points clipping would.
+                # keeps exactly the points clipping would. (An SQLite
+                # statement can't take the OGR_GEOMETRY filter: its points
+                # go through the two copies below.)
                 self._gdal_translate(output_path, vrt_path, gdal.VectorTranslateOptions(
                     format="FlatGeobuf", layerName=name, layerCreationOptions=["SPATIAL_INDEX=NO"],
                     spatFilter=bbox, explodeCollections=True, geometryType=geometry_type,
@@ -2749,12 +3140,25 @@ class RulesExporter:
             placement = flat_rule.get_attr("p")
             if placement and symbol_layer.layerType() == "MarkerLine":
                 transform_expr = self._marker_points_expression(source_geom, placement)
+                if source_geom == 1 and placement in _MARKER_POINT_SQL:
+                    self._geometry_sql[transform_expr] = _MARKER_POINT_SQL[placement]
             elif source_geom != target_geom:
                 if target_geom == 0:
                     transform_expr = self._centroid_fill_expression(symbol_layer)
                 elif target_geom == 1:
                     transform_expr = "boundary(@geometry)"
         return [target_geom, transform_expr]
+
+    def _sql_for_geometry(self, geometry_expression: str) -> Optional[str]:
+        """The SQLite (SpatiaLite) geometry computing what a rule's geometry
+        expression computes in QGIS, if the export made it from a known
+        recipe; None for others (geometry generators...)."""
+        expression = geometry_expression.strip()
+        if expression == "@geometry":
+            return "GEOMETRY"
+        if expression == "boundary(@geometry)":
+            return "ST_Boundary(GEOMETRY)"
+        return self._geometry_sql.get(geometry_expression)
 
     @staticmethod
     def _marker_line_base(source_geom: int) -> str:
@@ -2859,25 +3263,62 @@ class RulesExporter:
                 f"if(coalesce(({centroid_whole}), {default}), "
                 f"{whole_point}, {visible_point})"
             )
-        return whole_point if settings.centroidWhole else visible_point
+        if settings.centroidWhole:
+            self._geometry_sql[whole_point] = self._with_polygons_sql(
+                "GEOMETRY", self._centroid_sql("GEOMETRY", settings.centroidInside))
+            return whole_point
+        visible_sql = self._visible_polygons_sql()
+        self._geometry_sql[visible_point] = self._with_polygons_sql(
+            visible_sql, self._centroid_sql(visible_sql, settings.centroidInside))
+        return visible_point
 
     def _centroid_fill_expression(self, symbol_layer) -> str:
         """The marker point of a centroid fill, as QGIS draws it: on the
         polygon clipped to the extent shown (here, the export extent)."""
         visible = self._visible_polygons_expression()
+        visible_sql = self._visible_polygons_sql()
         if symbol_layer.layerType() != "CentroidFill":
-            return self._centroid_expression(visible, True)
+            expression = self._centroid_expression(visible, True)
+            self._geometry_sql[expression] = self._with_polygons_sql(
+                visible_sql, self._centroid_sql(visible_sql, True))
+            return expression
         point = (
             "point_on_surface(@source)" if symbol_layer.pointOnSurface()
             else "centroid(@source)"
         )
+        point_sql = (f"ST_PointOnSurface({visible_sql})" if symbol_layer.pointOnSurface()
+                     else f"ST_Centroid({visible_sql})")
         if symbol_layer.clipPoints():
             # Markers outside the polygon are not drawn.
             point = (
                 f"with_variable('point', {point}, "
                 f"if(intersects(@point, @source), @point, NULL))"
             )
-        return self._with_polygons(visible, point)
+            point_sql = f"(CASE WHEN ST_Intersects({point_sql}, {visible_sql}) THEN {point_sql} END)"
+        expression = self._with_polygons(visible, point)
+        self._geometry_sql[expression] = self._with_polygons_sql(visible_sql, point_sql)
+        return expression
+
+    # The same recipes in GDAL's SQLite dialect (SpatiaLite, i.e. GEOS, as
+    # QGIS's own geometry functions), for the export's GDAL path.
+
+    def _visible_polygons_sql(self) -> str:
+        e = self.extent
+        box = (f"BuildMbr({e.xMinimum()!r}, {e.yMinimum()!r}, {e.xMaximum()!r}, "
+               f"{e.yMaximum()!r}, SRID(GEOMETRY))")
+        return (f"(CASE WHEN MbrWithin(GEOMETRY, {box}) THEN GEOMETRY "
+                f"ELSE ST_Intersection(GEOMETRY, {box}) END)")
+
+    @staticmethod
+    def _centroid_sql(polygons: str, force_inside: bool) -> str:
+        if not force_inside:
+            return f"ST_Centroid({polygons})"
+        return (f"(CASE WHEN ST_Intersects(ST_Centroid({polygons}), {polygons}) "
+                f"THEN ST_Centroid({polygons}) ELSE ST_PointOnSurface({polygons}) END)")
+
+    @staticmethod
+    def _with_polygons_sql(polygons: str, point: str) -> str:
+        return f"(CASE WHEN {polygons} IS NULL OR ST_IsEmpty({polygons}) THEN NULL ELSE {point} END)"
 
     def _visible_polygons_expression(self) -> str:
         """The polygon clipped to the export extent; most lie wholly inside
