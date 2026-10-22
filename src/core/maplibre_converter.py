@@ -104,7 +104,7 @@ def _mergeable(first: dict, other: dict) -> bool:
     """Whether two rule layers of one dataset can be drawn as one layer."""
     if _rule_of(first) is None or _rule_of(other) is None:
         return False
-    for key in ("type", "source", "source-layer", "minzoom", "maxzoom"):
+    for key in ("type", "source", "source-layer", "minzoom", "maxzoom", "_enabled"):
         if first.get(key) != other.get(key):
             return False
     for section, varying in (("layout", _DATA_DRIVEN_LAYOUT), ("paint", None)):
@@ -417,6 +417,26 @@ class PropertyExtractor:
             return base_opacity
 
     @staticmethod
+    def enabled_condition(prop: QgsProperty) -> Optional[Union[bool, List]]:
+        """A boolean data-defined property (a symbol layer's "enabled", a
+        label's "show label") as a MapLibre filter condition; None if it
+        doesn't apply, False if it is always off.
+
+        The export writes its per-feature value to a field; QGIS treats a
+        NULL value as on, and MapLibre doesn't see NULL fields at all.
+        """
+        if not prop or not prop.isActive():
+            return None
+        resolved = PropertyExtractor.get_value_or_expression(None, prop)
+        if isinstance(resolved, list):
+            return ["any", ["!", ["has", resolved[1]]], ["to-boolean", resolved]]
+        if resolved is None:
+            return None
+        if isinstance(resolved, str):
+            return False if resolved.strip().lower() in ("", "0", "false") else None
+        return None if resolved else False
+
+    @staticmethod
     def uses_zoom(value) -> bool:
         """Whether a style value is (or contains) a zoom expression."""
         if isinstance(value, list):
@@ -640,20 +660,13 @@ class LinePropertyExtractor:
 
     @staticmethod
     def get_line_sort_key(symbol_layer: QgsSymbolLayer) -> Union[float, List]:
-        """Return ``line-sort-key`` honouring any data-defined override.
+        """Return ``line-sort-key``: 0, features drawn in their own order.
 
-        The static default is ``0``; if a data-defined ``RenderingOrder`` (or
-        equivalent) property is active on the layer, the corresponding
-        MapLibre expression is emitted instead.
+        QGIS symbol layers have no per-feature drawing order (a layer's
+        "control feature rendering order" sorts the exported features
+        already). The "enabled" property is a filter (see enabled_condition).
         """
-        order_prop = None
-        try:
-            order_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.Property.PropertyLayerEnabled
-            )
-        except (AttributeError, RuntimeError):
-            pass
-        return PropertyExtractor.get_value_or_expression(0, order_prop)
+        return 0
 
     @staticmethod
     def is_pattern_line(symbol_layer: QgsSymbolLayer) -> bool:
@@ -857,15 +870,8 @@ class FillPropertyExtractor:
 
     @staticmethod
     def get_fill_sort_key(symbol_layer: QgsSymbolLayer) -> Union[float, List]:
-        """Return ``fill-sort-key`` honouring any data-defined override."""
-        order_prop = None
-        try:
-            order_prop = symbol_layer.dataDefinedProperties().property(
-                QgsSymbolLayer.Property.PropertyLayerEnabled
-            )
-        except (AttributeError, RuntimeError):
-            pass
-        return PropertyExtractor.get_value_or_expression(0, order_prop)
+        """Return ``fill-sort-key``: 0 (see LinePropertyExtractor.get_line_sort_key)."""
+        return 0
 
     @staticmethod
     def is_pattern_fill(symbol_layer: QgsSymbolLayer) -> bool:
@@ -1886,7 +1892,8 @@ class QgisMapLibreStyleExporter:
             for style in labeling.styles():
                 self._convert_labeling_style(style)
 
-        self.style["layers"] = merge_rule_layers(group_rule_layers(self.style["layers"]))
+        self.style["layers"] = self.finish_filters(
+            merge_rule_layers(group_rule_layers(self.style["layers"])))
         # After merging, which compares the layers' zoom ranges.
         archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
         self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
@@ -1921,6 +1928,17 @@ class QgisMapLibreStyleExporter:
             self.source_name, min_zoom, max_zoom,
         )
         self._apply_rule_filter(style, first)
+        # Each symbol layer's "enabled" property: its layer's id is the style
+        # name, "_layerN" for the Nth symbol layer of a line symbol.
+        symbol = style.symbol()
+        for layer_def in list(self.style["layers"][first:]):
+            match = re.search(r"_layer(\d+)$", layer_def["id"])
+            index = int(match.group(1)) if match else 0
+            if index >= symbol.symbolLayerCount():
+                continue
+            prop = symbol.symbolLayer(index).dataDefinedProperties().property(
+                QgsSymbolLayer.Property.PropertyLayerEnabled)
+            self._apply_enabled(layer_def, PropertyExtractor.enabled_condition(prop))
 
     def _convert_labeling_style(self, style):
         """Convert a single ``QgsVectorTileBasicLabelingStyle`` into a MapLibre symbol layer."""
@@ -1933,6 +1951,30 @@ class QgisMapLibreStyleExporter:
             self.source_name, min_zoom, max_zoom,
         )
         self._apply_rule_filter(style, first)
+        settings = style.labelSettings()  # A copy: kept while its properties are read.
+        prop = QgsProperty(settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Show))
+        condition = PropertyExtractor.enabled_condition(prop)
+        for layer_def in list(self.style["layers"][first:]):
+            self._apply_enabled(layer_def, condition)
+
+    def _apply_enabled(self, layer_def: dict, condition) -> None:
+        """Keep a "show" condition (enabled_condition) with a layer until
+        its filter is final (finish_filters); an always-off layer is removed."""
+        if condition is False:
+            self.style["layers"].remove(layer_def)
+        elif condition is not None:
+            layer_def["_enabled"] = condition
+
+    @staticmethod
+    def finish_filters(layers: List[dict]) -> List[dict]:
+        """Add each layer's "show" condition to its (rule) filter."""
+        for layer_def in layers:
+            condition = layer_def.pop("_enabled", None)
+            if condition is None:
+                continue
+            existing = layer_def.get("filter")
+            layer_def["filter"] = ["all", existing, condition] if existing else condition
+        return layers
 
     def _zooms_of(self, style) -> tuple:
         """(minzoom, maxzoom) of a style's layers: the exact zooms of its
