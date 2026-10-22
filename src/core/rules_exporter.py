@@ -1128,6 +1128,7 @@ class RulesExporter:
             
             rule_outputs = self._export_rules_parallel(rule_groups, base_layers)
             self._merge_label_lines(rule_groups, rule_outputs)
+            self._collect_parts(rule_groups, rule_outputs)
             # Phase 4 — collect results on caller thread.
             return self._collect_results(rule_groups, rule_outputs)
         finally:
@@ -3200,6 +3201,79 @@ class RulesExporter:
                 member_expressions.setdefault(name, f'"{name}"')
             member_expressions.setdefault(orig_id, f'"{orig_id}"')
         return columns, expressions
+
+    def _collect_parts(
+        self, rule_groups: List[_RuleGroupSnapshot], outputs: Dict[str, Optional[str]]
+    ) -> None:
+        """Rejoin the parts of each multi-part feature in symbology datasets.
+
+        Base layers hold single parts (rules pick the largest, geometry
+        recipes work per part), so a feature of 30 islands was 30 features
+        in the tiles, each with its own copy of the attributes. Rows of one
+        feature with the same values (rule, data-defined values...) become
+        one multi-part row again, in the dataset's order. Datasets with
+        label text (labels are placed per part, or on the largest) keep
+        their parts. In C++ (SQLite and SpatiaLite), when GDAL has them.
+        Caller thread.
+        """
+        sqlite, spatialite = _sqlite_capabilities()
+        if not (sqlite and spatialite):
+            return
+        orig = f"{_FIELD_PREFIX}_orig_id"
+        for grp in rule_groups:
+            path = outputs.get(grp.output_dataset)
+            if grp.rule_type != 0 or not path or self._is_cancelled():
+                continue
+            if any(name.startswith(f"{_FIELD_PREFIX}_label")
+                   for m in grp.members for _, _, name in m.expression_fields):
+                continue
+            if not self._has_repeated_values(path, orig):
+                continue
+            multi = {0: "MULTIPOLYGON", 1: "MULTILINESTRING", 2: "MULTIPOINT"}.get(
+                abs(self._enum_int(grp.geometry_target) - 2))
+            if multi is None:
+                continue
+            temp_path = join(self.utils_dir, f"{grp.output_dataset}_collected.{_TEMP_RULE_FORMAT}")
+            vrt_path = f"{temp_path}.vrt"
+            ds = ogr.Open(path)
+            layer = ds.GetLayer(0)
+            defn = layer.GetLayerDefn()
+            columns, fields = [], []
+            for i in range(defn.GetFieldCount()):
+                field = defn.GetFieldDefn(i)
+                columns.append(f'"{_sql_name(field.GetName())}"')
+                subtype = field.GetSubType()
+                fields.append(
+                    f'<Field name="{xml_escape(field.GetName())}" type="{ogr.GetFieldTypeName(field.GetType())}"'
+                    + (f' subtype="{ogr.GetFieldSubTypeName(subtype)}"' if subtype != ogr.OFSTNone else "")
+                    + "/>")
+            layer_name = layer.GetName()
+            ds = None
+            # SQL over the plugin's own rule dataset; every name is quoted.
+            sql = (
+                f"SELECT {', '.join(columns)}, ST_Collect(GEOMETRY) AS GEOMETRY "
+                f'FROM "{_sql_name(layer_name)}" GROUP BY {", ".join(columns)} '
+                "ORDER BY MIN(ROWID)"  # nosec B608
+            )
+            try:
+                with open(vrt_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        f'<OGRVRTDataSource><OGRVRTLayer name="{xml_escape(layer_name)}">'
+                        f"<SrcDataSource>{xml_escape(path)}</SrcDataSource>"
+                        f'<SrcSQL dialect="SQLITE">{xml_escape(sql)}</SrcSQL>'
+                        f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
+                        "</OGRVRTLayer></OGRVRTDataSource>"
+                    )
+                self._gdal_translate(temp_path, vrt_path, gdal.VectorTranslateOptions(
+                    format="FlatGeobuf", layerName=layer_name,
+                    layerCreationOptions=["SPATIAL_INDEX=NO"], geometryType=multi,
+                ))
+                os.replace(temp_path, path)
+            except (RuntimeError, OSError) as e:
+                self._remove_file(temp_path)
+                self.feedback.pushDebugInfo(f"Parts of {grp.output_dataset} kept apart: {e}")
+            finally:
+                self._remove_file(vrt_path)
 
     def _merge_label_lines(
         self, rule_groups: List[_RuleGroupSnapshot], outputs: Dict[str, Optional[str]]
