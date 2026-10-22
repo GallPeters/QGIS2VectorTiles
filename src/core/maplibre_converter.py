@@ -1791,6 +1791,7 @@ class QgisMapLibreStyleExporter:
         self.marker_counter = 0
         # Sprite name per image definition (see _register_sprite).
         self._sprite_names: Dict[str, str] = {}
+        self._current_rule: Optional[int] = None
         self.glyphs = {}
         self.minzoom = minzoom
         self.maxzoom = maxzoom
@@ -1923,6 +1924,9 @@ class QgisMapLibreStyleExporter:
             return
         min_zoom, max_zoom = self._zooms_of(style)
         first = len(self.style["layers"])
+        # The rule's rows of a shared dataset (read by _value_combinations).
+        match = _RULE_FILTER.fullmatch(style.filterExpression() or "")
+        self._current_rule = int(match.group(1)) if match else None
         self._convert_symbol(
             style.symbol(), style.styleName(), style.layerName(),
             self.source_name, min_zoom, max_zoom,
@@ -2096,6 +2100,7 @@ class QgisMapLibreStyleExporter:
 
         sprite_symbol, ground_icon_size = self._sprite_marker(symbol)
         marker_name = self._register_sprite(sprite_symbol, "marker")
+        marker_name = self._marker_variants(sprite_symbol, source_layer_name) or marker_name
 
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
@@ -2126,6 +2131,109 @@ class QgisMapLibreStyleExporter:
         })
 
         self.style["layers"].append(layer_def)
+
+    # Properties drawn into a marker's sprite that the style applies itself
+    # (icon-size, icon-rotate) or that aren't part of its look.
+    _MARKER_STYLE_PROPERTIES = frozenset(PropertyExtractor.enum_int(p) for p in (
+        QgsSymbolLayer.Property.PropertySize, QgsSymbolLayer.Property.PropertyAngle,
+        QgsSymbolLayer.Property.PropertyLayerEnabled,
+    ))
+    # Most images one data-defined marker is drawn as; beyond it the marker
+    # is drawn with its default look.
+    _MAX_MARKER_VARIANTS = 64
+
+    def _marker_variants(self, sprite_symbol: QgsSymbol, source_layer_name: str):
+        """``icon-image`` for a marker whose look is data-defined (colour,
+        stroke, shape...): one sprite per combination of the exported values
+        its features have, picked per feature by a ``match``; None if its
+        look is fixed or has too many combinations.
+        """
+        props = []  # (symbol layer index, property key, expression, fields)
+        fields: List[str] = []
+        for index, layer in enumerate(sprite_symbol.symbolLayers()):
+            collection = layer.dataDefinedProperties()
+            for key in collection.propertyKeys():
+                prop = collection.property(key)
+                if not prop.isActive() or int(key) in self._MARKER_STYLE_PROPERTIES:
+                    continue
+                expression = prop.asExpression()
+                columns = sorted(c for c in QgsExpression(expression).referencedColumns()
+                                 if c.startswith("q2vt_property"))
+                if not columns:
+                    continue
+                props.append((index, key, expression, columns))
+                fields.extend(c for c in columns if c not in fields)
+        if not props:
+            return None
+        combinations = self._value_combinations(source_layer_name, fields)
+        if not combinations or len(combinations) > self._MAX_MARKER_VARIANTS:
+            return None
+        if len(fields) == 1:
+            selector = ["to-string", ["get", fields[0]]]
+        else:
+            selector = ["concat"]
+            for i, name in enumerate(fields):
+                selector += (["|"] if i else []) + [["to-string", ["get", name]]]
+        expression = ["match", selector]
+        labels = set()
+        for values in combinations:
+            label = "|".join(self._match_text(v) for v in values)
+            if label in labels:
+                continue
+            labels.add(label)
+            variant = sprite_symbol.clone()
+            literal = {name: QgsExpression.quotedValue(value) for name, value in zip(fields, values)}
+            for index, key, expr, columns in props:
+                for name in columns:
+                    expr = expr.replace(f'"{name}"', literal[name])
+                variant.symbolLayer(index).dataDefinedProperties().setProperty(
+                    key, QgsProperty.fromExpression(expr))
+            expression += [label, self._register_sprite(variant, "marker")]
+        expression.append(self._register_sprite(sprite_symbol, "marker"))
+        return expression
+
+    @staticmethod
+    def _match_text(value) -> str:
+        """A value as MapLibre's to-string writes it (null as "")."""
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+
+    def _value_combinations(self, dataset_name: str, fields: List[str]) -> Optional[list]:
+        """The distinct combinations of ``fields``' values in a dataset
+        (in this rule's rows of a shared one); None if more than
+        _MAX_MARKER_VARIANTS or unreadable."""
+        from osgeo import ogr  # pylint: disable=import-outside-toplevel
+        path = join(self.utils_dir, f"{dataset_name}.{_TEMP_RULE_FORMAT}")
+        ds = ogr.Open(path)
+        if ds is None:
+            return None
+        try:
+            layer = ds.GetLayer(0)
+            defn = layer.GetLayerDefn()
+            indices = [defn.GetFieldIndex(name) for name in fields]
+            if any(i < 0 for i in indices):
+                return None
+            if self._current_rule is not None and defn.GetFieldIndex(RULE_FIELD) >= 0:
+                layer.SetAttributeFilter(f'"{RULE_FIELD}" = {int(self._current_rule)}')
+            layer.SetIgnoredFields([
+                defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())
+                if i not in indices and defn.GetFieldDefn(i).GetName() != RULE_FIELD
+            ] + ["OGR_GEOMETRY"])
+            found = {}
+            for feature in layer:
+                values = tuple(feature.GetField(i) if feature.IsFieldSetAndNotNull(i) else None
+                               for i in indices)
+                found.setdefault(values, None)
+                if len(found) > self._MAX_MARKER_VARIANTS:
+                    return None
+            return list(found)
+        finally:
+            ds = None
 
     # Size a marker sized on the ground is drawn at in the sprite, in mm;
     # the style scales it to its ground size at each zoom.
