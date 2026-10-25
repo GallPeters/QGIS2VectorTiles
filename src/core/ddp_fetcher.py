@@ -10,6 +10,17 @@ from qgis.core import QgsProperty, QgsPropertyDefinition, QgsExpression
 
 from ..utils.config import QVariant
 
+# Decimals kept of data-defined numbers in paper or screen units (see
+# DataDefinedPropertiesFetcher._collect_from).
+_NUMERIC_DECIMALS = 3
+
+
+# Per colour field expression (_to_color_hex_expr's result): the raw colour
+# expression it converts. The export's GDAL path writes the raw value when
+# SQLite computes it, and the style maps each value to its colour
+# (RulesExporter, QgisMapLibreStyleExporter).
+COLOR_RAW_EXPRESSIONS: dict = {}
+
 
 def _to_color_hex_expr(inner_expr: str) -> str:
     """Wrap a color expression to produce an 8-character hex RRGGBBAA string."""
@@ -54,6 +65,46 @@ class DataDefinedPropertiesFetcher:
         """Return [[field_type, expression, field_name], ...] for all active DDPs."""
         self._walk(self._root)
         return self._results
+
+    @classmethod
+    def rename_fields(cls, qgis_object, renames: dict) -> None:
+        """Point the data-defined properties fetch() rewrote at other field
+        names ({old: new}), e.g. a zoom band's own fields."""
+        if not renames:
+            return
+
+        def visit(obj, depth: int):
+            if depth > 8:
+                return
+            for attr in cls._CHILD_ACCESSORS:
+                getter = getattr(obj, attr, None)
+                if getter is None or not callable(getter):
+                    continue
+                try:
+                    result = getter()
+                except (TypeError, RuntimeError, AttributeError):
+                    continue
+                for child in result if isinstance(result, list) else [result]:
+                    # As _walk: QGIS objects only, never one like its parent.
+                    if (child is None or "qgis." not in str(type(child))
+                            or isinstance(child, type(obj))):
+                        continue
+                    if hasattr(child, "dataDefinedProperties"):
+                        props = child.dataDefinedProperties()
+                        for key in props.propertyKeys():
+                            prop = props.property(key)
+                            if not prop or not prop.isActive():
+                                continue
+                            text = prop.expressionString()
+                            new_text = text
+                            for old, new in renames.items():
+                                new_text = new_text.replace(f'"{old}"', f'"{new}"')
+                            if new_text != text:
+                                prop.setExpressionString(new_text)
+                                props.setProperty(key, prop)
+                    visit(child, depth + 1)
+
+        visit(qgis_object, 0)
 
     def _walk(self, obj):
         """Recursively visit obj's QGIS sub-objects for data-defined properties."""
@@ -121,8 +172,58 @@ class DataDefinedPropertiesFetcher:
                 )
                 if expression is None:
                     continue
+                if data_type == QgsPropertyDefinition.DataType.DataTypeNumeric and not self._uses_map_units(obj):
+                    # Sizes, widths, angles and opacities in paper or
+                    # screen units: 3 decimals (0.001 mm is 0.004 px) are
+                    # far below anything drawn, and equal values are stored
+                    # once per tile. Map-unit lengths (a degree, maybe)
+                    # keep every decimal.
+                    expression = f"round(({expression}), {_NUMERIC_DECIMALS})"
 
             self._results.append([field_type, expression, field_name])
+
+    # Unit accessors of symbol layers, text formats and label settings.
+    _UNIT_ACCESSORS = (
+        "sizeUnit", "widthUnit", "strokeWidthUnit", "offsetUnit", "outputUnit", "intervalUnit",
+        "distanceUnit", "patternWidthUnit", "customDashPatternUnit", "hashLengthUnit",
+        "averageAngleUnit", "offsetAlongLineUnit", "distanceXUnit", "distanceYUnit",
+        "displacementXUnit", "displacementYUnit", "offsetXUnit", "offsetYUnit",
+    )
+    _UNIT_ATTRIBUTES = ("distUnits", "offsetUnits", "repeatDistanceUnit")
+    # Qgis.RenderUnit codes of lengths on the ground: map units, meters.
+    _MAP_UNITS = (1, 7)
+
+    @classmethod
+    def _uses_map_units(cls, obj) -> bool:
+        """Whether any length of ``obj`` (a symbol layer, a label's settings
+        and text format) is in map units or meters on the ground."""
+        units = []
+        owners = [obj]
+        if hasattr(obj, "format") and callable(obj.format):
+            try:
+                text_format = obj.format()
+                owners += [text_format, text_format.buffer(), text_format.background()]
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+        for owner in owners:
+            for name in cls._UNIT_ACCESSORS:
+                getter = getattr(owner, name, None)
+                if callable(getter):
+                    try:
+                        units.append(getter())
+                    except (TypeError, RuntimeError):
+                        continue
+            for name in cls._UNIT_ATTRIBUTES:
+                value = getattr(owner, name, None)
+                if value is not None and not callable(value):
+                    units.append(value)
+        for unit in units:
+            try:
+                if int(getattr(unit, "value", unit)) in cls._MAP_UNITS:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
 
     @staticmethod
     def _static_value(qexpr: QgsExpression):
@@ -138,7 +239,10 @@ class DataDefinedPropertiesFetcher:
     def _process_boolean_prop(self, prop, props_collection, key: int, field_name: str) -> str:
         """Replace boolean property with a field reference; return original expression."""
         exp_prop = QgsProperty()
-        exp_prop.setExpressionString(prop.asExpression())
+        # @map_scale is the rule's zoom band's scale, as for other properties
+        # (left as is, it has no value during the export: "show label"
+        # depending on the scale showed at every scale).
+        exp_prop.setExpressionString(prop.asExpression().replace("@map_scale", self._min_scale))
         expression = exp_prop.expressionString()
         exp_prop.setExpressionString(f'"{field_name}"')
         props_collection.setProperty(key, exp_prop)
@@ -158,8 +262,11 @@ class DataDefinedPropertiesFetcher:
 
         expression = _to_color_hex_expr(raw) if is_color else raw
 
-        qexpr = QgsExpression(expression)
-        static_value = self._static_value(qexpr)
+        # Constant if the property's own expression reads nothing (the hex
+        # conversion's internal variables don't count).
+        static_value = None
+        if self._static_value(QgsExpression(raw)) is not None:
+            static_value = QgsExpression(expression).evaluate()
         if static_value:
             prop.setExpressionString(f"'{str(static_value)}'")
             return None
@@ -170,8 +277,11 @@ class DataDefinedPropertiesFetcher:
                 f"with_variable('color', \"{field_name}\", "
                 f"'#' || substr(@color,8,2) || substr(@color,2,6))"
             )
-        if "array" in expression:
+        # An expression giving an array (the hex conversion only uses them).
+        if "array" in raw:
             expression = f"try(array_to_string({expression}), {expression})"
+        if is_color:
+            COLOR_RAW_EXPRESSIONS[expression] = raw
 
         prop.setExpressionString(field_ref)
         return expression

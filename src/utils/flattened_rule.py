@@ -42,6 +42,19 @@ class FlattenedRule:
     # from the renderer rule's rows (see RulesExporter._attach_label).
     renderer: Optional["FlattenedRule"] = None
     label_filter: Optional[str] = None
+    # A rule split into zoom bands by its @map_scale expressions: the number
+    # its bands share (they may share a dataset, see RulesExporter).
+    band_group: Optional[int] = None
+    # A zoom band starting between two zoom levels (where its results start):
+    # the zoom whose scale its @map_scale expressions stand for; None when
+    # that is its first zoom level ("o").
+    scale_zoom: Optional[int] = None
+
+    def map_scale(self) -> str:
+        """The scale @map_scale stands for in this rule's expressions."""
+        from .zoom_levels import ZoomLevels  # pylint: disable=import-outside-toplevel
+        zoom = self.scale_zoom if self.scale_zoom is not None else self.get_attr("o")
+        return str(ZoomLevels.zoom_to_scale(zoom))
 
     def get_attr(self, char: str) -> Optional[int]:
         """Extract rule attribute from description by character prefix."""

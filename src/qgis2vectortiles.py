@@ -228,10 +228,13 @@ class QGIS2VectorTiles:
         ).flatten_all_rules()
 
     def _export_rules(self, rules: List[FlattenedRule]):
-        return RulesExporter(
+        exporter = RulesExporter(
             rules, self.extent, self.included_fields,
             self.max_zoom, self.utils_dir, self.feedback,
-        ).export()
+        )
+        result = exporter.export()
+        self._raw_colors = exporter.raw_color_fields
+        return result
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
         return any(layer.featureCount() > 0 for layer in layers)
@@ -245,6 +248,7 @@ class QGIS2VectorTiles:
             temp_dir, self.utils_dir, styled_layer, self.min_zoom, self.max_zoom,
             extent=self.extent, zoom_ranges=self._styler.zoom_ranges,
             descriptions=self._descriptions(self._styler.flattened_rules),
+            raw_colors=getattr(self, "_raw_colors", {}),
         )
 
     @staticmethod

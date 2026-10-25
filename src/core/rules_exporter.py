@@ -102,6 +102,7 @@ import sys
 import tempfile
 import threading
 import platform
+import re
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field as dataclass_field
@@ -140,11 +141,13 @@ from qgis.core import (
     QgsVectorLayer,
     QgsVectorLayerFeatureSource,
     QgsProject,
+    QgsSymbolLayerUtils,
     QgsWkbTypes,
 )
 
 from ..utils.config import (
     _DATA_SIMPLIFICATION_TOLERANCE, _EPSG_CRS, _FIELD_PREFIX, _FIELDS_ALL, _FIELDS_VISIBLE,
+    _TILES_MAX_ZOOM,
 )
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_INNER_VERTICES,
@@ -152,7 +155,7 @@ from ..utils.flattened_rule import (
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
-from .ddp_fetcher import DataDefinedPropertiesFetcher
+from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
 
 
 # ============================================================================
@@ -234,6 +237,10 @@ RULE_FIELD = f"{_FIELD_PREFIX}_rule"
 
 # Most rules one shared dataset holds.
 _MAX_MEMBERS = 250
+
+# Most distinct raw colour values of a field the style maps to colours;
+# beyond it the field is rewritten as #RRGGBBAA values.
+_MAX_COLOR_VALUES = 1024
 
 # Set Q2VT_NO_GDAL_EXPORT=1 to export every dataset with the Python pass, and
 # Q2VT_NO_GDAL_BASE=1 to build every base layer by reading it with QGIS (for
@@ -405,6 +412,11 @@ class _RuleGroupSnapshot:
     merge_lines: bool = False
     # geometry_expression in GDAL's SQLite dialect; None if it has none.
     geometry_sql: Optional[str] = None
+    # The layer's "control feature rendering order": (expression, ascending,
+    # nulls first) clauses its rows are written in; empty for source order.
+    order_by: Tuple[Tuple[str, bool, bool], ...] = ()
+    # The whole zoom levels whose tiles hold the dataset.
+    zoom_range: Tuple[int, int] = (0, 22)
 
     @property
     def tagged(self) -> bool:
@@ -419,6 +431,43 @@ class _RuleGroupSnapshot:
     def label(self) -> str:
         rule_type = 'labeling' if self.rule_type == 1 else 'symbology'
         return f'{rule_type} of the "{self.layer_name or self.layer_id}" layer'
+
+
+@dataclass
+class _Entry:
+    """The rules writing one output dataset's rows, while the snapshot
+    groups them into shared datasets (see _plan_bands)."""
+    flat_rules: List[FlattenedRule]
+    geom_target: Any
+    geom_expr: str
+    fields: List[Tuple[int, str, str]] = dataclass_field(default_factory=list)
+    # The whole zoom levels the dataset holds the rows for: the rule's own,
+    # or the zoom bands' it shares a dataset with.
+    zoom_range: Optional[Tuple[int, int]] = None
+
+    @property
+    def primary(self) -> FlattenedRule:
+        return self.flat_rules[0]
+
+    @property
+    def zooms(self) -> Tuple[int, int]:
+        return self.zoom_range or (self.primary.get_attr("o"), self.primary.get_attr("i"))
+
+
+def _band_zoom(flat_rule: FlattenedRule) -> int:
+    """The zoom level naming a zoom band's own fields (_zNN): the one its
+    @map_scale expressions were evaluated at, unique among its bands."""
+    return flat_rule.scale_zoom if flat_rule.scale_zoom is not None else flat_rule.get_attr("o")
+
+
+def color_hex(raw: str) -> Optional[str]:
+    """A raw colour value (any form QGIS reads: #RRGGBB, names, "r,g,b,a",
+    rgb()...) as #RRGGBBAA, as the export's hex conversion writes it;
+    None if QGIS reads no colour from it."""
+    color = QgsSymbolLayerUtils.decodeColor(raw)
+    if not color.isValid():
+        return None
+    return f"#{color.red():02X}{color.green():02X}{color.blue():02X}{color.alpha():02X}"
 
 
 def group_to_dict(grp: _RuleGroupSnapshot) -> dict:
@@ -447,6 +496,7 @@ def group_to_dict(grp: _RuleGroupSnapshot) -> dict:
         "shareable": grp.shareable,
         "merge_lines": grp.merge_lines,
         "geometry_sql": grp.geometry_sql,
+        "order_by": [list(clause) for clause in grp.order_by],
     }
 
 
@@ -470,12 +520,13 @@ def group_from_dict(data: dict) -> _RuleGroupSnapshot:
         keep_biggest_part=data["keep_biggest_part"], layer_name=data["layer_name"],
         shareable=data["shareable"], merge_lines=data["merge_lines"],
         geometry_sql=data["geometry_sql"],
+        order_by=tuple(tuple(clause) for clause in data.get("order_by", ())),
     )
 
 
 def group_expressions(grp: _RuleGroupSnapshot) -> List[str]:
     """Every QGIS expression a rule group's pass evaluates."""
-    expressions = [grp.geometry_expression]
+    expressions = [grp.geometry_expression] + [clause[0] for clause in grp.order_by]
     for member in grp.members:
         if member.filter_expression:
             expressions.append(member.filter_expression)
@@ -895,7 +946,7 @@ class _SqliteCompiler:
     literals; AND, OR, NOT; comparisons of numbers, = and <> of texts;
     IS [NOT]; IN lists; + - * of numbers, / (as real), % of integers;
     || of texts and integers; CASE WHEN; coalesce(), if(), upper(),
-    lower(), abs(). Text compares byte-wise and case-sensitively in both;
+    lower(), abs(), round(x, n). Text compares byte-wise and case-sensitively in both;
     NULL propagates alike. Anything else raises _NotCompilable.
     """
 
@@ -944,6 +995,12 @@ class _SqliteCompiler:
         if cast is None or kind not in kinds:
             raise _NotCompilable(expression)
         return f"CAST(({sql}) AS {cast})"
+
+    def order_key(self, expression: str) -> str:
+        """A feature rendering order's expression, to sort rows by (text
+        sorts byte-wise, as QGIS's OGR provider sorts it)."""
+        sql, _ = self._node(self._root(expression))
+        return sql
 
     def _root(self, expression: str):
         expr = QgsExpression(expression)
@@ -1042,6 +1099,10 @@ class _SqliteCompiler:
             return f"{name.upper()}({args[0][0]})", self._STR
         if name == "abs" and len(args) == 1 and kinds[0] in (self._INT, self._REAL, self._NULL):
             return f"ABS({args[0][0]})", kinds[0]
+        if (name == "round" and len(args) == 2 and kinds[0] in (self._INT, self._REAL, self._NULL)
+                and kinds[1] == self._INT and node.args().list()[1].nodeType() == self._Node.ntLiteral):
+            # Both round half away from zero.
+            return f"ROUND({args[0][0]}, {args[1][0]})", self._REAL
         if name == "if" and len(args) == 3 and kinds[0] in (self._BOOL, self._NULL):
             return (f"(CASE WHEN {args[0][0]} THEN {args[1][0]} ELSE {args[2][0]} END)",
                     self._common(kinds[1:], node))
@@ -1125,6 +1186,9 @@ class RulesExporter:
         self.cpu_percent = cpu_percent
 
         self.processed_layers: List[QgsVectorLayer] = []
+        # Per dataset: its colour fields holding raw colour values (the style
+        # maps each value to its colour); others hold #RRGGBBAA values.
+        self.raw_color_fields: Dict[str, Set[str]] = {}
 
         # Captured once on the caller thread; QgsCoordinateTransformContext is
         # an implicitly shared value type, safe to read from workers.
@@ -1172,6 +1236,7 @@ class RulesExporter:
             rule_outputs = self._export_rules_parallel(rule_groups, base_layers)
             self._merge_label_lines(rule_groups, rule_outputs)
             self._collect_parts(rule_groups, rule_outputs)
+            self._finish_raw_colors(rule_outputs)
             # Phase 4 — collect results on caller thread.
             return self._collect_results(rule_groups, rule_outputs)
         finally:
@@ -1217,69 +1282,41 @@ class RulesExporter:
         rule_groups: List[_RuleGroupSnapshot] = []
         # Per renderer rule (by id): the dataset and member holding its rows.
         placed: Dict[int, Tuple[_RuleGroupSnapshot, _MemberSnapshot]] = {}
+
+        # Each dataset's geometry, computed once. Before the expression
+        # fields: they replace data-defined properties (e.g. the label's
+        # "centroid of") with references to fields the base layer lacks.
+        entries: List[_Entry] = []
         for output_dataset, flat_rules in rules_by_dataset.items():
-            primary = flat_rules[0]
-
-            # Compute geometry transformation tuple. Before the expression
-            # fields: they replace data-defined properties (e.g. the label's
-            # "centroid of") with references to fields the base layer lacks.
-            transformation = self._get_geometry_transformation(primary)
+            transformation = self._get_geometry_transformation(flat_rules[0])
             if transformation is None:
-                # No geometry transformation → cannot be exported.
-                continue
-            geom_target, geom_expr = transformation
-            if (primary.get_attr("t") == 1 and len(flat_rules) == 1
-                    and self._attach_label(primary, geom_target, geom_expr, placed)):
-                continue
+                continue  # No geometry transformation: cannot be exported.
+            entries.append(_Entry(flat_rules, *transformation))
 
-            # Compute expression fields (data-defined properties, optional
-            # label field) — these read from the rule symbol/settings.
-            expr_fields = self._create_expression_fields(flat_rules)
-            if primary.get_attr("t") == 1:
-                expr_fields = self._add_label_expression_field(
-                    primary, expr_fields
-                )
-            expr_fields.extend(self._marker_angle_fields(primary))
+        # Symbology first: labels may be drawn from its rows.
+        renderer_entries = [e for e in entries if e.primary.get_attr("t") == 0]
+        for entry in renderer_entries:
+            entry.fields = self._create_expression_fields(entry.flat_rules)
+            entry.fields.extend(self._marker_angle_fields(entry.primary))
+        self._plan_bands(renderer_entries)
+        for entry in renderer_entries:
+            group, holder = self._group_entry(entry, datasets, rule_groups)
+            for flat_rule in entry.flat_rules:
+                placed[id(flat_rule)] = (group, holder)
 
-            member = _MemberSnapshot(
-                filter_expression=primary.rule.filterExpression() or None,
-                expression_fields=expr_fields,
-                description=primary.get_description(),
-                flat_rules=flat_rules,
-            )
-            rule_type = primary.get_attr("t")
-            merge_lines = self._merges_lines(primary, geom_target)
-            # Merged lines are made of all the parts of every feature.
-            keep_biggest = self._keeps_biggest_part(primary) and not merge_lines
-            key = (
-                primary.layer.id(), rule_type, self._enum_int(geom_target), geom_expr,
-                keep_biggest, primary.get_attr("o"), primary.get_attr("i"), merge_lines,
-            )
-            # Rules drawn by symbol levels keep their own datasets: QGIS draws
-            # them level by level, not feature by feature.
-            shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
-            group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
-            if group is None:
-                holder = member
-                group = _RuleGroupSnapshot(
-                    output_dataset=primary.output_dataset,
-                    layer_id=primary.layer.id(),
-                    rule_type=rule_type,
-                    geometry_target=geom_target,
-                    geometry_expression=geom_expr,
-                    copied_fields=self._copied_fields(primary.layer),
-                    members=[member],
-                    keep_biggest_part=keep_biggest,
-                    layer_name=primary.layer.name(),
-                    shareable=shareable,
-                    merge_lines=merge_lines,
-                    geometry_sql=self._sql_for_geometry(geom_expr),
-                )
-                datasets[key].append(group)
-                rule_groups.append(group)
-            if rule_type == 0:
-                for flat_rule in flat_rules:
-                    placed[id(flat_rule)] = (group, holder)
+        label_entries = []
+        for entry in entries:
+            if entry.primary.get_attr("t") != 1:
+                continue
+            if len(entry.flat_rules) == 1 and self._attach_label(
+                    entry.primary, entry.geom_target, entry.geom_expr, placed):
+                continue
+            entry.fields = self._add_label_expression_field(
+                entry.primary, self._create_expression_fields(entry.flat_rules))
+            label_entries.append(entry)
+        self._plan_bands(label_entries)
+        for entry in label_entries:
+            self._group_entry(entry, datasets, rule_groups)
 
         # Point every rule at its dataset (and, if shared, its member number).
         for group in rule_groups:
@@ -1314,6 +1351,126 @@ class RulesExporter:
             )
 
         return sources, rule_groups
+
+    def _group_entry(
+        self, entry: _Entry, datasets: Dict[tuple, List[_RuleGroupSnapshot]],
+        rule_groups: List[_RuleGroupSnapshot],
+    ) -> Tuple[_RuleGroupSnapshot, _MemberSnapshot]:
+        """Add an entry's rows to a dataset it can share, or a new one;
+        returns the dataset and the member holding its rules."""
+        primary = entry.primary
+        member = _MemberSnapshot(
+            filter_expression=primary.rule.filterExpression() or None,
+            expression_fields=entry.fields,
+            description=primary.get_description(),
+            flat_rules=entry.flat_rules,
+        )
+        rule_type = primary.get_attr("t")
+        merge_lines = self._merges_lines(primary, entry.geom_target)
+        # Merged lines are made of all the parts of every feature.
+        keep_biggest = self._keeps_biggest_part(primary) and not merge_lines
+        low, high = entry.zooms
+        key = (
+            primary.layer.id(), rule_type, self._enum_int(entry.geom_target), entry.geom_expr,
+            keep_biggest, low, high, merge_lines,
+        )
+        # Rules drawn by symbol levels keep their own datasets: QGIS draws
+        # them level by level, not feature by feature.
+        shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
+        group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
+        if group is None:
+            holder = member
+            group = _RuleGroupSnapshot(
+                # Named for the zoom levels it holds (tiles_generator reads them).
+                output_dataset=re.sub(r"o\d\di\d\d", f"o{low:02d}i{high:02d}", primary.output_dataset, count=1),
+                layer_id=primary.layer.id(),
+                rule_type=rule_type,
+                geometry_target=entry.geom_target,
+                geometry_expression=entry.geom_expr,
+                copied_fields=self._copied_fields(primary.layer),
+                members=[member],
+                keep_biggest_part=keep_biggest,
+                layer_name=primary.layer.name(),
+                shareable=shareable,
+                merge_lines=merge_lines,
+                geometry_sql=self._sql_for_geometry(entry.geom_expr),
+                order_by=self._order_by(primary.layer) if rule_type == 0 else (),
+                zoom_range=(low, high),
+            )
+            datasets[key].append(group)
+            rule_groups.append(group)
+        return group, holder
+
+    def _plan_bands(self, entries: List[_Entry]) -> None:
+        """Let the zoom bands of a rule (split by its @map_scale
+        expressions) share one dataset where that stores less.
+
+        Bands drawing the same rows (the same filter and geometry) with the
+        same fields write the same data: one dataset holds it for all their
+        zoom levels, and the style draws the bands from it (merged into one
+        layer where it can, see merge_zoom_bands). Bands whose field values
+        differ keep their own datasets below the highest tile zoom (each
+        tile holds one band's rows anyway); the bands reaching it, whose
+        rows all go to its tiles, share one dataset there, each band's
+        differing values in fields of its own (named _zNN): the tiles hold
+        each feature once instead of once per band.
+        """
+        bands: Dict[tuple, List[_Entry]] = {}
+        for entry in entries:
+            primary = entry.primary
+            if primary.band_group is None:
+                continue
+            key = (primary.band_group, entry.geom_expr, primary.rule.filterExpression(),
+                   primary.label_filter)
+            bands.setdefault(key, []).append(entry)
+        for group in bands.values():
+            group.sort(key=lambda e: e.primary.get_attr("o"))
+            for run in self._contiguous_runs(group):
+                differing = self._differing_fields(run)
+                if differing:
+                    run = [e for e in run if e.primary.get_attr("i") >= _TILES_MAX_ZOOM]
+                    if len(run) < 2:
+                        continue
+                    differing = self._differing_fields(run)
+                low = run[0].primary.get_attr("o")
+                high = max(e.primary.get_attr("i") for e in run)
+                for entry in run:
+                    entry.zoom_range = (low, high)
+                    if differing:
+                        self._rename_band_fields(entry, differing)
+
+    @staticmethod
+    def _contiguous_runs(group: List[_Entry]) -> List[List[_Entry]]:
+        """Bands (in zoom order) as runs without a zoom level between them."""
+        runs: List[List[_Entry]] = []
+        for entry in group:
+            # A band starting at its exact switch shares the zoom level the
+            # band before ends in.
+            if runs and entry.primary.get_attr("o") <= runs[-1][-1].primary.get_attr("i") + 1:
+                runs[-1].append(entry)
+            else:
+                runs.append([entry])
+        return [run for run in runs if len(run) > 1]
+
+    @staticmethod
+    def _differing_fields(run: List[_Entry]) -> Set[str]:
+        """Names of the fields whose expression differs between bands."""
+        maps = [{name: (field_type, expr) for field_type, expr, name in e.fields} for e in run]
+        names = set().union(*maps)
+        return {name for name in names if len({repr(m.get(name)) for m in maps}) > 1}
+
+    @staticmethod
+    def _rename_band_fields(entry: _Entry, differing: Set[str]) -> None:
+        """Give a band its own names (_zNN) for the fields that differ
+        between bands, in its fields and in the properties reading them."""
+        suffix = f"_z{_band_zoom(entry.primary):02d}"
+        renames = {name: f"{name}{suffix}" for name in differing}
+        entry.fields = [(t, expr, renames.get(name, name)) for t, expr, name in entry.fields]
+        for flat_rule in entry.flat_rules:
+            DataDefinedPropertiesFetcher.rename_fields(flat_rule.rule, renames)
+            settings = flat_rule.rule.settings() if flat_rule.get_attr("t") == 1 else None
+            if settings is not None and settings.fieldName in renames:
+                settings.fieldName = renames[settings.fieldName]
 
     @staticmethod
     def _dataset_for(
@@ -1378,9 +1535,9 @@ class RulesExporter:
                 or self._enum_int(geom_target) != self._enum_int(group.geometry_target)
                 or self._merges_lines(label, geom_target)):
             return False
-        renderer = member.flat_rules[0]
-        if (label.get_attr("o") < renderer.get_attr("o")
-                or label.get_attr("i") > renderer.get_attr("i")):
+        # Its rows must be in the tiles of every zoom level the label shows at.
+        low, high = group.zoom_range
+        if label.get_attr("o") < low or label.get_attr("i") > high:
             return False
         settings = label.rule.settings()
         if not settings or not settings.getLabelExpression().expression():
@@ -1391,20 +1548,50 @@ class RulesExporter:
         trial.rule.setDescription(label.rule.description())
         new_fields = self._create_expression_fields([trial])
         name = f"{_FIELD_PREFIX}_label_{label.get_attr('d'):02d}{label.get_attr('r'):02d}"
-        existing = {field_name: expr for _, expr, field_name in member.expression_fields}
-        if name in existing or any(
-                existing.get(field_name, expr) != expr for _, expr, field_name in new_fields):
-            return False
         conditions = []
         if label.label_filter:
             conditions.append(f"({label.label_filter})")
         if self._keeps_biggest_part(label):
             conditions.append(f'"{_BIGGEST_FIELD}" = 1')
+        text_field = self._add_label_expression_field(trial, [], name, " AND ".join(conditions))
+        existing = {field_name: expr for _, expr, field_name in member.expression_fields}
+        if name in existing and (not text_field or existing[name] != text_field[0][1]):
+            return False  # Another label's text (or this one's, other band) is there.
+        # A data-defined value taken by another rule's: a zoom band of this
+        # label gets its own field (_zNN), others need rows of their own.
+        renames = {}
+        for _, expr, field_name in new_fields:
+            if existing.get(field_name, expr) != expr:
+                if label.band_group is None:
+                    return False
+                renamed = f"{field_name}_z{_band_zoom(label):02d}"
+                if existing.get(renamed, expr) != expr:
+                    return False
+                renames[field_name] = renamed
         fields = self._create_expression_fields([label])
+        if renames:
+            fields = [(t, expr, renames.get(field_name, field_name)) for t, expr, field_name in fields]
+            DataDefinedPropertiesFetcher.rename_fields(label.rule, renames)
         fields = self._add_label_expression_field(label, fields, name, " AND ".join(conditions))
         member.expression_fields.extend(f for f in fields if f[2] not in existing)
         member.flat_rules.append(label)
         return True
+
+    @staticmethod
+    def _order_by(layer: QgsVectorLayer) -> Tuple[Tuple[str, bool, bool], ...]:
+        """A layer's feature rendering order, if "control feature rendering
+        order" is on: (expression, ascending, nulls first) per clause."""
+        try:
+            renderer = layer.renderer()
+            if not renderer or not renderer.orderByEnabled():
+                return ()
+            return tuple(
+                (clause.expression().expression(), bool(clause.ascending()), bool(clause.nullsFirst()))
+                for clause in renderer.orderBy().list()
+                if clause.expression().expression().strip()
+            )
+        except (AttributeError, RuntimeError, TypeError):
+            return ()
 
     @staticmethod
     def _uses_symbol_levels(layer: QgsVectorLayer) -> bool:
@@ -1490,7 +1677,7 @@ class RulesExporter:
             return None  # All source fields are exported.
         names = set(groups[0].copied_fields)
         for grp in groups:
-            expressions = [grp.geometry_expression]
+            expressions = [grp.geometry_expression] + [clause[0] for clause in grp.order_by]
             for member in grp.members:
                 expressions.append(member.filter_expression)
                 expressions.extend(expr for _, expr, _ in member.expression_fields)
@@ -2240,6 +2427,8 @@ class RulesExporter:
                 # A pass over a large base layer runs in other processes
                 # (see _run_pass_processes), split in this many parts.
                 process_parts = self._process_parts(src_path, len(pass_tasks)) if in_process else 0
+                if any(grp.order_by for grp in groups):
+                    process_parts = min(process_parts, 1)  # Parts would each be sorted alone.
                 if process_parts:
                     variables = self._portable_variables(context, groups)
                     if variables is not None:
@@ -2250,6 +2439,8 @@ class RulesExporter:
                 fut = pool.submit(self._export_rule_pass, groups, src_path, context)
                 futures[fut] = ("pass", src_path, groups)
 
+            # Per GDAL-written dataset: its fields holding raw colour values.
+            gdal_raw_colors = {grp.output_dataset: job.get("raw_colors") for _, grp, job in gdal_tasks}
             for src_path, grp, job in gdal_tasks:
                 futures[pool.submit(self._export_dataset_gdal, grp, src_path, job)] = (
                     "gdal", src_path, [grp])
@@ -2289,6 +2480,9 @@ class RulesExporter:
                         continue
                     if kind == "gdal":
                         outputs[groups[0].output_dataset] = result
+                        raw = gdal_raw_colors.get(groups[0].output_dataset)
+                        if result and raw:
+                            self.raw_color_fields[groups[0].output_dataset] = set(raw)
                     else:
                         outputs.update(result)
         return outputs
@@ -2587,11 +2781,22 @@ class RulesExporter:
             compiler.condition(m.filter_expression) if m.filter_expression else None
             for m in grp.members
         ]
+        # Colour fields hold their raw colour value (the style maps each to
+        # its colour, see _finish_raw_colors), as the hex conversion has no
+        # SQL equivalent.
+        raw_colors = set()
+
+        def value_of(expression, name: str, field_type: int) -> str:
+            if not isinstance(expression, str) or not expression.strip():
+                return "NULL"
+            raw = COLOR_RAW_EXPRESSIONS.get(expression)
+            if raw is not None:
+                raw_colors.add(name)
+                return compiler.value(raw, field_type, src_fields)
+            return compiler.value(expression, field_type, src_fields)
+
         values = [
-            [compiler.value(member_expressions[name], field_type, src_fields)
-             if isinstance(member_expressions.get(name), str) and member_expressions[name].strip()
-             else "NULL"
-             for name, field_type in columns]
+            [value_of(member_expressions.get(name), name, field_type) for name, field_type in columns]
             for member_expressions in expressions
         ]
         extra = []
@@ -2599,6 +2804,13 @@ class RulesExporter:
             extra.append(f'"{_BIGGEST_FIELD}" = 1')
         source = f'"{_sql_name(layer_name)}"'
         geometry_column = f"{geometry} AS GEOMETRY"
+        # The layer's feature rendering order, ties in source order.
+        order_keys = [(compiler.order_key(expr), ascending, nulls_first)
+                      for expr, ascending, nulls_first in grp.order_by]
+
+        def direction(ascending: bool, nulls_first: bool) -> str:
+            return f"{'ASC' if ascending else 'DESC'} NULLS {'FIRST' if nulls_first else 'LAST'}"
+
         if self._disjoint_lookups(grp, src_fields):
             selected = []
             for c, (name, _) in enumerate(columns):
@@ -2609,23 +2821,37 @@ class RulesExporter:
                     cases = " ".join(f"WHEN {cond} THEN {v}" for cond, v in zip(conditions, column))
                     selected.append(f'(CASE {cases} END) AS "{_sql_name(name)}"')
             where = " AND ".join([f"({' OR '.join(f'({c})' for c in conditions)})"] + extra)
+            order = ""
+            if order_keys:
+                order = " ORDER BY " + ", ".join(
+                    f"{key} {direction(asc, nf)}" for key, asc, nf in order_keys) + ", ROWID"
             # SQL over the plugin's own temporary base layer; every name and
             # literal in it is quoted and escaped (_sql_name, _sql_string).
-            statements = [f"SELECT {', '.join(selected)}, {geometry_column} FROM {source} WHERE {where}"]  # nosec B608
+            statements = [f"SELECT {', '.join(selected)}, {geometry_column} FROM {source} WHERE {where}{order}"]  # nosec B608
         elif single_scan:
             return None
         else:
             selects = []
-            for condition, member_values in zip(conditions, values):
+            for member_index, (condition, member_values) in enumerate(zip(conditions, values)):
                 selected = ", ".join(
                     f'{v} AS "{_sql_name(name)}"' for v, (name, _) in zip(member_values, columns))
+                if order_keys:
+                    # Sort columns (the VRT's declared fields leave them out).
+                    selected += "".join(f', {key} AS "q2vt_order_{k}"' for k, (key, _, _) in enumerate(order_keys))
+                    selected += f', ROWID AS "q2vt_order_fid", {member_index} AS "q2vt_order_member"'
                 where = " AND ".join(([f"({condition})"] if condition else []) + extra)
                 where = f" WHERE {where}" if where else ""
                 selects.append(f"SELECT {selected}, {geometry_column} FROM {source}{where}")  # nosec B608
             # One statement, one VRT layer for ogr2ogr: the rules' rows one
-            # after another.
-            statements = [" UNION ALL ".join(selects)]
-        return {"statements": statements, "geometry": output, "dialect": "SQLITE", "fields": declared}
+            # after another, or in the layer's rendering order.
+            statement = " UNION ALL ".join(selects)
+            if order_keys:
+                statement += " ORDER BY " + ", ".join(
+                    f'"q2vt_order_{k}" {direction(asc, nf)}' for k, (_, asc, nf) in enumerate(order_keys)
+                ) + ', "q2vt_order_fid", "q2vt_order_member"'
+            statements = [statement]
+        return {"statements": statements, "geometry": output, "dialect": "SQLITE", "fields": declared,
+                "raw_colors": sorted(raw_colors)}
 
     @staticmethod
     def _disjoint_lookups(grp: _RuleGroupSnapshot, src_fields: QgsFields) -> bool:
@@ -2663,6 +2889,9 @@ class RulesExporter:
         """
         if grp.geometry_expression.strip() != "@geometry":
             return None
+        if grp.order_by:
+            # OGR SQL can't order a shared dataset's rows across its rules.
+            raise _NotCompilable("feature rendering order")
         output = _OGR_OUTPUT.get(abs(self._enum_int(grp.geometry_target) - 2))
         if output is None:
             return None
@@ -2960,6 +3189,14 @@ class RulesExporter:
                 orig = f"{_FIELD_PREFIX}_orig_id"
                 request.setFilterExpression(
                     f'"{orig}" >= {fid_range[0]!r} AND "{orig}" < {fid_range[1]!r}')
+            order_by = next((grp.order_by for grp in groups if grp.order_by), ())
+            if order_by:
+                # The layer's feature rendering order (its groups share it).
+                request.setExpressionContext(context)
+                request.setOrderBy(QgsFeatureRequest.OrderBy([
+                    QgsFeatureRequest.OrderByClause(expr, ascending, nulls_first)
+                    for expr, ascending, nulls_first in order_by
+                ]))
             for n, feature in enumerate(layer.getFeatures(request)):
                 if n % _WRITE_BATCH_SIZE == 0:
                     self._check_cancel()
@@ -3274,6 +3511,73 @@ class RulesExporter:
             member_expressions.setdefault(orig_id, f'"{orig_id}"')
         return columns, expressions
 
+    def _finish_raw_colors(self, outputs: Dict[str, Optional[str]]) -> None:
+        """Raw colour fields with more distinct values than the style maps
+        (_MAX_COLOR_VALUES) are rewritten as #RRGGBBAA values, each raw
+        value decoded once as QGIS decodes it. Caller thread."""
+        for name, fields in list(self.raw_color_fields.items()):
+            path = outputs.get(name)
+            if not path:
+                self.raw_color_fields.pop(name)
+                continue
+            many = {f for f in fields if self._distinct_count(path, f) > _MAX_COLOR_VALUES}
+            if not many:
+                continue
+            try:
+                self._rewrite_colors_hex(path, many)
+                fields -= many
+            except (RuntimeError, OSError, AttributeError, TypeError) as e:
+                self.feedback.pushWarning(f"Colours of {name} could not be converted: {e}")
+            if not fields:
+                self.raw_color_fields.pop(name)
+
+    @staticmethod
+    def _distinct_count(path: str, field: str) -> int:
+        ds = ogr.Open(path)
+        try:
+            layer = ds.GetLayer(0)
+            # OGR SQL over the plugin's own dataset; every name is quoted.
+            result = ds.ExecuteSQL(
+                f'SELECT COUNT(DISTINCT "{_sql_name(field)}") FROM "{_sql_name(layer.GetName())}"')  # nosec B608
+            count = result.GetNextFeature().GetField(0)
+            ds.ReleaseResultSet(result)
+            return int(count or 0)
+        finally:
+            ds = None
+
+    def _rewrite_colors_hex(self, path: str, fields: Set[str]) -> None:
+        """Rewrite ``fields`` of a dataset from raw colours to #RRGGBBAA."""
+        temp_path = f"{path}.hex.{_TEMP_RULE_FORMAT}"
+        src_ds = ogr.Open(path)
+        src_layer = src_ds.GetLayer(0)
+        defn = src_layer.GetLayerDefn()
+        indices = [defn.GetFieldIndex(f) for f in fields]
+        out_ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(temp_path)
+        out_layer = out_ds.CreateLayer(src_layer.GetName(), src_layer.GetSpatialRef(),
+                                       src_layer.GetGeomType(), ["SPATIAL_INDEX=NO"])
+        for i in range(defn.GetFieldCount()):
+            out_layer.CreateField(defn.GetFieldDefn(i))
+        out_defn = out_layer.GetLayerDefn()
+        decoded: Dict[str, Optional[str]] = {}
+        for n, feature in enumerate(src_layer):
+            if n % _WRITE_BATCH_SIZE == 0:
+                self._check_cancel()
+            out = ogr.Feature(out_defn)
+            out.SetFrom(feature)
+            for i in indices:
+                if not feature.IsFieldSetAndNotNull(i):
+                    continue
+                raw = feature.GetFieldAsString(i)
+                if raw not in decoded:
+                    decoded[raw] = color_hex(raw)
+                if decoded[raw] is None:
+                    out.SetFieldNull(i)
+                else:
+                    out.SetField(i, decoded[raw])
+            out_layer.CreateFeature(out)
+        src_ds = out_ds = None
+        os.replace(temp_path, path)
+
     def _collect_parts(
         self, rule_groups: List[_RuleGroupSnapshot], outputs: Dict[str, Optional[str]]
     ) -> None:
@@ -3503,7 +3807,7 @@ class RulesExporter:
         """
         for flat_rule in flat_rules:
             rule_type = flat_rule.get_attr("t")
-            zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            zoom_scale = flat_rule.map_scale()
             if rule_type == 1 and flat_rule.rule.settings():
                 settings = flat_rule.rule.settings()
                 label_exp = settings.getLabelExpression().expression()
@@ -3537,7 +3841,7 @@ class RulesExporter:
         for flat_rule in flat_rules:
             rule_type = flat_rule.get_attr("t")
             suffix = flat_rule.get_attr("s") if rule_type == 0 else flat_rule.get_attr("f")
-            min_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            min_scale = flat_rule.map_scale()
             rule_fields = DataDefinedPropertiesFetcher(
                 flat_rule.rule, min_scale, suffix
             ).fetch()
@@ -3760,7 +4064,7 @@ class RulesExporter:
             QgsPalLayerSettings.Property.CentroidWhole
         )
         if prop and prop.isActive() and prop.asExpression():
-            zoom_scale = str(ZoomLevels.zoom_to_scale(flat_rule.get_attr("o")))
+            zoom_scale = flat_rule.map_scale()
             centroid_whole = prop.asExpression().replace("@map_scale", zoom_scale)
             default = "true" if settings.centroidWhole else "false"
             return (

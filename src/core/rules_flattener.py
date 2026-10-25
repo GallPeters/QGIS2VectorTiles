@@ -24,6 +24,7 @@ from qgis.core import (
     QgsCategorizedSymbolRenderer,
     QgsReadWriteContext,
     QgsExpression,
+    QgsExpressionNode,
     QgsSimpleLineSymbolLayer,
     QgsFillSymbol,
     QgsSymbolLayer,
@@ -55,6 +56,8 @@ class RulesFlattener:
         # Tree-unique counter; reset per (layer, rule_type) pass. Used only to
         # disambiguate output_dataset when sibling subtrees share (l,t,d,r,...).
         self._unique_counter = 0
+        # Numbers the rules split into zoom bands (FlattenedRule.band_group).
+        self._band_groups = 0
 
     def flatten_all_rules(self) -> List[FlattenedRule]:
         """Extract and flatten all rules from visible vector layers."""
@@ -628,7 +631,7 @@ class RulesFlattener:
             return [flat_rule]
 
         min_zoom = flat_rule.get_attr("o")
-        max_zoom = min(self.max_zoom, flat_rule.get_attr("i") + 1)
+        max_zoom = min(self.max_zoom, flat_rule.get_attr("i"))
         document = self._rule_document(flat_rule).toString()
         # [first zoom, last zoom, signature, rule] per run of equal zooms.
         runs: list = []
@@ -636,28 +639,64 @@ class RulesFlattener:
             clone = self._create_zoom_specific_rule(flat_rule, zoom)
             if flat_rule.get_attr("t") != 1 and not self._symbol_layer_visible_at_zoom(clone):
                 continue
-            signature = self._scale_signature(document, zoom)
+            signature = self._scale_signature(document, ZoomLevels.zoom_to_scale(zoom))
             last = runs[-1] if runs else None
             if last is not None and last[1] == zoom - 1 and last[2] == signature:
                 last[1] = zoom
             else:
                 runs.append([zoom, zoom, signature, clone])
         split_rules = []
-        for first, last, _, clone in runs:
+        self._band_groups += 1
+        for index, (first, last, signature, clone) in enumerate(runs):
             clone.set_attr("o", first)
             clone.set_attr("i", last)
+            if len(runs) > 1:
+                clone.band_group = self._band_groups
+            previous = runs[index - 1] if index else None
+            if previous is not None and previous[1] + 1 == first:
+                self._start_band_at_switch(document, previous[3], clone, first, signature)
             split_rules.append(clone)
         return split_rules
 
-    def _scale_signature(self, document: str, zoom: int) -> tuple:
-        """What a rule's @map_scale expressions give at a zoom level.
+    # Bisection steps finding where a rule's @map_scale results change
+    # between two zoom levels: 1/4096 of a zoom level.
+    _SWITCH_STEPS = 12
+
+    def _start_band_at_switch(self, document: str, before: FlattenedRule, band: FlattenedRule,
+                              zoom: int, signature: tuple) -> None:
+        """Draw a zoom band from the exact scale its results start at, as
+        QGIS switches there, not from the next whole zoom level.
+
+        Bands are found at whole zoom levels; the switch lies between the
+        previous one (zoom - 1) and this one: bisection finds it. The band
+        then starts there (its data from that zoom level's tiles on) and
+        the band before ends there; each keeps the scale its expressions
+        were evaluated at (scale_zoom).
+        """
+        low, high = zoom - 1.0, float(zoom)
+        for _ in range(self._SWITCH_STEPS):
+            middle = (low + high) / 2
+            if self._scale_signature(document, ZoomLevels.SCALES[0] / 2 ** middle) == signature:
+                high = middle
+            else:
+                low = middle
+        if high >= zoom:
+            return
+        switch_scale = ZoomLevels.SCALES[0] / 2 ** high
+        band.scale_zoom = zoom
+        band.set_attr("o", zoom - 1)
+        band.rule.setMinimumScale(min(band.rule.minimumScale() or switch_scale, switch_scale))
+        before.rule.setMaximumScale(max(before.rule.maximumScale(), switch_scale))
+
+    def _scale_signature(self, document: str, scale_value: float) -> tuple:
+        """What a rule's @map_scale expressions give at a scale.
 
         Each expression (an attribute or text of the rule's XML) with
-        @map_scale replaced by the zoom's scale is, if it reads no feature,
+        @map_scale replaced by the scale is, if it reads no feature,
         evaluated to its value; otherwise kept as written, which differs
         from every other zoom's.
         """
-        scale = str(ZoomLevels.zoom_to_scale(zoom))
+        scale = str(scale_value)
         doc = QDomDocument()
         doc.setContent(document)
         tokens: list = []
@@ -677,21 +716,52 @@ class RulesFlattener:
         visit(doc.documentElement())
         return tuple(tokens)
 
-    @staticmethod
-    def _scale_token(text: str, scale: str, tokens: list) -> None:
+    @classmethod
+    def _scale_token(cls, text: str, scale: str, tokens: list) -> None:
+        """One expression's part of a zoom's signature: its value if it
+        reads no feature, else its form with every part that reads no
+        feature folded to its value ("@map_scale < 30000 OR "rank" >= 4"
+        is "false OR "rank" >= 4" at every zoom out of 1:30,000), so zooms
+        it gives the same results at share one rule."""
         if not text or "@map_scale" not in text:
             return
         replaced = text.replace("@map_scale", scale)
         expr = QgsExpression(replaced)
-        if (expr.hasParserError() or expr.referencedColumns() or expr.needsGeometry()
-                or expr.referencedVariables()):
+        if expr.hasParserError() or expr.rootNode() is None:
             tokens.append(("expression", replaced))
             return
-        value = expr.evaluate()
-        if expr.hasEvalError():
-            tokens.append(("expression", replaced))
-            return
-        tokens.append(("value", repr(value)))
+        tokens.append(("value", cls._folded(expr.rootNode())))
+
+    _Node = QgsExpressionNode.NodeType
+
+    @classmethod
+    def _folded(cls, node) -> str:
+        """A canonical form of an expression node, its parts that read no
+        feature, field, geometry or variable replaced by their values:
+        equal forms give equal results for every feature."""
+        part = QgsExpression(node.dump())
+        if (not part.hasParserError() and not part.referencedColumns()
+                and not part.needsGeometry() and not part.referencedVariables()):
+            value = part.evaluate()
+            if not part.hasEvalError():
+                return f"<{value!r}>"
+        node_type = node.nodeType()
+        if node_type == cls._Node.ntBinaryOperator:
+            return f"({cls._folded(node.opLeft())} {getattr(node.op(), "value", node.op())} {cls._folded(node.opRight())})"
+        if node_type == cls._Node.ntUnaryOperator:
+            return f"({getattr(node.op(), 'value', node.op())} {cls._folded(node.operand())})"
+        if node_type == cls._Node.ntFunction:
+            args = node.args().list() if node.args() else []
+            return f"f{node.fnIndex()}({', '.join(cls._folded(a) for a in args)})"
+        if node_type == cls._Node.ntCondition:
+            whens = " ".join(f"when {cls._folded(w.whenExp())} then {cls._folded(w.thenExp())}"
+                             for w in node.conditions())
+            otherwise = cls._folded(node.elseExp()) if node.elseExp() is not None else ""
+            return f"case {whens} else {otherwise}"
+        if node_type == cls._Node.ntInOperator:
+            items = ", ".join(cls._folded(i) for i in node.list().list())
+            return f"({cls._folded(node.node())} {'not in' if node.isNotIn() else 'in'} [{items}])"
+        return node.dump()
 
     def _symbol_layer_visible_at_zoom(self, flat_rule: FlattenedRule) -> bool:
         """Return False if the symbol layer's visibility DDP evaluates to falsy at the zoom."""

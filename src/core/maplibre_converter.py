@@ -27,6 +27,7 @@ from qgis.core import (
     QgsExpression,
     QgsProperty,
     QgsSymbolLayer,
+    QgsSymbolLayerUtils,
     QgsTextFormat,
     QgsProject,
     QgsTextBackgroundSettings,
@@ -36,7 +37,7 @@ from .glyphs_generator import GlyphGenerator
 from .sprite_generator import (
     BrushPattern, FillPattern, HashMark, LinePattern, SpriteGenerator, sprite_key,
 )
-from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD
+from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 
 
@@ -210,6 +211,109 @@ def merge_rule_layers(layers: List[dict]) -> List[dict]:
                 expression.append(_match_value(values[-1]))
                 layer_def[section][key] = expression
         merged.append(layer_def)
+    return merged
+
+
+def _band_key(layer_def: dict) -> tuple:
+    """What a zoom band's layer draws regardless of its zooms: two layers
+    with equal keys are bands of one rule (and symbol layer)."""
+    name = re.sub(r"_\d+$", "", re.sub(r"o\d\di\d\d", "", layer_def.get("id", "")))
+    return (layer_def.get("type"), layer_def.get("source-layer"), name,
+            json.dumps(layer_def.get("filter"), sort_keys=True),
+            json.dumps(layer_def.get("_enabled"), sort_keys=True))
+
+
+def _steppable(run: List[dict]) -> bool:
+    """Whether layers can be one layer whose differing values are zoom
+    steps: the same properties, none differing that takes no expression
+    (visibility) or already depends on the zoom (a step can't hold one)."""
+    for section in ("layout", "paint"):
+        keys = run[0].get(section, {}).keys()
+        if any(layer_def.get(section, {}).keys() != keys for layer_def in run):
+            return False
+        for key in keys:
+            values = [layer_def[section][key] for layer_def in run]
+            if all(v == values[0] for v in values):
+                continue
+            if key == "visibility" or any(PropertyExtractor.uses_zoom(v) for v in values):
+                return False
+    return True
+
+
+def _group_bands(layers: List[dict]) -> List[dict]:
+    """In each run of consecutive layers drawn from one dataset, put the
+    layers of one rule's zoom bands next to each other, in zoom order: a
+    band's fill and outline come in turn (fill 17, outline 17, fill 16...),
+    and bands of one kind never overlap in zoom, so their order doesn't
+    matter. Kinds keep the order they first appear in (fills, then
+    outlines, as each band drew them)."""
+    result: List[dict] = []
+    block: List[dict] = []
+
+    def flush():
+        order: Dict[tuple, int] = {}
+        for layer_def in block:
+            order.setdefault(_band_key(layer_def), len(order))
+        result.extend(sorted(block, key=lambda l: (order[_band_key(l)], l.get("minzoom") or 0)))
+        block.clear()
+
+    for layer_def in layers:
+        if block and layer_def.get("source-layer") and \
+                layer_def.get("source-layer") == block[0].get("source-layer"):
+            block.append(layer_def)
+            continue
+        flush()
+        if layer_def.get("source-layer"):
+            block.append(layer_def)
+        else:
+            result.append(layer_def)
+    flush()
+    return result
+
+
+def merge_zoom_bands(layers: List[dict]) -> List[dict]:
+    """Merge the consecutive layers of one rule's zoom bands (a rule split
+    by its @map_scale expressions, drawn from one dataset) into one layer:
+    a value that differs between bands becomes ["step", ["zoom"], ...],
+    switching at each band's first zoom, as the band layers switched.
+    Fewer layers draw faster, with the same result at every zoom.
+    """
+    merged: List[dict] = []
+    run: List[dict] = []
+    layers = _group_bands(layers)
+
+    def flush():
+        if len(run) == 1:
+            merged.append(run[0])
+        elif run:
+            layer_def = copy.deepcopy(run[0])
+            layer_def["maxzoom"] = run[-1].get("maxzoom")
+            for section in ("layout", "paint"):
+                for key in layer_def.get(section, {}):
+                    values = [member[section][key] for member in run]
+                    if all(v == values[0] for v in values):
+                        continue
+                    expression = ["step", ["zoom"], _match_value(values[0])]
+                    previous = values[0]
+                    for member, value in zip(run[1:], values[1:]):
+                        if value != previous:  # A stop only where the value changes.
+                            expression += [member.get("minzoom", 0), _match_value(value)]
+                            previous = value
+                    layer_def[section][key] = expression
+            merged.append(layer_def)
+        run.clear()
+
+    for layer_def in layers:
+        if (run and "source-layer" in layer_def
+                and _band_key(run[0]) == _band_key(layer_def)
+                and run[-1].get("maxzoom") is not None and layer_def.get("minzoom") is not None
+                and abs(run[-1]["maxzoom"] - layer_def["minzoom"]) < 1e-6
+                and _steppable(run + [layer_def])):
+            run.append(layer_def)
+            continue
+        flush()
+        run.append(layer_def)
+    flush()
     return merged
 
 
@@ -419,6 +523,16 @@ class PropertyExtractor:
             return base_opacity
 
     @staticmethod
+    def color_value_or_expression(base_color: str, prop: QgsProperty) -> Union[str, List]:
+        """A colour that may be data-defined: the per-feature colour, or the
+        symbol's own where a feature has none (NULL, or no colour QGIS
+        reads), as QGIS falls back to it."""
+        resolved = PropertyExtractor.get_value_or_expression(base_color, prop)
+        if isinstance(resolved, list):
+            return ["to-color", resolved, base_color]
+        return resolved
+
+    @staticmethod
     def enabled_condition(prop: QgsProperty) -> Optional[Union[bool, List]]:
         """A boolean data-defined property (a symbol layer's "enabled", a
         label's "show label") as a MapLibre filter condition; None if it
@@ -500,7 +614,7 @@ class LinePropertyExtractor:
         """Return ``line-color`` resolving any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
         color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyStrokeColor)
-        return PropertyExtractor.get_value_or_expression(base_color, color_prop)
+        return PropertyExtractor.color_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_line_width(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[float, List]:
@@ -813,7 +927,7 @@ class FillPropertyExtractor:
         """Return ``fill-color`` resolving any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.color())
         color_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertyFillColor)
-        return PropertyExtractor.get_value_or_expression(base_color, color_prop)
+        return PropertyExtractor.color_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_fill_opacity(
@@ -852,7 +966,7 @@ class FillPropertyExtractor:
             color_prop = symbol_layer.dataDefinedProperties().property(
                 QgsSymbolLayer.Property.PropertyStrokeColor
             )
-            return PropertyExtractor.get_value_or_expression(base_color, color_prop)
+            return PropertyExtractor.color_value_or_expression(base_color, color_prop)
         return None
 
     @staticmethod
@@ -1282,7 +1396,7 @@ class TextPropertyExtractor:
         """Return ``text-color`` honouring any data-defined override."""
         base_color = PropertyExtractor.convert_qcolor_to_maplibre(text_format.color())
         color_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Color)
-        return PropertyExtractor.get_value_or_expression(base_color, color_prop)
+        return PropertyExtractor.color_value_or_expression(base_color, color_prop)
 
     @staticmethod
     def get_text_opacity(
@@ -1334,7 +1448,7 @@ class TextPropertyExtractor:
             color_prop = label_settings.dataDefinedProperties().property(
                 QgsPalLayerSettings.Property.BufferColor
             )
-            return PropertyExtractor.get_value_or_expression(base_color, color_prop)
+            return PropertyExtractor.color_value_or_expression(base_color, color_prop)
         except (AttributeError, RuntimeError):
             return base_color
 
@@ -1779,6 +1893,7 @@ class QgisMapLibreStyleExporter:
         extent=None,
         zoom_ranges: Optional[Dict[str, tuple]] = None,
         descriptions: Optional[Dict[str, Dict[str, str]]] = None,
+        raw_colors: Optional[Dict[str, set]] = None,
     ):
         """Initialise the exporter.
 
@@ -1803,6 +1918,9 @@ class QgisMapLibreStyleExporter:
         # Per style name: the exact zooms it is drawn from and until
         # (TilesStyler.zoom_ranges); otherwise its whole zoom levels.
         self.zoom_ranges = zoom_ranges or {}
+        # Per dataset: its colour fields holding raw colour values, mapped to
+        # colours in the style (_map_raw_colors); others hold #RRGGBBAA.
+        self.raw_colors = raw_colors or {}
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
@@ -1900,8 +2018,9 @@ class QgisMapLibreStyleExporter:
             for style in labeling.styles():
                 self._convert_labeling_style(style)
 
-        self.style["layers"] = self.finish_filters(
-            merge_rule_layers(group_rule_layers(self.style["layers"])))
+        self._map_raw_colors(self.style["layers"])
+        self.style["layers"] = self.finish_filters(merge_rule_layers(group_rule_layers(
+            merge_zoom_bands(self.style["layers"]))))
         # After merging, which compares the layers' zoom ranges.
         archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
         self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
@@ -1986,6 +2105,59 @@ class QgisMapLibreStyleExporter:
             existing = layer_def.get("filter")
             layer_def["filter"] = ["all", existing, condition] if existing else condition
         return layers
+
+    def _map_raw_colors(self, layers: List[dict]) -> None:
+        """Map raw colour values (RulesExporter.raw_color_fields) to colours:
+        each ["get", field] of such a field becomes a match from each value
+        the dataset holds to its colour, decoded as QGIS decodes it; other
+        values give no colour (the to-color around it then falls back to
+        the symbol's own)."""
+        cache: Dict[tuple, list] = {}
+
+        def mapped(dataset: str, field: str) -> list:
+            key = (dataset, field)
+            if key not in cache:
+                expression = ["match", ["to-string", ["get", field]]]
+                for value in self._distinct_values(dataset, field):
+                    color = QgsSymbolLayerUtils.decodeColor(value)
+                    if color.isValid():
+                        expression += [value, PropertyExtractor.convert_qcolor_to_maplibre(color)]
+                cache[key] = expression + [""] if len(expression) > 2 else ""
+            return cache[key]
+
+        def replace(value, dataset: str, fields: set):
+            if isinstance(value, list):
+                if len(value) == 2 and value[0] == "get" and value[1] in fields:
+                    return mapped(dataset, value[1])
+                return [replace(v, dataset, fields) for v in value]
+            return value
+
+        for layer_def in layers:
+            fields = self.raw_colors.get(layer_def.get("source-layer"))
+            if not fields:
+                continue
+            for section in ("paint", "layout"):
+                for key, value in list(layer_def.get(section, {}).items()):
+                    if key != "icon-image":  # Marker variants read raw values themselves.
+                        layer_def[section][key] = replace(value, layer_def["source-layer"], fields)
+
+    def _distinct_values(self, dataset: str, field: str) -> List[str]:
+        """The distinct non-NULL values of a dataset's field, as text."""
+        from osgeo import ogr  # pylint: disable=import-outside-toplevel
+        ds = ogr.Open(join(self.utils_dir, f"{dataset}.{_TEMP_RULE_FORMAT}"))
+        if ds is None:
+            return []
+        try:
+            layer = ds.GetLayer(0)
+            name = field.replace('"', '""')
+            # OGR SQL over the plugin's own dataset; every name is quoted.
+            result = ds.ExecuteSQL(
+                f'SELECT DISTINCT "{name}" FROM "{layer.GetName()}"')  # nosec B608
+            values = [f.GetFieldAsString(0) for f in result if f.IsFieldSetAndNotNull(0)]
+            ds.ReleaseResultSet(result)
+            return values
+        finally:
+            ds = None
 
     def _zooms_of(self, style) -> tuple:
         """(minzoom, maxzoom) of a style's layers: the exact zooms of its
@@ -2189,7 +2361,13 @@ class QgisMapLibreStyleExporter:
                 continue
             labels.add(label)
             variant = sprite_symbol.clone()
-            literal = {name: QgsExpression.quotedValue(value) for name, value in zip(fields, values)}
+            # A raw colour value as the #RRGGBBAA the marker's property reads.
+            raw = self.raw_colors.get(source_layer_name, set())
+            literal = {
+                name: QgsExpression.quotedValue(
+                    color_hex(str(value)) if name in raw and value is not None else value)
+                for name, value in zip(fields, values)
+            }
             for index, key, expr, columns in props:
                 for name in columns:
                     expr = expr.replace(f'"{name}"', literal[name])
