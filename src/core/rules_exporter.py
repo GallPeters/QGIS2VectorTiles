@@ -96,11 +96,13 @@ QgsTask. This is intentional:
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import re
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -208,6 +210,15 @@ _MAX_GROUPS_PER_PASS = 64
 _PASS_PROCESSES = os.environ.get("Q2VT_NO_PASS_PROCESSES") != "1"
 _PROCESS_MIN_FEATURES = 200000
 _PROCESS_PART_FEATURES = 100000
+# Smaller passes are batched: a few processes, each running its share of
+# them one after another (QGIS starts once per process), when there are at
+# least _BATCH_MIN_PASSES of them and _BATCH_MIN_FEATURES features in all.
+_BATCH_MIN_PASSES = 4
+_BATCH_MIN_FEATURES = 20000
+# Units of work per process (a long pass split in ranges evens them out),
+# and the fewest features a range of a pass has.
+_BATCH_UNITS_PER_PROCESS = 1
+_BATCH_MIN_PART_FEATURES = 5000
 _PASS_WORKER = join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "processing", "pass_worker.py")
 
@@ -254,6 +265,13 @@ _GDAL_MEMORY_INPUT_MAX = 256 * 1024 * 1024
 # Geometry family (geometrybyexpression OUTPUT_GEOMETRY code, as in
 # _OGR_OUTPUT) of an OGR layer geometry type, linear and single.
 _OGR_FAMILY = {ogr.wkbPolygon: 0, ogr.wkbLineString: 1, ogr.wkbPoint: 2}
+
+# GDAL drivers without SQL of their own: attribute filters (QGIS subset
+# filters) are OGR SQL conditions in them (see _gdal_open_source).
+_OGR_SQL_FILTER_DRIVERS = frozenset({
+    "ESRI Shapefile", "FlatGeobuf", "GeoJSON", "GeoJSONSeq", "MapInfo File", "CSV",
+    "GML", "KML", "LIBKML", "GPX", "DXF",
+})
 _QGIS_FAMILY = {
     Qgis.GeometryType.Polygon: 0, Qgis.GeometryType.Line: 1, Qgis.GeometryType.Point: 2,
 }
@@ -1831,7 +1849,7 @@ class RulesExporter:
         read it.
 
         GDAL reads local files whose URI has no options besides the layer
-        (a subset filter or a geometry type split falls back to QGIS), in
+        and a subset filter (a geometry type split falls back to QGIS), in
         the layer's QGIS CRS, when the project sets no particular datum
         transformation for it and GDAL sees the geometry type QGIS does.
         Caller thread: the source is opened here, one at a time, as QGIS
@@ -1849,7 +1867,7 @@ class RulesExporter:
             return None
         if opened is None:
             return None
-        ds, layer, size = opened
+        ds, layer, size, subset = opened
         family = _OGR_FAMILY.get(ogr.GT_GetSingle(ogr.GT_GetLinear(ogr.GT_Flatten(layer.GetGeomType()))))
         select = self._gdal_base_columns(layer, src.required_fields)
         if family is None or select is None:
@@ -1857,16 +1875,29 @@ class RulesExporter:
         if src.family is not None and family != src.family:
             return None
         # OGR SQL over a project source; every name in it is quoted and
-        # escaped (_sql_name).
+        # escaped (_sql_name). The layer's subset filter is its own OGR SQL
+        # condition, as QGIS gives it to GDAL (see _gdal_open_source).
         sql = f'SELECT {select} FROM "{_sql_name(layer.GetName())}"'  # nosec B608
+        if subset:
+            sql += f" WHERE ({subset})"
         return {"dataset": ds, "sql": sql, "family": family, "size": size}
 
     def _gdal_open_source(self, src: _SourceSnapshot):
-        """(dataset, layer, size in bytes) of a source GDAL can read as QGIS
-        does (see _gdal_base_plan), or None. Raises RuntimeError if GDAL
-        fails to open it."""
+        """(dataset, layer, size in bytes, subset filter or "") of a source
+        GDAL can read as QGIS does (see _gdal_base_plan), or None. Raises
+        RuntimeError if GDAL fails to open it.
+
+        QGIS's OGR provider gives a subset filter to GDAL as an attribute
+        filter, which formats without SQL of their own (_OGR_SQL_FILTER_DRIVERS)
+        evaluate as OGR SQL: GDAL applies the same condition in a WHERE. A
+        filter that is a whole SELECT, or a format with its own SQL
+        (GeoPackage, SpatiaLite...), is left to QGIS."""
         if src.provider == "ogr":
-            path, *options = src.source_uri.split("|")
+            uri, _, subset = src.source_uri.partition("|subset=")
+            subset = subset.strip()
+            if subset.lower().startswith("select"):
+                return None
+            path, *options = uri.split("|")
             layer_name, layer_index = None, 0
             for option in options:
                 key, _, value = option.partition("=")
@@ -1881,8 +1912,10 @@ class RulesExporter:
             ds = gdal.OpenEx(path, gdal.OF_VECTOR | gdal.OF_READONLY)
             if ds is None:
                 return None
+            if subset and ds.GetDriver().ShortName not in _OGR_SQL_FILTER_DRIVERS:
+                return None
             layer = ds.GetLayerByName(layer_name) if layer_name else ds.GetLayer(layer_index)
-            return None if layer is None else (ds, layer, self._file_size(path))
+            return None if layer is None else (ds, layer, self._file_size(path), subset)
         # Databases are read by their QGIS provider, which every connection
         # setting and expression of QGIS applies to.
         return None
@@ -2437,10 +2470,14 @@ class RulesExporter:
             max_workers=max_workers, thread_name_prefix="rules-export",
             initializer=_lower_thread_priority,
         ) as pool:
-            # (kind, base layer path, groups) per running task.
+            # (kind, base layer path, groups) per running task; for a batch
+            # of passes, its passes instead of a path.
             futures: Dict[Future, Tuple[str, str, List[_RuleGroupSnapshot]]] = {}
+            # Small passes another process can run, batched once all are known.
+            batchable: List[Tuple[str, List[_RuleGroupSnapshot], dict]] = []
+
             def submit_pass(src_path: str, groups: List[_RuleGroupSnapshot],
-                            in_process: bool = True) -> None:
+                            in_process: bool = True, batch: bool = False) -> None:
                 # Each pass's expression context (global and project scopes)
                 # is made here, on the caller thread: the project must not be
                 # read from the pass threads, where it corrupted the heap.
@@ -2457,6 +2494,11 @@ class RulesExporter:
                                           variables, process_parts)
                         futures[fut] = ("process", src_path, groups)
                         return
+                if batch and in_process and self._process_parts(src_path, 1, batch=True):
+                    variables = self._portable_variables(context, groups)
+                    if variables is not None:
+                        batchable.append((src_path, groups, variables))
+                        return
                 fut = pool.submit(self._export_rule_pass, groups, src_path, context)
                 futures[fut] = ("pass", src_path, groups)
 
@@ -2466,7 +2508,17 @@ class RulesExporter:
                 futures[pool.submit(self._export_dataset_gdal, grp, src_path, job)] = (
                     "gdal", src_path, [grp])
             for src_path, groups in pass_tasks:
-                submit_pass(src_path, groups)
+                submit_pass(src_path, groups, batch=True)
+            batch_pool = None
+            bins = self._pass_batches(batchable)
+            if not bins:  # Too few to batch: run here.
+                for src_path, groups, _ in batchable:
+                    submit_pass(src_path, groups)
+            else:
+                # One task starts and waits for the batch's processes.
+                batch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rules-batch")
+                fut = batch_pool.submit(self._run_pass_batches, batchable, bins)
+                futures[fut] = ("batch", batchable, [grp for _, groups, _ in batchable for grp in groups])
 
             while futures:
                 done, _ = wait(list(futures), timeout=1.0, return_when=FIRST_COMPLETED)
@@ -2476,6 +2528,8 @@ class RulesExporter:
                         fut.cancel()
                         for grp in groups:
                             outputs.setdefault(grp.output_dataset, None)
+                    if batch_pool is not None:
+                        batch_pool.shutdown(wait=False, cancel_futures=True)
                     return outputs
                 for fut in done:
                     kind, src_path, groups = futures.pop(fut)
@@ -2484,6 +2538,11 @@ class RulesExporter:
                     except _Cancelled:
                         continue  # Reported by the cancellation check above.
                     except Exception as e:  # noqa: BLE001
+                        if kind == "batch":  # Redo its passes here.
+                            self.feedback.pushDebugInfo(f"Pass batch failed, run here: {e}")
+                            for batch_src, batch_groups, _ in src_path:
+                                submit_pass(batch_src, batch_groups, in_process=False)
+                            continue
                         if kind == "gdal":
                             # Redo it the general way.
                             submit_pass(src_path, groups)
@@ -2504,28 +2563,183 @@ class RulesExporter:
                         raw = gdal_raw_colors.get(groups[0].output_dataset)
                         if result and raw:
                             self.raw_color_fields[groups[0].output_dataset] = set(raw)
+                    elif kind == "batch":
+                        done_outputs, failed = result
+                        outputs.update(done_outputs)
+                        for failed_src, failed_groups in failed:  # Redo them here.
+                            submit_pass(failed_src, failed_groups, in_process=False)
                     else:
                         outputs.update(result)
+        if batch_pool is not None:
+            batch_pool.shutdown(wait=True)
         return outputs
 
     # -------------------------------------------------------------------
     # Phase 3, Python passes in other processes
     # -------------------------------------------------------------------
-    def _process_parts(self, src_path: str, pass_count: int) -> int:
+    def _process_parts(self, src_path: str, pass_count: int, batch: bool = False) -> int:
         """How many processes a Python pass over ``src_path`` is split over;
         0 to run it in this process: a small pass, where starting QGIS in
         another process costs more than it saves, or no interpreter to
-        start. The workers are shared by the ``pass_count`` passes."""
+        start. The workers are shared by the ``pass_count`` passes. With
+        ``batch``: 1 if the pass may share a process with others (see
+        _pass_batches), else 0."""
         if not _PASS_PROCESSES:
             return 0
         from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
         if python_executable() is None:
             return 0
+        if batch:
+            return 1
         features = self._feature_count(src_path)
         if features < _PROCESS_MIN_FEATURES:
             return 0
         workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
         return max(1, min(workers // max(1, pass_count), -(-features // _PROCESS_PART_FEATURES)))
+
+    def _pass_batches(self, passes: list) -> List[list]:
+        """The smaller passes as work for a few processes: per process, its
+        units, each a pass or a range of a pass's features ((pass index,
+        orig_id range or None)). A pass with more than a unit's share of the
+        work (features times datasets) is split by q2vt_orig_id, unless its
+        features are drawn in a set order; units go largest first to the
+        least loaded process. [] when too few to be worth starting QGIS for.
+        """
+        if len(passes) < _BATCH_MIN_PASSES:
+            return []
+        features = [self._feature_count(src_path) for src_path, _, _ in passes]
+        if sum(features) < _BATCH_MIN_FEATURES:
+            return []
+        workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
+        work = [max(1, f) * len(groups) for f, (_, groups, _) in zip(features, passes)]
+        share = sum(work) / (workers * _BATCH_UNITS_PER_PROCESS)
+        units = []  # (work, pass index, orig_id range or None)
+        for index, (src_path, groups, _) in enumerate(passes):
+            parts = min(math.ceil(work[index] / share), features[index] // _BATCH_MIN_PART_FEATURES)
+            if parts < 2 or any(grp.order_by for grp in groups):
+                units.append((work[index], index, None))
+                continue
+            low, high = self._orig_id_range(src_path)
+            step = (high - low) / parts
+            bounds = [low + i * step for i in range(parts)] + [high + 1]
+            units += [(work[index] / parts, index, (bounds[i], bounds[i + 1])) for i in range(parts)]
+        bins: List[list] = [[] for _ in range(min(workers, len(units)))]
+        loads = [0.0] * len(bins)
+        for unit_work, index, fid_range in sorted(units, key=lambda u: -u[0]):
+            i = loads.index(min(loads))
+            bins[i].append((index, fid_range))
+            loads[i] += unit_work
+        return bins
+
+    def _run_pass_batches(self, passes: list, bins: List[list]) -> Tuple[Dict[str, Optional[str]], list]:
+        """Worker: the passes run by pass_worker.py processes, one per bin
+        of units (see _pass_batches), each running its units one after
+        another; a split pass's parts are then joined in order. Returns the
+        outputs of the passes that completed and the (base layer, groups)
+        of those that didn't (a unit failed), which the caller runs itself."""
+        from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
+        self._check_cancel()
+        package_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        tag = uuid4().hex
+        cancel_file = join(self.utils_dir, f"cancel_{tag}")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+        env["PYTHONIOENCODING"] = "utf-8"
+        kwargs = {}
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x08000000 | 0x00004000  # No window, below normal.
+        split = {index for units in bins for index, fid_range in units if fid_range is not None}
+        # Per pass: its units' (orig_id range start, result file).
+        unit_results: Dict[int, List[Tuple[float, str]]] = {}
+        processes, files = [], [cancel_file]
+        try:
+            for b, units in enumerate(bins):
+                job_units = []
+                for u, (index, fid_range) in enumerate(units):
+                    src_path, groups, _ = passes[index]
+                    result_path = join(self.utils_dir, f"pass_{tag}_{b}_{u}.json")
+                    unit_results.setdefault(index, []).append(
+                        (fid_range[0] if fid_range else 0.0, result_path))
+                    job_units.append({
+                        "base_path": src_path,
+                        "groups": [group_to_dict(grp) for grp in groups],
+                        "fid_range": list(fid_range) if fid_range else None,
+                        # A split pass's parts are joined into its datasets.
+                        "suffix": f"_part{tag}_{b}_{u}" if index in split else "",
+                        "result_path": result_path,
+                    })
+                    files.append(result_path)
+                job = {
+                    "plugins_dir": os.path.dirname(package_dir),
+                    "package": os.path.basename(package_dir),
+                    "prefix_path": QgsApplication.prefixPath(),
+                    "profile_dir": QgsApplication.qgisSettingsDirPath(),
+                    "extent": [self.extent.xMinimum(), self.extent.yMinimum(),
+                               self.extent.xMaximum(), self.extent.yMaximum()],
+                    "utils_dir": self.utils_dir,
+                    # The variables are the project's, the same for every pass.
+                    "variables": passes[0][2],
+                    "cancel_file": cancel_file,
+                    "passes": job_units,
+                }
+                job_path = join(self.utils_dir, f"pass_{tag}_{b}.job.json")
+                files += [job_path, f"{job_path}.log"]
+                with open(job_path, "w", encoding="utf-8") as f:
+                    json.dump(job, f)
+                with open(f"{job_path}.log", "w", encoding="utf-8") as log:
+                    processes.append(subprocess.Popen(
+                        [python_executable(), "-u", _PASS_WORKER, job_path],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
+                        env=env, cwd=self.utils_dir, **kwargs,
+                    ))
+            while any(process.poll() is None for process in processes):
+                if self._is_cancelled():
+                    open(cancel_file, "w").close()
+                    for process in processes:
+                        try:
+                            process.wait(timeout=60)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                    raise _Cancelled()
+                time.sleep(0.25)
+        except OSError:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+            unit_results = {}
+        outputs: Dict[str, Optional[str]] = {}
+        failed = []
+        for index, (src_path, groups, _) in enumerate(passes):
+            results, complete = [], index in unit_results
+            for _, result_path in sorted(unit_results.get(index, ())):
+                try:
+                    with open(result_path, encoding="utf-8") as f:
+                        results.append(json.load(f))
+                except (OSError, ValueError):
+                    complete = False
+            if not complete:
+                # Redone by the caller: its parts that were written go.
+                for result in results:
+                    for path in result["outputs"].values():
+                        if path:
+                            self._remove_file(path)
+                failed.append((src_path, groups))
+                continue
+            for result in results:
+                for warning in result["warnings"]:
+                    self.feedback.pushWarning(warning)
+            for grp in groups:
+                paths = [r["outputs"].get(grp.output_dataset) for r in results]
+                paths = [path for path in paths if path]
+                outputs[grp.output_dataset] = (
+                    self._join_parts(grp.output_dataset, paths) if index in split
+                    else (paths[0] if paths else None))
+        if failed:
+            self.feedback.pushDebugInfo(
+                f"{len(failed)} of {len(passes)} batched passes failed, run here.")
+        for path in files:
+            self._remove_file(path)
+        return outputs, failed
 
     @staticmethod
     def _feature_count(path: str) -> int:
@@ -2664,8 +2878,8 @@ class RulesExporter:
         output_path = join(self.utils_dir, f"{name}.{_TEMP_RULE_FORMAT}")
         if not parts:
             return None
-        if len(parts) == 1:
-            return parts[0]  # Written under the dataset's own name.
+        if parts == [output_path]:
+            return output_path  # Written under the dataset's own name.
         vrt_path = join(self.utils_dir, f"{name}.parts.vrt")
         layers = ""
         for i, part in enumerate(parts):
@@ -3610,64 +3824,80 @@ class RulesExporter:
         feature with the same values (rule, data-defined values...) become
         one multi-part row again, in the dataset's order. Datasets with
         label text (labels are placed per part, or on the largest) keep
-        their parts. In C++ (SQLite and SpatiaLite), when GDAL has them.
-        Caller thread.
+        their parts. In C++ (SQLite and SpatiaLite), when GDAL has them:
+        one ogr2ogr process per dataset, several at once.
         """
         sqlite, spatialite = _sqlite_capabilities()
         if not (sqlite and spatialite):
             return
-        orig = f"{_FIELD_PREFIX}_orig_id"
+        todo = []
         for grp in rule_groups:
             path = outputs.get(grp.output_dataset)
-            if grp.rule_type != 0 or not path or self._is_cancelled():
+            if grp.rule_type != 0 or not path:
                 continue
             if any(name.startswith(f"{_FIELD_PREFIX}_label")
                    for m in grp.members for _, _, name in m.expression_fields):
                 continue
-            if not self._has_repeated_values(path, orig):
-                continue
-            multi = {0: "MULTIPOLYGON", 1: "MULTILINESTRING", 2: "MULTIPOINT"}.get(
-                abs(self._enum_int(grp.geometry_target) - 2))
-            if multi is None:
-                continue
-            temp_path = join(self.utils_dir, f"{grp.output_dataset}_collected.{_TEMP_RULE_FORMAT}")
-            vrt_path = f"{temp_path}.vrt"
-            ds = ogr.Open(path)
-            layer = ds.GetLayer(0)
-            defn = layer.GetLayerDefn()
-            columns, fields = [], []
-            for i in range(defn.GetFieldCount()):
-                field = defn.GetFieldDefn(i)
-                columns.append(f'"{_sql_name(field.GetName())}"')
-                subtype = field.GetSubType()
-                fields.append(
-                    f'<Field name="{xml_escape(field.GetName())}" type="{ogr.GetFieldTypeName(field.GetType())}"'
-                    + (f' subtype="{ogr.GetFieldSubTypeName(subtype)}"' if subtype != ogr.OFSTNone else "")
-                    + "/>")
-            layer_name = layer.GetName()
-            ds = None
-            # SQL over the plugin's own rule dataset; every name is quoted.
-            sql = (
-                f"SELECT {', '.join(columns)}, ST_Collect(GEOMETRY) AS GEOMETRY "
-                f'FROM "{_sql_name(layer_name)}" GROUP BY {", ".join(columns)} '
-                "ORDER BY MIN(ROWID)"  # nosec B608
-            )
-            try:
-                with open(vrt_path, "w", encoding="utf-8") as f:
-                    f.write(
-                        f'<OGRVRTDataSource><OGRVRTLayer name="{xml_escape(layer_name)}">'
-                        f"<SrcDataSource>{xml_escape(path)}</SrcDataSource>"
-                        f'<SrcSQL dialect="SQLITE">{xml_escape(sql)}</SrcSQL>'
-                        f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
-                        "</OGRVRTLayer></OGRVRTDataSource>"
-                    )
-                self._ogr2ogr(temp_path, vrt_path, ["-nln", layer_name, "-nlt", multi])
-                os.replace(temp_path, path)
-            except (RuntimeError, OSError) as e:
-                self._remove_file(temp_path)
-                self.feedback.pushDebugInfo(f"Parts of {grp.output_dataset} kept apart: {e}")
-            finally:
-                self._remove_file(vrt_path)
+            todo.append((grp, path))
+        if not todo:
+            return
+        workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
+        with ThreadPoolExecutor(max_workers=min(workers, len(todo)),
+                                thread_name_prefix="rules-parts") as pool:
+            for future in [pool.submit(self._collect_parts_of, grp, path) for grp, path in todo]:
+                try:
+                    future.result()
+                except _Cancelled:
+                    return
+
+    def _collect_parts_of(self, grp: _RuleGroupSnapshot, path: str) -> None:
+        """Rejoin one dataset's parts (see _collect_parts). Worker thread."""
+        if self._is_cancelled():
+            raise _Cancelled()
+        if not self._has_repeated_values(path, f"{_FIELD_PREFIX}_orig_id"):
+            return
+        multi = {0: "MULTIPOLYGON", 1: "MULTILINESTRING", 2: "MULTIPOINT"}.get(
+            abs(self._enum_int(grp.geometry_target) - 2))
+        if multi is None:
+            return
+        temp_path = join(self.utils_dir, f"{grp.output_dataset}_collected.{_TEMP_RULE_FORMAT}")
+        vrt_path = f"{temp_path}.vrt"
+        ds = ogr.Open(path)
+        layer = ds.GetLayer(0)
+        defn = layer.GetLayerDefn()
+        columns, fields = [], []
+        for i in range(defn.GetFieldCount()):
+            field = defn.GetFieldDefn(i)
+            columns.append(f'"{_sql_name(field.GetName())}"')
+            subtype = field.GetSubType()
+            fields.append(
+                f'<Field name="{xml_escape(field.GetName())}" type="{ogr.GetFieldTypeName(field.GetType())}"'
+                + (f' subtype="{ogr.GetFieldSubTypeName(subtype)}"' if subtype != ogr.OFSTNone else "")
+                + "/>")
+        layer_name = layer.GetName()
+        ds = None
+        # SQL over the plugin's own rule dataset; every name is quoted.
+        sql = (
+            f"SELECT {', '.join(columns)}, ST_Collect(GEOMETRY) AS GEOMETRY "
+            f'FROM "{_sql_name(layer_name)}" GROUP BY {", ".join(columns)} '
+            "ORDER BY MIN(ROWID)"  # nosec B608
+        )
+        try:
+            with open(vrt_path, "w", encoding="utf-8") as f:
+                f.write(
+                    f'<OGRVRTDataSource><OGRVRTLayer name="{xml_escape(layer_name)}">'
+                    f"<SrcDataSource>{xml_escape(path)}</SrcDataSource>"
+                    f'<SrcSQL dialect="SQLITE">{xml_escape(sql)}</SrcSQL>'
+                    f"<LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>{''.join(fields)}"
+                    "</OGRVRTLayer></OGRVRTDataSource>"
+                )
+            self._ogr2ogr(temp_path, vrt_path, ["-nln", layer_name, "-nlt", multi])
+            os.replace(temp_path, path)
+        except (RuntimeError, OSError) as e:
+            self._remove_file(temp_path)
+            self.feedback.pushDebugInfo(f"Parts of {grp.output_dataset} kept apart: {e}")
+        finally:
+            self._remove_file(vrt_path)
 
     def _merge_label_lines(
         self, rule_groups: List[_RuleGroupSnapshot], outputs: Dict[str, Optional[str]]

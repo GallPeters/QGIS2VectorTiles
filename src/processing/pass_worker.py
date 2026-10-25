@@ -1,18 +1,19 @@
 """
 pass_worker.py
 
-Runs one rule-export pass (RulesExporter._export_rule_pass) in a separate
+Runs rule-export passes (RulesExporter._export_rule_pass) in a separate
 Python process: the per-feature Python work of several passes then runs on
 several cores at once, which threads sharing one interpreter can't.
-Started by RulesExporter (see _run_pass_process):
+Started by RulesExporter (see _run_pass_processes and _run_pass_batch):
 
     python pass_worker.py <job.json>
 
-The job file holds the base layer, the rule groups (plain data), the export
-extent, the feature range, the expression variables and where to write the
-result. The result file lists each dataset's part file (or null) and the
+The job file holds the export extent, the expression variables and either
+one pass (its base layer, rule groups as plain data, feature range and
+result file) or a list of such passes ("passes"), run one after another.
+Each pass's result file lists its datasets' files (or null) and its
 warnings; a missing result file means the pass failed and the caller runs
-it itself. Creating the job's cancel file cancels the pass.
+it itself. Creating the job's cancel file cancels the passes.
 
 This file is a script: it must not be imported by the plugin.
 """
@@ -69,32 +70,53 @@ def main(job_path: str) -> int:
 
     threading.Thread(target=watch_cancel, daemon=True, name="cancel-watch").start()
 
-    groups = [exporter_module.group_from_dict(data) for data in job["groups"]]
-    # An expression this process can't parse (a function only the parent's
-    # QGIS has, e.g. from a plugin) fails the pass: the caller runs it.
-    for grp in groups:
-        for expression in exporter_module.group_expressions(grp):
-            if QgsExpression(expression).hasParserError():
-                return 3
-
     exporter = exporter_module.RulesExporter(
         [], QgsRectangle(*job["extent"]), 0, 0, job["utils_dir"], feedback,
     )
-    context = QgsExpressionContext()
-    context.appendScope(QgsExpressionContextUtils.globalScope())
-    scope = QgsExpressionContextScope("project")
-    for name, value in job["variables"].items():
-        scope.setVariable(name, value)
-    context.appendScope(scope)
+    def new_context() -> QgsExpressionContext:
+        """A pass's own expression context: a pass adds its layer's scope
+        and fields and leaves its last feature in it, which the next pass's
+        expressions would read (a field missing from its layer was looked up
+        in the previous layer's feature)."""
+        context = QgsExpressionContext()
+        context.appendScope(QgsExpressionContextUtils.globalScope())
+        scope = QgsExpressionContextScope("project")
+        for name, value in job["variables"].items():
+            scope.setVariable(name, value)
+        context.appendScope(scope)
+        return context
 
-    fid_range = tuple(job["fid_range"]) if job.get("fid_range") else None
-    outputs = exporter._export_rule_pass(  # pylint: disable=protected-access
-        groups, job["base_path"], context, fid_range=fid_range, suffix=job["suffix"],
-    )
-    if feedback.isCanceled():
-        return 4
-    with open(job["result_path"], "w", encoding="utf-8") as f:
-        json.dump({"outputs": outputs, "warnings": warnings}, f)
+    passes = job.get("passes") or [job]
+    failed = 0
+    for one in passes:
+        if feedback.isCanceled():
+            return 4
+        groups = [exporter_module.group_from_dict(data) for data in one["groups"]]
+        # An expression this process can't parse (a function only the
+        # parent's QGIS has, e.g. from a plugin) fails the pass: the caller
+        # runs it.
+        if any(QgsExpression(expression).hasParserError()
+               for grp in groups for expression in exporter_module.group_expressions(grp)):
+            failed += 1
+            continue
+        del warnings[:]
+        fid_range = tuple(one["fid_range"]) if one.get("fid_range") else None
+        try:
+            outputs = exporter._export_rule_pass(  # pylint: disable=protected-access
+                groups, one["base_path"], new_context(), fid_range=fid_range,
+                suffix=one.get("suffix", ""),
+            )
+        except Exception:  # noqa: BLE001  (the caller runs the pass itself)
+            import traceback  # pylint: disable=import-outside-toplevel
+            traceback.print_exc()
+            failed += 1
+            continue
+        if feedback.isCanceled():
+            return 4
+        with open(one["result_path"], "w", encoding="utf-8") as f:
+            json.dump({"outputs": outputs, "warnings": list(warnings)}, f)
+    if failed and len(passes) == 1:
+        return 3
     return 0
 
 
