@@ -352,29 +352,39 @@ class GlyphGenerator:
         available_families = qfontdb.families()
         fontstacks: Dict[str, str] = {}
 
+        # Font keys naming one font (e.g. "Open Sans Regular" and "Open Sans "
+        # for a font without a style name) share its fontstack folder: their
+        # labels' characters are gathered and its glyphs written once, so no
+        # key's range files overwrite another's.
+        stacks: Dict[str, Tuple[str, str, List[Tuple[str, str]], List[str]]] = {}
         for font_key, dataset_paths in self.fonts_datasets.items():
             resolved = self._resolve_font_key(font_key, available_families)
             if not resolved:
                 logger.warning(f"Could not resolve font '{font_key}' to an installed family+style. Skipping.")
                 continue
             family, style = resolved
-            logger.info(f"Processing font '{font_key}' -> family='{family}', style='{style}'")
+            style_name = "Regular" if style.lower() in ("normal", "regular") or not style else style
+            fontstack_name = f"{family} {style_name}".strip()
+            entry = stacks.setdefault(fontstack_name, (family, style, [], []))
+            entry[2].extend(d for d in dataset_paths if d not in entry[2])
+            entry[3].append(font_key)
+
+        for fontstack_name, (family, style, dataset_paths, font_keys) in stacks.items():
+            logger.info(f"Processing fontstack '{fontstack_name}' for {font_keys}")
 
             needed_chars = self._extract_unique_chars(dataset_paths)
             if not needed_chars:
-                logger.warning(f"No label characters found for font '{font_key}'. Skipping.")
+                logger.warning(f"No label characters found for fontstack '{fontstack_name}'. Skipping.")
                 continue
 
             codepoints = sorted(_with_presentation_forms(
                 {ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE}
             ))
             logger.info(
-                f"Font '{font_key}': {len(codepoints)} unique codepoints required "
-                f"across {len(dataset_paths)} dataset(s)."
+                f"Fontstack '{fontstack_name}': {len(codepoints)} unique codepoints required "
+                f"across {len(dataset_paths)} dataset field(s)."
             )
 
-            style_name = "Regular" if style.lower() in ("normal", "regular") or not style else style
-            fontstack_name = f"{family} {style_name}".strip()
             fontstack_dir = self.output_dir / fontstack_name
             fontstack_dir.mkdir(exist_ok=True)
 
@@ -392,7 +402,8 @@ class GlyphGenerator:
 
             self._generate_blocks_for_fontstack(renderer, fontstack_name, fontstack_dir, codepoints)
             self._cache.save()
-            fontstacks[font_key] = fontstack_name
+            for font_key in font_keys:
+                fontstacks[font_key] = fontstack_name
 
         return fontstacks
 
