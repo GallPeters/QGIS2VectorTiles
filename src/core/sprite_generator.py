@@ -29,7 +29,7 @@ from typing import Optional, TypeAlias, Union
 
 from PIL import Image
 from qgis.core import (
-    Qgis, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
+    Qgis, QgsApplication, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
     QgsSymbolLayerUtils,
 )
 from qgis.PyQt.QtCore import qVersion
@@ -40,10 +40,12 @@ _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
     from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, QRectF, Qt
     from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt5.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.ReadWrite
 else:
     from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, QRectF, Qt
     from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt6.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
 Img: TypeAlias = Image.Image
@@ -115,6 +117,7 @@ class LabelShape:
     radius_px: float = 0.0
     width: float = 0.0    # A fixed size; 0 to be stretched.
     height: float = 0.0
+    svg: str = ""         # An SVG file, stretched whole (in the colours given).
 
 
 SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape]
@@ -390,6 +393,9 @@ class SymbolImage:
         try:
             stroke = shape.stroke_px * scale
             radius = min(shape.radius_px * scale, 64 * scale)
+            if shape.svg:
+                self._render_svg_shape(shape, scale)
+                return
             if shape.width and shape.height:
                 width, height = max(2, round(shape.width * scale)), max(2, round(shape.height * scale))
             elif shape.ellipse:
@@ -433,6 +439,30 @@ class SymbolImage:
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
             self.meta = {}
+
+    def _render_svg_shape(self, shape: LabelShape, scale: float):
+        """An SVG label background: drawn at its fixed size, or square to be
+        stretched whole around the text, the text inside a margin of an
+        eighth."""
+        if shape.width and shape.height:
+            width, height = max(2, round(shape.width * scale)), max(2, round(shape.height * scale))
+        else:
+            width = height = max(16, round(48 * scale))
+        content = QgsApplication.svgCache().svgContent(
+            shape.svg, max(width, height), QColor(shape.fill), QColor(shape.stroke),
+            shape.stroke_px * scale, 1.0)
+        if isinstance(content, tuple):  # (content, is missing) in some versions.
+            content = content[0]
+        qt_img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        qt_img.fill(0)
+        painter = QPainter(qt_img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        QSvgRenderer(content).render(painter, QRectF(0, 0, width, height))
+        painter.end()
+        self.img = self._qt_to_pil(qt_img)
+        if not (shape.width and shape.height):
+            margin_x, margin_y = round(width / 8), round(height / 8)
+            self.meta = {"content": [margin_x, margin_y, width - margin_x, height - margin_y]}
 
     @staticmethod
     def _resize_tile(tile: Img, width: int, height: int) -> Img:

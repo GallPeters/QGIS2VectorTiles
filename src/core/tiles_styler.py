@@ -34,7 +34,7 @@ from ..utils.config import _REMOVE_DUPLICATES_DISTANCE
 from ..utils.zoom_levels import ZoomLevels
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
-    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS,
     marker_angle_field,
 )
 from .rules_exporter import RULE_FIELD
@@ -200,7 +200,7 @@ class TilesStyler:
         by the exported rotation field when its markers follow the line."""
         marker = sub_symbol.clone()
         if (flat_rule.get_attr("p") in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT,
-                                        MARKER_ALL_VERTICES, MARKER_INNER_VERTICES)
+                                        MARKER_ALL_VERTICES, MARKER_INNER_VERTICES, MARKER_SEGMENT_CENTERS)
                 and symbol_layer.rotateSymbols()):
             angle = QgsProperty.fromExpression(f'"{marker_angle_field(flat_rule.get_attr("s") or 0)}"')
             for marker_layer in marker.symbolLayers():

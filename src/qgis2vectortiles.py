@@ -114,6 +114,7 @@ class QGIS2VectorTiles:
             # Scales as QGIS measures them at the data's latitude.
             ZoomLevels.configure(ZoomLevels.latitude_scale_factor(
                 QgsProject.instance().crs(), self.extent))
+            ZoomLevels.set_ground_stretch(self.extent)
 
             self._log(". Extracting rules...")
             rules = self._flatten_rules()

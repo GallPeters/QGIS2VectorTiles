@@ -24,6 +24,8 @@ class ZoomLevels:
     """
 
     SCALES = [_TOP_SCALE / (2**zoom) for zoom in range(23)]
+    # EPSG:3857 metres per ground metre at the data's latitude (1/cos).
+    GROUND_STRETCH = 1.0
 
     @classmethod
     def configure(cls, scale_factor: float = 1.0) -> None:
@@ -65,6 +67,22 @@ class ZoomLevels:
         if 0 <= zoom < len(cls.SCALES):
             return cls.SCALES[zoom]
         return None
+
+    @classmethod
+    def set_ground_stretch(cls, extent_3857) -> None:
+        """Set GROUND_STRETCH from the export extent's latitude."""
+        try:
+            y = extent_3857.center().y()
+            latitude = math.degrees(math.atan(math.sinh(y / 6378137.0)))
+            cls.GROUND_STRETCH = 1.0 / max(math.cos(math.radians(latitude)), 0.01)
+        except (AttributeError, RuntimeError):
+            cls.GROUND_STRETCH = 1.0
+
+    @classmethod
+    def map_scale_factor(cls) -> float:
+        """The factor configure() applied: the map scale QGIS measures a
+        web zoom at, relative to Web Mercator's."""
+        return cls.SCALES[0] / _TOP_SCALE
 
     @staticmethod
     def latitude_scale_factor(project_crs, extent_3857) -> float:

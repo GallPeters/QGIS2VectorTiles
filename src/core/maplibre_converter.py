@@ -32,14 +32,17 @@ from qgis.core import (
     QgsProject,
     QgsTextBackgroundSettings,
     QgsMapUnitScale,
+    QgsFontMarkerSymbolLayer,
 )
 from qgis.utils import iface
-from .glyphs_generator import GlyphGenerator, qfontdb
+from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
 from .sprite_generator import (
     BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
-from ..utils.flattened_rule import OFFSET_PROPERTY
+from ..utils.flattened_rule import (
+    CLUSTER_SIZE_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, cluster_settings,
+)
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
 
@@ -76,7 +79,8 @@ def _ramp_or_colors(symbol_layer, two_color_type: int) -> QColor:
 # shape (see LabelShape) and among those as an ellipse; its fixed size type;
 # the percentage render unit.
 _BACKGROUND_MARKER = 5
-_BACKGROUND_SHAPES = frozenset({0, 1, 2, 3})  # Rectangle, square, ellipse, circle.
+_BACKGROUND_SHAPES = frozenset({0, 1, 2, 3, 4})  # Rectangle, square, ellipse, circle, SVG.
+_BACKGROUND_SVG = 4
 _BACKGROUND_ELLIPSES = frozenset({2, 3})
 _BACKGROUND_SIZE_FIXED = 1
 _PERCENTAGE_UNIT = int(getattr(Qgis.RenderUnit.Percentage, "value", Qgis.RenderUnit.Percentage))
@@ -2307,6 +2311,89 @@ class QgisMapLibreStyleExporter:
                     if key != "icon-image":  # Marker variants read raw values themselves.
                         layer_def[section][key] = replace(value, layer_def["source-layer"], fields)
 
+    @staticmethod
+    def _cluster_distance(cluster: dict) -> dict:
+        """A point cluster renderer's distance, for GDALTilesGenerator: in
+        screen pixels ("px") or EPSG:3857 metres ("m")."""
+        value = cluster["tolerance"]
+        unit = cluster["unit"]
+        if PropertyExtractor.is_map_unit(unit):
+            metres = (PropertyExtractor.map_unit_m if PropertyExtractor.enum_int(unit) == PropertyExtractor._MAP_UNITS
+                      else PropertyExtractor.ground_m)
+            return {"m": value * metres}
+        return {"px": PropertyExtractor.convert_length_to_pixels(value, unit)}
+
+    def _cluster_count_layer(self, font_marker, layer_def: dict) -> dict:
+        """A cluster symbol's font marker as the cluster's count: a label of
+        the q2vt_cluster_size field the tiles hold, in the marker's font,
+        size and colour."""
+        font = font_marker.fontFamily()
+        style = font_marker.fontStyle() if hasattr(font_marker, "fontStyle") else ""
+        key = self._font_key(font, style or "Regular") or self._font_key(font, "") or "Arial"
+        self.glyphs.setdefault(key, []).append((f"{CHARS_PREFIX}0123456789", None))
+        layer_def = dict(layer_def)
+        layer_def["layout"] = {
+            "text-field": ["to-string", ["get", CLUSTER_SIZE_FIELD]],
+            "text-font": [key],
+            "text-size": PropertyExtractor.length_to_style_value(font_marker.size(), font_marker.sizeUnit()),
+            "text-allow-overlap": True,
+            "text-ignore-placement": True,
+            "visibility": "visible",
+        }
+        layer_def["paint"] = {
+            "text-color": PropertyExtractor.convert_qcolor_to_maplibre(font_marker.color()),
+        }
+        return layer_def
+
+    def _heatmap_layer(self, symbol_layer: QgsSymbolLayer, layer_def: dict, dataset: str) -> Optional[dict]:
+        """A heatmap renderer's placeholder marker (see HEATMAP_PROPERTY) as a
+        MapLibre ``heatmap`` layer: its radius, its colour ramp along the
+        density, and each point's weight (divided by the maximum value; a
+        maximum QGIS works out from the view is taken as the data's largest
+        weight). None for other markers."""
+        try:
+            prop = symbol_layer.dataDefinedProperties().property(HEATMAP_PROPERTY)
+            if prop is None or prop.isActive():
+                return None
+            settings = json.loads(prop.staticValue())
+        except (AttributeError, RuntimeError, ValueError, TypeError):
+            return None
+        scale = QgsMapUnitScale(settings["min_scale"], settings["max_scale"])
+        layer_def = dict(layer_def, type="heatmap", layout={"visibility": "visible"})
+        paint = {"heatmap-radius": PropertyExtractor.length_to_style_value(
+            settings["radius"], settings["unit"], scale)}
+        stops = settings["stops"] or [[0, [0, 0, 255, 0.0]], [1, [255, 0, 0, 1.0]]]
+        color = ["interpolate", ["linear"], ["heatmap-density"]]
+        for t, (r, g, b, a) in stops:
+            color += [t, f"rgba({r}, {g}, {b}, {a})"]
+        paint["heatmap-color"] = color
+        weight = PropertyExtractor.get_value_or_expression(
+            None, symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertySize))
+        if isinstance(weight, list):
+            maximum = settings["max_value"] or self._max_value(dataset, weight[1]) if weight[:1] == ["get"] else 0
+            value = ["to-number", weight, 0]
+            paint["heatmap-weight"] = ["/", value, maximum] if maximum and maximum > 0 else value
+        layer_def["paint"] = paint
+        return layer_def
+
+    def _max_value(self, dataset: str, field: str) -> float:
+        """The largest value of a dataset's field; 0 if none."""
+        from osgeo import ogr  # pylint: disable=import-outside-toplevel
+        ds = ogr.Open(join(self.utils_dir, f"{dataset}.{_TEMP_RULE_FORMAT}"))
+        if ds is None:
+            return 0.0
+        try:
+            layer = ds.GetLayer(0)
+            name = field.replace('"', '""')
+            # OGR SQL over the plugin's own dataset; every name is quoted.
+            result = ds.ExecuteSQL(f'SELECT MAX("{name}") FROM "{layer.GetName()}"')  # nosec B608
+            feature = result.GetNextFeature()
+            value = feature.GetFieldAsDouble(0) if feature and feature.IsFieldSetAndNotNull(0) else 0.0
+            ds.ReleaseResultSet(result)
+            return value
+        finally:
+            ds = None
+
     def _label_fonts(self, label_settings: QgsPalLayerSettings, text_format: QgsTextFormat,
                      font: str, dataset: str) -> tuple:
         """(text-font, the font keys whose glyphs it needs) of a label.
@@ -2495,10 +2582,24 @@ class QgisMapLibreStyleExporter:
             "symbol", style_name, source_layer_name, source_name, min_zoom, max_zoom
         )
 
+        heatmap = self._heatmap_layer(symbol_layer, layer_def, source_layer_name)
+        if heatmap is not None:
+            self.style["layers"].append(heatmap)
+            return
+        cluster = cluster_settings(symbol)
+        if cluster is not None:
+            layer_def["metadata"] = {"q2vt:cluster": self._cluster_distance(cluster)}
+            if isinstance(symbol_layer, QgsFontMarkerSymbolLayer):
+                # The cluster's count, as QGIS's default cluster symbol draws
+                # it (a font marker of @cluster_size).
+                self.style["layers"].append(self._cluster_count_layer(symbol_layer, layer_def))
+                return
         sprite_symbol, ground_icon_size = self._sprite_marker(symbol)
         marker_name = self._register_sprite(sprite_symbol, "marker")
         marker_name = self._marker_variants(sprite_symbol, source_layer_name) or marker_name
 
+        if cluster is not None:  # Clusters are drawn, all of them, as QGIS does.
+            layer_def["layout"].update({"icon-allow-overlap": True, "icon-ignore-placement": True})
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": ground_icon_size or IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
@@ -2858,6 +2959,14 @@ class QgisMapLibreStyleExporter:
             })
 
             offset = LinePropertyExtractor.get_line_offset(symbol_layer)
+            width = layer_def["paint"]["line-width"]
+            if (symbol_layer.drawInsidePolygon() and isinstance(width, (int, float))
+                    and isinstance(offset, (int, float))):
+                # Only the half of a polygon's outline inside it: polygon
+                # rings run with the inside on their right (vector tiles),
+                # where a positive offset draws.
+                layer_def["paint"]["line-width"] = width / 2
+                offset += width / 4
             # Emit offset only when non-zero (preserve compact output) or when
             # the offset is data-defined (a list expression, never numerically zero).
             if isinstance(offset, list) or (isinstance(offset, (int, float)) and offset != 0):
@@ -3089,9 +3198,8 @@ class QgisMapLibreStyleExporter:
         shape_type = PropertyExtractor.enum_int(background.type()) if background.enabled() else None
         if shape_type == _BACKGROUND_MARKER and background.markerSymbol():
             self._apply_icon_from_background(layer_def, background, style_name)
-        elif shape_type in _BACKGROUND_SHAPES:
-            self._apply_icon_from_background(
-                layer_def, background, style_name, self._label_shape(background, shape_type))
+        elif shape_type in _BACKGROUND_SHAPES and (shape := self._label_shape(background, shape_type))[0]:
+            self._apply_icon_from_background(layer_def, background, style_name, shape)
         else:
             self._apply_default_icon_props(layer_def)
 
@@ -3152,7 +3260,7 @@ class QgisMapLibreStyleExporter:
     def _label_shape(self, background: QgsTextBackgroundSettings, shape_type: int) -> tuple:
         """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
         the OpenLayers viewer or None) of a label
-        background rectangle, square, ellipse or circle (see LabelShape):
+        background rectangle, square, ellipse, circle or SVG (see LabelShape):
         stretched around the text plus the buffer size (QGIS's x and y
         margins), or drawn at its fixed size. A square or circle is drawn
         as a rectangle or ellipse: MapLibre can't keep a stretched icon's
@@ -3178,7 +3286,10 @@ class QgisMapLibreStyleExporter:
             stroke_px=stroke_px, radius_px=radius_px,
             width=px(size.width(), background.sizeUnit(), 16.0) if fixed else 0.0,
             height=px(size.height(), background.sizeUnit(), 16.0) if fixed else 0.0,
+            svg=background.svgFile() if shape_type == _BACKGROUND_SVG else "",
         )
+        if shape_type == _BACKGROUND_SVG and not shape.svg:
+            return None, None, None, None
         name = self._register_sprite(shape, "label_bg")
         if fixed:
             return name, None, None, None

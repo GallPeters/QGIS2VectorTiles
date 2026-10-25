@@ -41,6 +41,7 @@ from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
+from ..utils.flattened_rule import CLUSTER_SIZE_FIELD
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -352,8 +353,10 @@ class GDALTilesGenerator:
                 result[self._layer_name(layer)] = (layer, max(minzoom, lo), min(maxzoom, hi))
         return result
 
-    def _build_layer_conf(self, conf_path: str, run_layers: dict):
-        """Write the MVT driver's CONF file: each layer's own zoom range.
+    def _build_layer_conf(self, conf_path: str, run_layers: dict, extra: Optional[dict] = None):
+        """Write the MVT driver's CONF file: each layer's own zoom range
+        (and ``extra`` entries, e.g. a clustered layer's zoom levels, see
+        _cluster_blocks).
 
         Without it every layer is written to every zoom level of the
         dataset, although each style only shows it within its own range.
@@ -362,14 +365,17 @@ class GDALTilesGenerator:
             name: {"minzoom": minzoom, "maxzoom": maxzoom}
             for name, (_, minzoom, maxzoom) in run_layers.items()
         }
+        conf.update(extra or {})
         with open(conf_path, "w", encoding="utf-8") as f:
             json.dump(conf, f)
 
     # --- VRT construction ---
 
-    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None, last_zoom: int = None):
+    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None, last_zoom: int = None,
+                   extra: str = ""):
         """Write an OGR VRT containing one entry per layer, for a run whose
-        last zoom level is ``last_zoom`` (see _min_area)."""
+        last zoom level is ``last_zoom`` (see _min_area), and ``extra``
+        entries (see _cluster_blocks)."""
         style_text = str(self.style)
         min_area = self._min_area(last_zoom)
         with open(vrt_path, "w", encoding="utf-8") as f:
@@ -377,7 +383,108 @@ class GDALTilesGenerator:
             for layer in (self.layers if layers is None else layers):
                 f.write(self._vrt_layer_block(
                     layer, style_text, min_area, self._point_cell(last_zoom), last_zoom))
+            f.write(extra)
             f.write("</OGRVRTDataSource>\n")
+
+    # --- Point clusters ---
+
+    def _cluster_sources(self) -> Dict[str, dict]:
+        """The datasets drawn with a point cluster symbol (their style
+        layers' "q2vt:cluster" metadata: the clustering distance in pixels
+        or metres), by name."""
+        clusters = {}
+        for layer_def in self.style.get("layers", []):
+            distance = (layer_def.get("metadata") or {}).get("q2vt:cluster")
+            if distance and layer_def.get("source-layer"):
+                clusters[layer_def["source-layer"]] = distance
+        return clusters
+
+    @staticmethod
+    def _layer_prefix(name: str) -> str:
+        """A dataset name's source layer and rule type ("l12t00")."""
+        match = re.match(r"(l\d+t\d\d)", name)
+        return match.group(1) if match else name
+
+    def _cluster_of(self, name: str, clusters: Dict[str, dict]) -> Optional[str]:
+        """The cluster dataset clustering a dataset's points: its own name
+        for a cluster dataset, that of its source layer's for the layer's
+        other point datasets (its points drawn alone), else None."""
+        if name in clusters:
+            return name
+        if re.search(r"c00", name):
+            prefix = self._layer_prefix(name)
+            return next((c for c in clusters if self._layer_prefix(c) == prefix), None)
+        return None
+
+    def _cluster_blocks(self, run_layers: dict, clusters: Dict[str, dict], tag: str) -> Tuple[str, dict]:
+        """VRT entries and CONF entries of a run's clustered datasets: per
+        zoom level, a cluster dataset as one point per cluster (the members'
+        mean position, their count in q2vt_cluster_size), the other point
+        datasets of its layer as the points alone in their cluster. Points
+        cluster in a grid of cells the clustering distance wide at that
+        zoom (QGIS clusters by distance from each point); each zoom's entry
+        writes the dataset's own tile layer (CONF target_name)."""
+        by_name = {self._layer_name(layer): layer for layer in self.layers}
+        blocks, conf = [], {}
+        for name, (layer, minzoom, maxzoom) in run_layers.items():
+            cluster = self._cluster_of(name, clusters)
+            if cluster is None or cluster not in by_name:
+                continue
+            source = layer.source().split("|layername=")[0]
+            cluster_source = by_name[cluster].source().split("|layername=")[0]
+            ds = ogr.Open(source)
+            cds = ogr.Open(cluster_source)
+            if ds is None or cds is None:
+                continue
+            layer_name = ds.GetLayer(0).GetName().replace('"', '""')
+            cluster_layer = cds.GetLayer(0).GetName()
+            ds = cds = None
+            distance = clusters[cluster]
+            for zoom in range(minzoom, maxzoom + 1):
+                cell = distance.get("m") or distance.get("px", 10) * 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** zoom)
+                key_x = f'CAST(floor(ST_X(GEOMETRY) / {cell!r}) AS INTEGER)'
+                key_y = f'CAST(floor(ST_Y(GEOMETRY) / {cell!r}) AS INTEGER)'
+                entry = f"{name}__z{zoom:02d}"
+                conf[entry] = {"target_name": name, "minzoom": zoom, "maxzoom": zoom}
+                if name == cluster:
+                    sql = (f"SELECT MakePoint(AVG(ST_X(GEOMETRY)), AVG(ST_Y(GEOMETRY)), {_EPSG_CRS}) AS GEOMETRY, "
+                           f'COUNT(*) AS "{CLUSTER_SIZE_FIELD}" FROM "{layer_name}" '
+                           f"GROUP BY {key_x}, {key_y} HAVING COUNT(*) > 1")  # nosec B608
+                    blocks.append(
+                        f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
+                        f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
+                        f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
+                        f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
+                        f'        <GeometryType>wkbPoint</GeometryType>\n'
+                        f'        <Field name="{CLUSTER_SIZE_FIELD}" type="Integer"/>\n'
+                        f'    </OGRVRTLayer>\n')
+                    continue
+                # The points alone in their cell, the cells counted over every
+                # point (the cluster dataset's), in one data source.
+                pair = join(QgsProcessingUtils.tempFolder(), f"cluster_{tag}_{len(blocks)}.vrt")
+                with open(pair, "w", encoding="utf-8") as f:
+                    f.write(
+                        "<OGRVRTDataSource>"
+                        f'<OGRVRTLayer name="pts"><SrcDataSource>{escape(source)}</SrcDataSource>'
+                        f"<SrcLayer>{escape(layer_name.replace(chr(34) * 2, chr(34)))}</SrcLayer></OGRVRTLayer>"
+                        f'<OGRVRTLayer name="allp"><SrcDataSource>{escape(cluster_source)}</SrcDataSource>'
+                        f"<SrcLayer>{escape(cluster_layer)}</SrcLayer></OGRVRTLayer>"
+                        "</OGRVRTDataSource>")
+                pts_x = key_x.replace("GEOMETRY", "pts.GEOMETRY")
+                pts_y = key_y.replace("GEOMETRY", "pts.GEOMETRY")
+                # (OGR finds the tables an SQLite query reads in its text:
+                # not inside a derived table, but in an IN subquery.)
+                sql = (f"SELECT pts.* FROM pts WHERE ({pts_x}, {pts_y}) IN "
+                       f"(SELECT {key_x}, {key_y} FROM allp GROUP BY 1, 2 HAVING COUNT(*) = 1)")  # nosec B608
+                blocks.append(
+                    f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
+                    f'        <SrcDataSource>{escape(pair)}</SrcDataSource>\n'
+                    f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
+                    f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
+                    f'        <GeometryType>wkbUnknown</GeometryType>\n'
+                    f'{self._vrt_fields(source, str(self.style))}'
+                    f'    </OGRVRTLayer>\n')
+        return "".join(blocks), conf
 
     def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
         """The smallest polygon (EPSG:3857 square metres) a run's tiles
@@ -589,8 +696,12 @@ class GDALTilesGenerator:
         tag = f"{lo}_{hi}_{uuid4().hex}"
         vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
         conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
-        self._build_vrt(vrt_path, [layer for layer, _, _ in run_layers.values()], hi)
-        self._build_layer_conf(conf_path, run_layers)
+        clusters = self._cluster_sources()
+        plain = {name: entry for name, entry in run_layers.items()
+                 if self._cluster_of(name, clusters) is None}
+        cluster_xml, cluster_conf = self._cluster_blocks(run_layers, clusters, tag) if clusters else ("", {})
+        self._build_vrt(vrt_path, [layer for layer, _, _ in plain.values()], hi, cluster_xml)
+        self._build_layer_conf(conf_path, plain, cluster_conf)
         # The temporary database is written heavily: in memory if it fits,
         # else on local disk, not next to the output (which may be a synced
         # or network folder).

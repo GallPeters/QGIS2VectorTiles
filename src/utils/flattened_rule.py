@@ -20,6 +20,7 @@ MARKER_LAST_VERTEX = 2
 MARKER_CENTRAL_POINT = 3
 MARKER_ALL_VERTICES = 4
 MARKER_INNER_VERTICES = 5
+MARKER_SEGMENT_CENTERS = 6
 
 # An outline line layer made from an offset fill (RulesFlattener) carries
 # the fill's offset, as JSON, in an inactive data-defined property of this
@@ -27,6 +28,36 @@ MARKER_INNER_VERTICES = 5
 # as a field): the style converter draws the outline translated by it, as
 # the fill. Its id would be simpler, but QGIS gives symbol layers new ids.
 OFFSET_PROPERTY = QgsSymbolLayer.Property.PropertyFillColor
+
+# A layer drawn as a heatmap becomes one rule whose (placeholder) marker
+# carries the heatmap's settings, as JSON, in an inactive data-defined
+# property of this key (its shape name, which the placeholder never reads);
+# its size property, when active, is the weight. The style converter draws
+# it as a MapLibre heatmap layer.
+HEATMAP_PROPERTY = QgsSymbolLayer.Property.PropertyName
+
+# A point cluster renderer becomes its own rules, for the points drawn
+# alone, plus one drawing every point with the cluster symbol, whose symbol
+# layers carry the clustering distance, as JSON, in an inactive
+# data-defined property of this key (its "enabled", which a rule's symbol
+# layers never read inactive). The tiles then hold, per zoom level, one point
+# per cluster and the points left alone (GDALTilesGenerator).
+CLUSTER_PROPERTY = QgsSymbolLayer.Property.PropertyLayerEnabled
+# The number of points in a cluster, in the tiles.
+CLUSTER_SIZE_FIELD = f"{_FIELD_PREFIX}_cluster_size"
+
+
+def cluster_settings(symbol) -> "dict | None":
+    """The clustering settings a symbol carries (see CLUSTER_PROPERTY)."""
+    import json  # pylint: disable=import-outside-toplevel
+    try:
+        prop = symbol.symbolLayer(0).dataDefinedProperties().property(CLUSTER_PROPERTY)
+        if prop is None or prop.isActive() or not prop.staticValue():
+            return None
+        data = json.loads(prop.staticValue())
+        return data if isinstance(data, dict) and "tolerance" in data else None
+    except (AttributeError, RuntimeError, ValueError, TypeError):
+        return None
 
 
 def marker_angle_field(symbol_layer_index: int) -> str:

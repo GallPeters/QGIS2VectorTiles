@@ -30,14 +30,24 @@ from qgis.core import (
     QgsFillSymbol,
     QgsSymbolLayer,
     QgsSimpleFillSymbolLayer,
-    QgsProperty
+    QgsProperty,
+    QgsArrowSymbolLayer,
+    QgsEllipseSymbolLayer,
+    QgsGeometryGeneratorSymbolLayer,
+    QgsLineSymbol,
+    QgsMarkerLineSymbolLayer,
+    QgsMarkerSymbol,
+    QgsSimpleMarkerSymbolLayer,
+    QgsGradientColorRamp,
     )
+from qgis.PyQt.QtCore import QPointF
 
 from ..utils.config import Qt
 from ..utils.config import QDomDocument
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
-    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, OFFSET_PROPERTY,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, OFFSET_PROPERTY,
+    HEATMAP_PROPERTY, CLUSTER_PROPERTY,
 )
 from ..utils.zoom_levels import ZoomLevels
 
@@ -154,6 +164,10 @@ class RulesFlattener:
         system = system.clone()
         if isinstance(system, QgsRuleBasedRenderer):
             return system
+        if system.type() == "heatmapRenderer":
+            return self._heatmap_rules(system, layer)
+        if system.type() == "pointCluster":
+            return self._cluster_rules(system)
 
         inactive_indices = self._get_inactive_item_indices(system)
         rule_renderer = QgsRuleBasedRenderer.convertFromRenderer(system)
@@ -163,6 +177,67 @@ class RulesFlattener:
                 rule_renderer.rootRule().removeChildAt(idx)
 
         return rule_renderer
+
+    @staticmethod
+    def _heatmap_rules(heatmap, layer: QgsVectorLayer):
+        """A point layer's heatmap renderer as one rule drawing every
+        feature with a placeholder marker that carries the heatmap's
+        settings (see HEATMAP_PROPERTY); None for other layers (QGIS draws
+        heatmaps of points)."""
+        if layer.geometryType() != Qgis.GeometryType.Point:
+            return None
+        ramp = heatmap.colorRamp()
+        stops = []
+        if ramp is not None:
+            points = [i / 10 for i in range(11)]
+            if isinstance(ramp, QgsGradientColorRamp) and not ramp.isDiscrete():
+                points = sorted({0.0, 1.0, *(stop.offset for stop in ramp.stops())})
+            for t in points:
+                color = ramp.color(t)
+                stops.append([t, [color.red(), color.green(), color.blue(), color.alphaF()]])
+        scale = heatmap.radiusMapUnitScale()
+        settings = {
+            "radius": heatmap.radius(),
+            "unit": int(getattr(heatmap.radiusUnit(), "value", heatmap.radiusUnit())),
+            "min_scale": scale.minScale, "max_scale": scale.maxScale,
+            "max_value": heatmap.maximumValue(),
+            "stops": stops,
+        }
+        marker = QgsSimpleMarkerSymbolLayer()
+        marker.setDataDefinedProperty(HEATMAP_PROPERTY, QgsProperty.fromValue(json.dumps(settings), False))
+        weight = heatmap.weightExpression()
+        if weight:
+            marker.setDataDefinedProperty(QgsSymbolLayer.Property.PropertySize,
+                                          QgsProperty.fromExpression(weight))
+        root = QgsRuleBasedRenderer.Rule(None)
+        root.appendChild(QgsRuleBasedRenderer.Rule(QgsMarkerSymbol([marker])))
+        return QgsRuleBasedRenderer(root)
+
+    def _cluster_rules(self, cluster):
+        """A point cluster renderer as its own renderer's rules (the points
+        drawn alone) and, drawn above them, a rule drawing every point with
+        the cluster symbol, carrying the clustering distance (see
+        CLUSTER_PROPERTY)."""
+        embedded = cluster.embeddedRenderer()
+        rules = QgsRuleBasedRenderer.convertFromRenderer(embedded) if embedded else None
+        if rules is None:
+            return None
+        symbol = cluster.clusterSymbol()
+        if symbol is None or not symbol.symbolLayerCount():
+            return rules
+        symbol = symbol.clone()
+        scale = cluster.toleranceMapUnitScale()
+        settings = {
+            "tolerance": cluster.tolerance(),
+            "unit": int(getattr(cluster.toleranceUnit(), "value", cluster.toleranceUnit())),
+            "min_scale": scale.minScale, "max_scale": scale.maxScale,
+        }
+        # On every symbol layer: each becomes a rule of its own.
+        for index in range(symbol.symbolLayerCount()):
+            symbol.symbolLayer(index).setDataDefinedProperty(
+                CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps(settings), False))
+        rules.rootRule().appendChild(QgsRuleBasedRenderer.Rule(symbol))
+        return rules
 
     def _get_inactive_item_indices(self, system) -> List[int]:
         """Return indices of inactive items from graduated or categorized renderers."""
@@ -412,6 +487,7 @@ class RulesFlattener:
         symbol = flat_rule.rule.symbol()
         if not symbol:
             return [flat_rule]
+        self._expand_symbol_layers(symbol, flat_rule.layer)
 
         layer_count = symbol.symbolLayerCount()
         split_rules = []
@@ -476,14 +552,134 @@ class RulesFlattener:
         (Qgis.MarkerLinePlacement.CentralPoint, MARKER_CENTRAL_POINT),
         (Qgis.MarkerLinePlacement.Vertex, MARKER_ALL_VERTICES),
         (Qgis.MarkerLinePlacement.InnerVertices, MARKER_INNER_VERTICES),
+        (Qgis.MarkerLinePlacement.SegmentCenter, MARKER_SEGMENT_CENTERS),
     )
+
+    # --- Symbol layers drawn as others the web map can draw ---
+
+    def _expand_symbol_layers(self, symbol, layer: QgsVectorLayer) -> None:
+        """Replace, in place, symbol layers the web map can't draw by ones
+        it can, drawing the same: an arrow by its body (a line) and its
+        head(s) (markers at its end(s), turned with it); a trimmed line of a
+        line layer by a geometry generator cutting the line, then drawing it
+        untrimmed."""
+        for index in reversed(range(symbol.symbolLayerCount())):
+            symbol_layer = symbol.symbolLayer(index)
+            if not symbol_layer.enabled():
+                continue
+            if isinstance(symbol_layer, QgsArrowSymbolLayer):
+                replacements = self._arrow_layers(symbol_layer)
+            elif (isinstance(symbol_layer, QgsSimpleLineSymbolLayer)
+                  and layer.geometryType() == Qgis.GeometryType.Line
+                  and (symbol_layer.trimDistanceStart() or symbol_layer.trimDistanceEnd())):
+                replacements = [self._trimmed_line(symbol_layer, layer)]
+            else:
+                continue
+            symbol.deleteSymbolLayer(index)
+            for offset, replacement in enumerate(replacements):
+                symbol.insertSymbolLayer(index + offset, replacement)
+
+    def _arrow_layers(self, arrow: QgsArrowSymbolLayer) -> list:
+        """An arrow as a line (its body, at its mean width) and marker lines
+        drawing its head at its end, start or both: a triangle of the head's
+        length and width (the body's plus its thickness on each side), its
+        tip at the line's end, pointing along it. Curved and half arrows
+        are drawn straight and whole."""
+        fill = arrow.subSymbol()
+        color = fill.color() if fill is not None else arrow.color()
+        width = arrow.arrowWidth()
+        if arrow.arrowStartWidth() > 0:
+            width = (width + arrow.arrowStartWidth()) / 2
+        body = QgsSimpleLineSymbolLayer(color, width)
+        body.setWidthUnit(arrow.arrowWidthUnit())
+        body.setWidthMapUnitScale(arrow.arrowWidthUnitScale())
+        body.setPenCapStyle(Qt.PenCapStyle.FlatCap)
+        layers = [body]
+        head_type = arrow.headType()
+        ends = {
+            QgsArrowSymbolLayer.HeadType.HeadSingle: [(Qgis.MarkerLinePlacement.LastVertex, 90)],
+            QgsArrowSymbolLayer.HeadType.HeadReversed: [(Qgis.MarkerLinePlacement.FirstVertex, 270)],
+            QgsArrowSymbolLayer.HeadType.HeadDouble: [(Qgis.MarkerLinePlacement.FirstVertex, 270),
+                                                      (Qgis.MarkerLinePlacement.LastVertex, 90)],
+        }.get(head_type, [])
+        if arrow.headLength() <= 0:
+            return layers
+        same_unit = arrow.headThicknessUnit() == arrow.arrowWidthUnit()
+        head_width = (arrow.arrowWidth() if same_unit else 0) + 2 * arrow.headThickness()
+        for placement, angle in ends:
+            head = QgsEllipseSymbolLayer()
+            head.setShape(QgsEllipseSymbolLayer.Shape.Triangle)
+            head.setSymbolWidth(head_width)
+            head.setSymbolWidthUnit(arrow.headThicknessUnit())
+            head.setSymbolHeight(arrow.headLength())
+            head.setSymbolHeightUnit(arrow.headLengthUnit())
+            head.setColor(color)
+            head.setStrokeStyle(Qt.PenStyle.NoPen)
+            # The tip (the triangle's top) at the line's end: the marker is
+            # drawn turned so that its top points along the line.
+            head.setOffset(QPointF(0, arrow.headLength() / 2))
+            head.setOffsetUnit(arrow.headLengthUnit())
+            head.setAngle(angle)
+            marker_line = QgsMarkerLineSymbolLayer(True)
+            marker_line.setPlacements(placement)
+            marker_line.setSubSymbol(QgsMarkerSymbol([head]))
+            layers.append(marker_line)
+        return layers
+
+    def _trimmed_line(self, line: QgsSimpleLineSymbolLayer, layer: QgsVectorLayer):
+        """A line trimmed at its start and end, as a geometry generator
+        cutting the line (lengths in screen units follow the scale:
+        @map_scale gives each zoom its own cut) and drawing it untrimmed."""
+        start = self._ground_length(line.trimDistanceStart(), line.trimDistanceStartUnit(), layer)
+        end = self._ground_length(line.trimDistanceEnd(), line.trimDistanceEndUnit(), layer)
+        # Generators are evaluated in the layer's CRS (RulesExporter): the
+        # line is cut in EPSG:3857, the lengths' unit, and given back.
+        crs = layer.crs().authid()
+        expression = (
+            f"transform(with_variable('q2vt_g', transform(@geometry, '{crs}', 'EPSG:3857'), "
+            "with_variable('q2vt_len', length(@q2vt_g), "
+            f"if(({start}) + ({end}) < @q2vt_len, "
+            f"line_substring(@q2vt_g, {start}, @q2vt_len - ({end})), NULL))), 'EPSG:3857', '{crs}')"
+        )
+        untrimmed = line.clone()
+        untrimmed.setTrimDistanceStart(0)
+        untrimmed.setTrimDistanceEnd(0)
+        generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
+        generator.setSymbolType(Qgis.SymbolType.Line)
+        generator.setSubSymbol(QgsLineSymbol([untrimmed]))
+        return generator
+
+    @staticmethod
+    def _ground_length(value: float, unit, layer: QgsVectorLayer) -> str:
+        """A QGIS length as an expression of EPSG:3857 metres (the unit of
+        the exported base layers), with @map_scale for screen units and
+        @q2vt_len (the line's length) for percentages."""
+        if not value:
+            return "0"
+        unit = int(getattr(unit, "value", unit))
+        stretch = ZoomLevels.GROUND_STRETCH
+        if unit == int(Qgis.RenderUnit.Percentage.value):
+            return f"(@q2vt_len * {value / 100!r})"
+        if unit == int(Qgis.RenderUnit.MapUnits.value):
+            metres = 111319.49079327357 if layer.crs().isGeographic() else stretch
+            return repr(value * metres)
+        if unit == int(Qgis.RenderUnit.MetersInMapUnits.value):
+            return repr(value * stretch)
+        mm = value * {
+            int(Qgis.RenderUnit.Points.value): 25.4 / 72,
+            int(Qgis.RenderUnit.Pixels.value): 25.4 / 96,
+            int(Qgis.RenderUnit.Inches.value): 25.4,
+        }.get(unit, 1.0)
+        # On screen: as long on the ground as the scale makes it, in
+        # EPSG:3857 metres (see ZoomLevels.map_scale_factor).
+        return f"({mm!r} * @map_scale / {1000 * ZoomLevels.map_scale_factor()!r})"
 
     def _split_marker_line(self, rule_clone: FlattenedRule, layer) -> List[FlattenedRule]:
         """A marker line rule as one point rule per vertex-like placement
-        (first / last vertex, central point, vertices), whose markers are
-        then drawn exactly at those points, plus a line rule for the
-        remaining placements (interval, segment centres, curve points),
-        which follow the line.
+        (first / last vertex, central point, vertices, segment centres),
+        whose markers are then drawn exactly at those points, plus a line
+        rule for the remaining placements (interval, curve points), which
+        follow the line.
         """
         symbol_layer = rule_clone.rule.symbol().symbolLayers()[0]
         try:
