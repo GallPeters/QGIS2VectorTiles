@@ -305,5 +305,6 @@ class SearchIndexBuilder:
             text = ", ".join(str(v) for v in value)
         else:
             text = str(value)
-        text = text.strip()
+        # A label broken into lines (wrap character) is searched on one.
+        text = " ".join(text.split()) if "\n" in text else text.strip()
         return text[:_MAX_VALUE_LENGTH] or None

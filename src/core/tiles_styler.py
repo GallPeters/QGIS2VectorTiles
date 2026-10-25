@@ -10,7 +10,7 @@ Depends on: config, flattened_rule
 """
 
 from os.path import join
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from qgis.core import (
     QgsVectorTileLayer,
@@ -33,7 +33,8 @@ from qgis.core import (
 from ..utils.config import _REMOVE_DUPLICATES_DISTANCE
 from ..utils.zoom_levels import ZoomLevels
 from ..utils.flattened_rule import (
-    FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX,
+    FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX,
     marker_angle_field,
 )
 from .rules_exporter import RULE_FIELD
@@ -198,7 +199,8 @@ class TilesStyler:
         """The marker of a marker line drawn at points, turned with the line
         by the exported rotation field when its markers follow the line."""
         marker = sub_symbol.clone()
-        if (flat_rule.get_attr("p") in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT)
+        if (flat_rule.get_attr("p") in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT,
+                                        MARKER_ALL_VERTICES, MARKER_INNER_VERTICES)
                 and symbol_layer.rotateSymbols()):
             angle = QgsProperty.fromExpression(f'"{marker_angle_field(flat_rule.get_attr("s") or 0)}"')
             for marker_layer in marker.symbolLayers():

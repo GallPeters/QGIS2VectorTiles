@@ -9,6 +9,7 @@ recursively flattens the rule hierarchy with full property inheritance
 Depends on: config, zoom_levels, flattened_rule
 """
 
+import json
 from typing import List, Optional, Union
 
 from qgis.core import (
@@ -36,7 +37,7 @@ from ..utils.config import Qt
 from ..utils.config import QDomDocument
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
-    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, OFFSET_PROPERTY,
 )
 from ..utils.zoom_levels import ZoomLevels
 
@@ -533,6 +534,18 @@ class RulesFlattener:
         line_layer.setWidthUnit(fill_layer.strokeWidthUnit())
         line_layer.setPenStyle(fill_layer.strokeStyle())
         line_layer.setPenJoinStyle(fill_layer.penJoinStyle())
+        line_layer.setWidthMapUnitScale(fill_layer.strokeWidthMapUnitScale())
+        offset = fill_layer.offset()
+        if offset.x() or offset.y():
+            # The outline moves with the fill (see OFFSET_PROPERTY).
+            scale = fill_layer.offsetMapUnitScale()
+            line_layer.setDataDefinedProperty(OFFSET_PROPERTY, QgsProperty.fromValue(json.dumps({
+                "x": offset.x(), "y": offset.y(),
+                "unit": int(getattr(fill_layer.offsetUnit(), "value", fill_layer.offsetUnit())),
+                "min_scale": scale.minScale, "max_scale": scale.maxScale,
+                "min_mm_on": scale.minSizeMMEnabled, "min_mm": scale.minSizeMM,
+                "max_mm_on": scale.maxSizeMMEnabled, "max_mm": scale.maxSizeMM,
+            }), False))
 
         property_keys = [
             QgsSymbolLayer.Property.PropertyStrokeColor,

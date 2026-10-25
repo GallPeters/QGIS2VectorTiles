@@ -9,7 +9,7 @@ Imported by RulesFlattener, RulesExporter, and TilesStyler.
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from qgis.core import QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsVectorLayer
+from qgis.core import QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsSymbolLayer, QgsVectorLayer
 
 from .config import _FIELD_PREFIX
 
@@ -20,6 +20,13 @@ MARKER_LAST_VERTEX = 2
 MARKER_CENTRAL_POINT = 3
 MARKER_ALL_VERTICES = 4
 MARKER_INNER_VERTICES = 5
+
+# An outline line layer made from an offset fill (RulesFlattener) carries
+# the fill's offset, as JSON, in an inactive data-defined property of this
+# key (a fill colour, which a line never reads; inactive, so not exported
+# as a field): the style converter draws the outline translated by it, as
+# the fill. Its id would be simpler, but QGIS gives symbol layers new ids.
+OFFSET_PROPERTY = QgsSymbolLayer.Property.PropertyFillColor
 
 
 def marker_angle_field(symbol_layer_index: int) -> str:

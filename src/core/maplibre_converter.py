@@ -31,14 +31,17 @@ from qgis.core import (
     QgsTextFormat,
     QgsProject,
     QgsTextBackgroundSettings,
+    QgsMapUnitScale,
 )
 from qgis.utils import iface
-from .glyphs_generator import GlyphGenerator
+from .glyphs_generator import GlyphGenerator, qfontdb
 from .sprite_generator import (
-    BrushPattern, FillPattern, HashMark, LinePattern, SpriteGenerator, sprite_key,
+    BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
+from ..utils.flattened_rule import OFFSET_PROPERTY
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
+from ..utils.zoom_levels import ZoomLevels
 
 
 def _mix_colors(*colors: QColor) -> QColor:
@@ -69,6 +72,19 @@ def _ramp_or_colors(symbol_layer, two_color_type: int) -> QColor:
     return symbol_layer.color()
 
 
+# QgsTextBackgroundSettings shape types: drawn as a marker symbol, as a
+# shape (see LabelShape) and among those as an ellipse; its fixed size type;
+# the percentage render unit.
+_BACKGROUND_MARKER = 5
+_BACKGROUND_SHAPES = frozenset({0, 1, 2, 3})  # Rectangle, square, ellipse, circle.
+_BACKGROUND_ELLIPSES = frozenset({2, 3})
+_BACKGROUND_SIZE_FIXED = 1
+_PERCENTAGE_UNIT = int(getattr(Qgis.RenderUnit.Percentage, "value", Qgis.RenderUnit.Percentage))
+
+# Fonts a label's data-defined font family can pick from, at most (each
+# one's glyphs are written).
+_MAX_LABEL_FONTS = 16
+
 # Qt brush styles a simple fill draws as a repeated pattern: Dense1-7,
 # horizontal, vertical, cross, diagonal and diagonal cross hatching.
 _BRUSH_PATTERNS = frozenset(range(2, 15))
@@ -92,6 +108,42 @@ _CONSTANT_PAINT = frozenset({
 })
 
 
+# Fill symbol layers whose offset() is an x/y offset of the whole fill (a
+# pattern fill's offset is its pattern's).
+_OFFSET_FILLS = frozenset({"QgsSimpleFillSymbolLayer", "QgsGradientFillSymbolLayer",
+                           "QgsShapeburstFillSymbolLayer"})
+
+
+def fill_offset(symbol_layer) -> Optional[List]:
+    """A fill symbol layer's x/y offset as MapLibre ``*-translate``; None
+    if it has none."""
+    if symbol_layer is None or type(symbol_layer).__name__ not in _OFFSET_FILLS:
+        return None
+    try:
+        offset = symbol_layer.offset()
+        return PropertyExtractor.offset_to_translate(
+            offset.x(), offset.y(), symbol_layer.offsetUnit(),
+            PropertyExtractor.map_unit_scale(symbol_layer, "offsetMapUnitScale"))
+    except (AttributeError, RuntimeError, TypeError):
+        return None
+
+
+def outline_offset(symbol_layer) -> Optional[List]:
+    """The fill offset an outline line layer carries (see OFFSET_PROPERTY),
+    as MapLibre ``line-translate``; None if it carries none."""
+    try:
+        prop = symbol_layer.dataDefinedProperties().property(OFFSET_PROPERTY)
+        if prop is None or prop.isActive() or not isinstance(symbol_layer, QgsSimpleLineSymbolLayer):
+            return None
+        data = json.loads(prop.staticValue())
+        scale = QgsMapUnitScale(data["min_scale"], data["max_scale"])
+        scale.minSizeMMEnabled, scale.minSizeMM = data["min_mm_on"], data["min_mm"]
+        scale.maxSizeMMEnabled, scale.maxSizeMM = data["max_mm_on"], data["max_mm"]
+        return PropertyExtractor.offset_to_translate(data["x"], data["y"], data["unit"], scale)
+    except (AttributeError, RuntimeError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _rule_of(layer_def: dict) -> Optional[int]:
     """The rule number a layer is filtered to, if it is a rule's layer."""
     flt = layer_def.get("filter")
@@ -105,7 +157,7 @@ def _mergeable(first: dict, other: dict) -> bool:
     """Whether two rule layers of one dataset can be drawn as one layer."""
     if _rule_of(first) is None or _rule_of(other) is None:
         return False
-    for key in ("type", "source", "source-layer", "minzoom", "maxzoom", "_enabled"):
+    for key in ("type", "source", "source-layer", "minzoom", "maxzoom", "_enabled", "metadata"):
         if first.get(key) != other.get(key):
             return False
     for section, varying in (("layout", _DATA_DRIVEN_LAYOUT), ("paint", None)):
@@ -462,51 +514,149 @@ class PropertyExtractor:
         """Whether a length is on the ground (map units or metres) rather than on screen."""
         return cls.enum_int(unit_obj) in (cls._MAP_UNITS, cls._METERS_IN_MAP_UNITS)
 
+    @staticmethod
+    def map_unit_scale(obj, *getters: str):
+        """A symbol layer's (or text format's) QgsMapUnitScale for a length,
+        from the first of ``getters`` it has; None if none."""
+        for getter in getters:
+            method = getattr(obj, getter, None)
+            if callable(method):
+                try:
+                    return method()
+                except (RuntimeError, TypeError):
+                    return None
+        return None
+
     @classmethod
-    def length_to_style_value(cls, value: float, unit_obj=None) -> Union[float, List]:
+    def _scale_zooms(cls, scale) -> tuple:
+        """The zooms (low, high) between which a map unit scale's scale
+        limits let a ground length follow the zoom: beyond them QGIS draws
+        it at the size it has at the limit."""
+        low, high = 0.0, 24.0
+        if scale is None:
+            return low, high
+        if scale.minScale > 0:  # Zoomed out beyond it: the size at it.
+            low = ZoomLevels.fractional_zoom(scale.minScale)
+        if scale.maxScale > 0:  # Zoomed in beyond it: the size at it.
+            high = ZoomLevels.fractional_zoom(scale.maxScale)
+        return low, max(low, high)
+
+    @classmethod
+    def _size_limits_px(cls, scale) -> tuple:
+        """A map unit scale's size limits in pixels (None where unset)."""
+        if scale is None:
+            return None, None
+        low = cls.convert_length_to_pixels(scale.minSizeMM, "mm") if scale.minSizeMMEnabled else None
+        high = cls.convert_length_to_pixels(scale.maxSizeMM, "mm") if scale.maxSizeMMEnabled else None
+        return low, high
+
+    @classmethod
+    def length_to_style_value(cls, value: float, unit_obj=None, scale=None) -> Union[float, List]:
         """A length as a MapLibre value: pixels, or a zoom expression for ground lengths.
 
         A ground length doubles in pixels with every zoom level, which an
-        exponential base-2 interpolation reproduces exactly.
+        exponential base-2 interpolation reproduces exactly. Its map unit
+        ``scale`` limits it as QGIS does: to its size at a scale limit
+        beyond that scale, and to a minimum and maximum size on screen.
+        Both stop it growing (or shrinking) beyond a zoom, where the
+        interpolation's stops are put (it is constant beyond its stops:
+        MapLibre allows no min/max around a zoom expression).
         """
         if value is None or not cls.is_map_unit(unit_obj):
             return cls.convert_length_to_pixels(value, unit_obj)
         metres = cls.map_unit_m if cls.enum_int(unit_obj) == cls._MAP_UNITS else cls.ground_m
         px_z0 = value * metres / cls._MERCATOR_M_PER_PX_Z0
-        return ["interpolate", ["exponential", 2], ["zoom"], 0, px_z0, 24, px_z0 * 2 ** 24]
+        low, high = cls._scale_zooms(scale)
+        min_px, max_px = cls._size_limits_px(scale)
+        if px_z0 > 0:
+            if min_px is not None:
+                low = max(low, math.log2(min_px / px_z0))
+            if max_px is not None:
+                high = min(high, math.log2(max_px / px_z0))
+        low, high = max(low, 0.0), min(high, 24.0)
+        if high <= low:  # The limits leave one size.
+            size = px_z0 * 2 ** min(max(low, 0.0), 24.0)
+            if min_px is not None:
+                size = max(size, min_px)
+            if max_px is not None:
+                size = min(size, max_px)
+            return size
+        return ["interpolate", ["exponential", 2], ["zoom"],
+                round(low, 4), px_z0 * 2 ** low, round(high, 4), px_z0 * 2 ** high]
 
     @classmethod
-    def scale_length_expression(cls, expression: List, unit_obj=None) -> List:
+    def scale_length_expression(cls, expression: List, unit_obj=None, scale=None) -> List:
         """A per-feature length (an expression giving a number in ``unit_obj``)
         as a MapLibre pixel value: times the unit's pixel size, or for
-        ground lengths, doubled with every zoom level."""
+        ground lengths, doubled with every zoom level, within the map unit
+        ``scale``'s limits (see length_to_style_value: a size limit depends
+        on the feature's value, so it limits the value at each whole zoom)."""
         number = ["to-number", expression, 0]
-        if cls.is_map_unit(unit_obj):
-            metres = cls.map_unit_m if cls.enum_int(unit_obj) == cls._MAP_UNITS else cls.ground_m
-            factor = metres / cls._MERCATOR_M_PER_PX_Z0
-            return ["interpolate", ["exponential", 2], ["zoom"],
-                    0, ["*", number, factor], 24, ["*", number, factor * 2 ** 24]]
-        return ["*", number, cls.convert_length_to_pixels(1.0, unit_obj)]
+        if not cls.is_map_unit(unit_obj):
+            return ["*", number, cls.convert_length_to_pixels(1.0, unit_obj)]
+        metres = cls.map_unit_m if cls.enum_int(unit_obj) == cls._MAP_UNITS else cls.ground_m
+        factor = metres / cls._MERCATOR_M_PER_PX_Z0
+        low, high = cls._scale_zooms(scale)
+        min_px, max_px = cls._size_limits_px(scale)
+
+        def at(zoom: float):
+            value = ["*", number, factor * 2 ** zoom]
+            if min_px is not None:
+                value = ["max", min_px, value]
+            if max_px is not None:
+                value = ["min", max_px, value]
+            return value
+
+        zooms = [low, high]
+        if min_px is not None or max_px is not None:
+            zooms = [low] + list(range(int(low) + 1, int(math.ceil(high)))) + [high]
+        if high <= low:
+            return at(low)
+        expression = ["interpolate", ["exponential", 2], ["zoom"]]
+        for zoom in zooms:
+            expression += [round(zoom, 4), at(zoom)]
+        return expression
 
     @classmethod
-    def length_value_or_expression(cls, value: float, unit_obj, prop: QgsProperty) -> Union[float, List]:
+    def length_value_or_expression(
+        cls, value: float, unit_obj, prop: QgsProperty, scale=None,
+    ) -> Union[float, List]:
         """A length that may be data-defined, as a MapLibre value.
 
         QGIS reads a data-defined length in the property's unit (mm, points,
         map units...), but MapLibre reads pixels, so the value is converted
         as the static length is: a constant directly, a field through an
-        expression.
+        expression. ``scale`` is the length's map unit scale.
         """
-        base = cls.length_to_style_value(value, unit_obj)
+        base = cls.length_to_style_value(value, unit_obj, scale)
         resolved = cls.get_value_or_expression(None, prop)
         if resolved is None:
             return base
         if isinstance(resolved, list):
-            return cls.scale_length_expression(resolved, unit_obj)
+            return cls.scale_length_expression(resolved, unit_obj, scale)
         try:
-            return cls.length_to_style_value(float(resolved), unit_obj)
+            return cls.length_to_style_value(float(resolved), unit_obj, scale)
         except (TypeError, ValueError):
             return base
+
+    @classmethod
+    def offset_to_translate(cls, x: float, y: float, unit_obj=None, scale=None) -> Union[List, None]:
+        """A fill's offset as ``fill-translate`` / ``line-translate``
+        ``[x, y]`` in pixels, a zoom interpolation of them for a ground
+        offset (within its map unit scale's scale limits; its size limits,
+        on the offset's length, are left out); None for no offset."""
+        if not x and not y:
+            return None
+        if not cls.is_map_unit(unit_obj):
+            return [cls.convert_length_to_pixels(x, unit_obj), cls.convert_length_to_pixels(y, unit_obj)]
+        metres = cls.map_unit_m if cls.enum_int(unit_obj) == cls._MAP_UNITS else cls.ground_m
+        x_z0, y_z0 = (v * metres / cls._MERCATOR_M_PER_PX_Z0 for v in (x, y))
+        low, high = cls._scale_zooms(scale)
+        if high <= low:
+            return [x_z0 * 2 ** low, y_z0 * 2 ** low]
+        return ["interpolate", ["exponential", 2], ["zoom"],
+                round(low, 4), ["literal", [x_z0 * 2 ** low, y_z0 * 2 ** low]],
+                round(high, 4), ["literal", [x_z0 * 2 ** high, y_z0 * 2 ** high]]]
 
     @classmethod
     def opacity_value_or_expression(cls, base_opacity: float, prop: QgsProperty) -> Union[float, List]:
@@ -626,7 +776,8 @@ class LinePropertyExtractor:
             QgsSymbolLayer.Property.PropertyStrokeWidth
         )
         return PropertyExtractor.length_value_or_expression(
-            symbol_layer.width(), width_unit, width_prop
+            symbol_layer.width(), width_unit, width_prop,
+            PropertyExtractor.map_unit_scale(symbol_layer, "widthMapUnitScale"),
         )
 
     @staticmethod
@@ -750,7 +901,9 @@ class LinePropertyExtractor:
             offset_prop = symbol_layer.dataDefinedProperties().property(
                 QgsSymbolLayer.Property.PropertyOffset
             )
-            return PropertyExtractor.length_value_or_expression(offset, offset_unit, offset_prop)
+            return PropertyExtractor.length_value_or_expression(
+                offset, offset_unit, offset_prop,
+                PropertyExtractor.map_unit_scale(symbol_layer, "offsetMapUnitScale"))
         except (AttributeError, RuntimeError, TypeError):
             return 0.0
 
@@ -765,14 +918,18 @@ class LinePropertyExtractor:
         return 0
 
     @staticmethod
-    def get_line_translate() -> List[float]:
-        """Return ``line-translate`` ``[x, y]`` offset in pixels (default ``[0, 0]``)."""
-        return [0, 0]
+    def get_line_translate(symbol_layer: QgsSymbolLayer = None) -> Union[List, None]:
+        """Return ``line-translate``: a fill's offset, for its outline (see
+        outline_offset), else ``[0, 0]``."""
+        offset = outline_offset(symbol_layer)
+        return offset if offset is not None else [0, 0]
 
     @staticmethod
-    def get_line_translate_anchor() -> str:
-        """Return ``line-translate-anchor`` (MapLibre default: ``"map"``)."""
-        return "map"
+    def get_line_translate_anchor(symbol_layer: QgsSymbolLayer = None) -> str:
+        """Return ``line-translate-anchor``: "viewport" for a fill's offset
+        outline (QGIS offsets on screen, not turned with the map), else
+        MapLibre's default "map"."""
+        return "viewport" if outline_offset(symbol_layer) is not None else "map"
 
     @staticmethod
     def get_line_sort_key(symbol_layer: QgsSymbolLayer) -> Union[float, List]:
@@ -887,7 +1044,8 @@ class LinePropertyExtractor:
         if color is None or not color.isValid():
             color = QColor(0, 0, 0)
         return (PropertyExtractor.convert_qcolor_to_maplibre(color),
-                PropertyExtractor.length_to_style_value(width, unit))
+                PropertyExtractor.length_to_style_value(width, unit, PropertyExtractor.map_unit_scale(
+                    symbol_layer, "arrowWidthUnitScale" if kind == "QgsArrowSymbolLayer" else "widthMapUnitScale")))
 
     @staticmethod
     def get_marker_line_rotate_symbols(symbol_layer: QgsSymbolLayer) -> bool:
@@ -975,14 +1133,18 @@ class FillPropertyExtractor:
         return True
 
     @staticmethod
-    def get_fill_translate() -> List[float]:
-        """Return ``fill-translate`` ``[x, y]`` offset in pixels (default ``[0, 0]``)."""
-        return [0, 0]
+    def get_fill_translate(symbol_layer: QgsSymbolLayer = None) -> Union[List, None]:
+        """Return ``fill-translate``: the fill's x/y offset in pixels (a zoom
+        interpolation for a ground offset), else ``[0, 0]``."""
+        offset = fill_offset(symbol_layer)
+        return offset if offset is not None else [0, 0]
 
     @staticmethod
-    def get_fill_translate_anchor() -> str:
-        """Return ``fill-translate-anchor`` (MapLibre default: ``"map"``)."""
-        return "map"
+    def get_fill_translate_anchor(symbol_layer: QgsSymbolLayer = None) -> str:
+        """Return ``fill-translate-anchor``: "viewport" for an offset fill
+        (QGIS offsets on screen, not turned with the map), else MapLibre's
+        default "map"."""
+        return "viewport" if fill_offset(symbol_layer) is not None else "map"
 
     @staticmethod
     def get_fill_sort_key(symbol_layer: QgsSymbolLayer) -> Union[float, List]:
@@ -1375,7 +1537,7 @@ class TextPropertyExtractor:
         """Return ``text-size`` in pixels, honouring data-defined overrides."""
         size_prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Size)
         return PropertyExtractor.length_value_or_expression(
-            text_format.size(), text_format.sizeUnit(), size_prop
+            text_format.size(), text_format.sizeUnit(), size_prop, text_format.sizeMapUnitScale()
         )
 
     @staticmethod
@@ -1483,7 +1645,7 @@ class TextPropertyExtractor:
         # Both are the halo's width outside the letters.
         try:
             width = PropertyExtractor.length_value_or_expression(
-                buffer.size(), buffer.sizeUnit(), size_prop
+                buffer.size(), buffer.sizeUnit(), size_prop, buffer.sizeMapUnitScale()
             )
         except (AttributeError, RuntimeError):
             width = buffer.size()
@@ -2145,6 +2307,58 @@ class QgisMapLibreStyleExporter:
                     if key != "icon-image":  # Marker variants read raw values themselves.
                         layer_def[section][key] = replace(value, layer_def["source-layer"], fields)
 
+    def _label_fonts(self, label_settings: QgsPalLayerSettings, text_format: QgsTextFormat,
+                     font: str, dataset: str) -> tuple:
+        """(text-font, the font keys whose glyphs it needs) of a label.
+
+        A data-defined font family is each feature's family in the
+        format's style (or the family's regular style where it has no such
+        style), as a ``match`` on the exported family field over the
+        dataset's families (up to _MAX_LABEL_FONTS); a family that isn't
+        installed, or a feature without one, keeps the format's font, as
+        QGIS draws it.
+        """
+        try:
+            prop = label_settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Family)
+        except (AttributeError, RuntimeError):
+            prop = None
+        resolved = PropertyExtractor.get_value_or_expression(None, prop) if prop else None
+        if resolved is None:
+            return [font], [font]
+        style = text_format.font().styleName()
+        if isinstance(resolved, str):
+            key = self._font_key(resolved, style)
+            return ([key], [key]) if key else ([font], [font])
+        if not (isinstance(resolved, list) and resolved[:1] == ["get"]):
+            return [font], [font]
+        keys = {}
+        for family in self._distinct_values(dataset, resolved[1])[:_MAX_LABEL_FONTS]:
+            key = self._font_key(family, style)
+            if key and key != font:
+                keys[family] = key
+        if not keys:
+            return [font], [font]
+        expression = ["match", ["to-string", resolved]]
+        for family, key in keys.items():
+            expression += [family, ["literal", [key]]]
+        expression.append(["literal", [font]])
+        return expression, [font] + sorted(set(keys.values()))
+
+    @staticmethod
+    def _font_key(family: str, style: str) -> Optional[str]:
+        """The glyph font key of a family in a style: "family style" if the
+        family has the style, else the family alone (its regular style);
+        None if the family isn't installed."""
+        family = (family or "").strip()
+        if not family:
+            return None
+        families = qfontdb.families()
+        if GlyphGenerator._resolve_font_key(f"{family} {style}", families):  # pylint: disable=protected-access
+            return f"{family} {style}".strip()
+        if GlyphGenerator._resolve_font_key(family, families):  # pylint: disable=protected-access
+            return family
+        return None
+
     def _distinct_values(self, dataset: str, field: str) -> List[str]:
         """The distinct non-NULL values of a dataset's field, as text."""
         from osgeo import ogr  # pylint: disable=import-outside-toplevel
@@ -2462,9 +2676,10 @@ class QgisMapLibreStyleExporter:
         sprite_symbol.setOutputUnit(Qgis.RenderUnit.Millimeters)
         sprite_symbol.setSize(cls._GROUND_MARKER_SPRITE_MM)
         sprite_px = PropertyExtractor.convert_length_to_pixels(cls._GROUND_MARKER_SPRITE_MM, "mm")
-        ground = PropertyExtractor.length_to_style_value(size, unit)  # Pixels by zoom.
-        if not isinstance(ground, list):
-            return sprite_symbol, None
+        ground = PropertyExtractor.length_to_style_value(  # Pixels by zoom.
+            size, unit, PropertyExtractor.map_unit_scale(symbol, "mapUnitScale"))
+        if not isinstance(ground, list):  # Its size limits leave one size.
+            return sprite_symbol, ground / sprite_px / _SPRITE_QUALITY
         icon_size = list(ground)
         icon_size[4] = ground[4] / sprite_px / _SPRITE_QUALITY
         icon_size[6] = ground[6] / sprite_px / _SPRITE_QUALITY
@@ -2638,8 +2853,8 @@ class QgisMapLibreStyleExporter:
                 "line-opacity": LinePropertyExtractor.get_line_opacity(symbol_layer, symbol),
                 "line-blur": LinePropertyExtractor.get_line_blur(),
                 "line-gap-width": LinePropertyExtractor.get_line_gap_width(),
-                "line-translate": LinePropertyExtractor.get_line_translate(),
-                "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(),
+                "line-translate": LinePropertyExtractor.get_line_translate(symbol_layer),
+                "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(symbol_layer),
             })
 
             offset = LinePropertyExtractor.get_line_offset(symbol_layer)
@@ -2675,8 +2890,8 @@ class QgisMapLibreStyleExporter:
                 "line-pattern": pattern_name,
                 "line-width": width,
                 "line-opacity": LinePropertyExtractor.get_line_opacity(symbol_layer, symbol),
-                "line-translate": LinePropertyExtractor.get_line_translate(),
-                "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(),
+                "line-translate": LinePropertyExtractor.get_line_translate(symbol_layer),
+                "line-translate-anchor": LinePropertyExtractor.get_line_translate_anchor(symbol_layer),
             })
             layer_def["layout"].update({
                 "line-cap": "round",
@@ -2726,8 +2941,8 @@ class QgisMapLibreStyleExporter:
                 "fill-pattern": pattern_name,
                 "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
                 "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
-                "fill-translate": FillPropertyExtractor.get_fill_translate(),
-                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+                "fill-translate": FillPropertyExtractor.get_fill_translate(symbol_layer),
+                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(symbol_layer),
             })
             layer_def["layout"]["visibility"] = "visible"
         elif isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
@@ -2736,8 +2951,8 @@ class QgisMapLibreStyleExporter:
                     "fill-color": FillPropertyExtractor.get_fill_color(symbol_layer),
                     "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
                     "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
-                    "fill-translate": FillPropertyExtractor.get_fill_translate(),
-                    "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+                    "fill-translate": FillPropertyExtractor.get_fill_translate(symbol_layer),
+                    "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(symbol_layer),
                 })
 
             else:
@@ -2759,8 +2974,8 @@ class QgisMapLibreStyleExporter:
                 "fill-pattern": pattern_name,
                 "fill-opacity": FillPropertyExtractor.get_fill_opacity(symbol_layer, symbol),
                 "fill-antialias": FillPropertyExtractor.get_fill_antialias(),
-                "fill-translate": FillPropertyExtractor.get_fill_translate(),
-                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(),
+                "fill-translate": FillPropertyExtractor.get_fill_translate(symbol_layer),
+                "fill-translate-anchor": FillPropertyExtractor.get_fill_translate_anchor(symbol_layer),
             })
             layer_def["layout"].update({
                 "fill-sort-key": FillPropertyExtractor.get_fill_sort_key(symbol_layer),
@@ -2798,12 +3013,14 @@ class QgisMapLibreStyleExporter:
         if text_field:
             layer_def["layout"]["text-field"] = text_field
         font = TextPropertyExtractor.get_text_font(text_format)
+        text_font, fonts = self._label_fonts(label_settings, text_format, font, source_layer_name)
         # The dataset and field holding this label's text, whose characters
-        # the font's glyphs are made for.
+        # the fonts' glyphs are made for.
         dataset = join(self.utils_dir, f'{source_layer_name}.{_TEMP_RULE_FORMAT}')
-        self.glyphs.setdefault(font, []).append((dataset, label_settings.fieldName))
+        for one in fonts:
+            self.glyphs.setdefault(one, []).append((dataset, label_settings.fieldName))
         layer_def["layout"].update({
-            "text-font": [font],
+            "text-font": text_font,
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
             "text-anchor": TextPropertyExtractor.get_text_anchor(label_settings),
             "text-justify": TextPropertyExtractor.get_text_justify(label_settings),
@@ -2869,29 +3086,41 @@ class QgisMapLibreStyleExporter:
         label_format.setBackground(background)
         label_settings.setFormat(label_format)
 
-        if background.enabled() and background.markerSymbol():
+        shape_type = PropertyExtractor.enum_int(background.type()) if background.enabled() else None
+        if shape_type == _BACKGROUND_MARKER and background.markerSymbol():
             self._apply_icon_from_background(layer_def, background, style_name)
+        elif shape_type in _BACKGROUND_SHAPES:
+            self._apply_icon_from_background(
+                layer_def, background, style_name, self._label_shape(background, shape_type))
         else:
             self._apply_default_icon_props(layer_def)
 
         self.style["layers"].append(layer_def)
 
-    def _apply_icon_from_background(self, layer_def: dict, background, style_name: str):
-        """Configure icon layout/paint from a label background marker symbol."""
-        try:
-            marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
-            if marker and marker.type() == QgsSymbol.SymbolType.Marker:
-                layer_def["layout"]["icon-image"] = self._register_sprite(marker.clone(), "marker")
-            else:
+    def _apply_icon_from_background(self, layer_def: dict, background, style_name: str,
+                                    shape: Optional[tuple] = None):
+        """Configure icon layout/paint from a label background: its marker
+        symbol, or a shape's (sprite name, icon-text-fit, padding)."""
+        if shape is not None:
+            layer_def["layout"]["icon-image"], text_fit, text_fit_padding, background_box = shape
+            if background_box:
+                # The OpenLayers viewer draws it as the text's own background
+                # (it can't stretch an icon around a label).
+                layer_def["metadata"] = {"q2vt:text-background": background_box}
+        else:
+            try:
+                marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
+                if marker and marker.type() == QgsSymbol.SymbolType.Marker:
+                    layer_def["layout"]["icon-image"] = self._register_sprite(marker.clone(), "marker")
+                else:
+                    layer_def["layout"]["icon-image"] = style_name
+            except (RuntimeError, AttributeError):
                 layer_def["layout"]["icon-image"] = style_name
-        except (RuntimeError, AttributeError):
-            layer_def["layout"]["icon-image"] = style_name
+            text_fit = IconPropertyExtractor.get_icon_text_fit(background)
+            text_fit_padding = IconPropertyExtractor.get_icon_text_fit_padding(background)
 
-        text_fit = IconPropertyExtractor.get_icon_text_fit(background)
         if text_fit:
             layer_def["layout"]["icon-text-fit"] = text_fit
-
-        text_fit_padding = IconPropertyExtractor.get_icon_text_fit_padding(background)
         if text_fit_padding:
             layer_def["layout"]["icon-text-fit-padding"] = text_fit_padding
 
@@ -2919,6 +3148,49 @@ class QgisMapLibreStyleExporter:
             })
         except (OSError, RuntimeError):
             pass
+
+    def _label_shape(self, background: QgsTextBackgroundSettings, shape_type: int) -> tuple:
+        """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
+        the OpenLayers viewer or None) of a label
+        background rectangle, square, ellipse or circle (see LabelShape):
+        stretched around the text plus the buffer size (QGIS's x and y
+        margins), or drawn at its fixed size. A square or circle is drawn
+        as a rectangle or ellipse: MapLibre can't keep a stretched icon's
+        proportions."""
+        def px(value, unit, fallback=0.0) -> float:
+            length = PropertyExtractor.length_to_style_value(value, unit)
+            return length if isinstance(length, (int, float)) else fallback  # Ground: a guess.
+
+        stroke_px = px(background.strokeWidth(), background.strokeWidthUnit(), 1.0)
+        radii = background.radii()
+        radius_px = 0.0
+        if radii.width() > 0:
+            if PropertyExtractor.enum_int(background.radiiUnit()) == _PERCENTAGE_UNIT:
+                radius_px = radii.width() / 100 * 16  # Of the text's height, about.
+            else:
+                radius_px = px(radii.width(), background.radiiUnit(), 4.0)
+        size = background.size()
+        fixed = PropertyExtractor.enum_int(background.sizeType()) == _BACKGROUND_SIZE_FIXED
+        shape = LabelShape(
+            ellipse=shape_type in _BACKGROUND_ELLIPSES,
+            fill=background.fillColor().name(QColor.NameFormat.HexArgb),
+            stroke=background.strokeColor().name(QColor.NameFormat.HexArgb),
+            stroke_px=stroke_px, radius_px=radius_px,
+            width=px(size.width(), background.sizeUnit(), 16.0) if fixed else 0.0,
+            height=px(size.height(), background.sizeUnit(), 16.0) if fixed else 0.0,
+        )
+        name = self._register_sprite(shape, "label_bg")
+        if fixed:
+            return name, None, None, None
+        margin_x = max(px(size.width(), background.sizeUnit(), 2.0), 0.0)
+        margin_y = max(px(size.height(), background.sizeUnit(), 2.0), 0.0)
+        padding = [margin_y, margin_x, margin_y, margin_x]
+        box = {
+            "fill": PropertyExtractor.convert_qcolor_to_maplibre(background.fillColor()),
+            "stroke": PropertyExtractor.convert_qcolor_to_maplibre(background.strokeColor()),
+            "stroke-width": stroke_px, "padding": padding,
+        }
+        return name, "both", padding, box
 
     def _apply_default_icon_props(self, layer_def: dict):
         """Apply default icon layout/paint when no background marker is present."""
@@ -2979,13 +3251,23 @@ class QgisMapLibreStyleExporter:
         """Point each label's text-font at the glyph folder written for it.
 
         A font without a style name (e.g. "MS Shell Dlg 2 ") would otherwise
-        request glyphs from a folder that doesn't exist.
+        request glyphs from a folder that doesn't exist. In a data-defined
+        font's ``match``, a font whose glyphs weren't written gives way to
+        the label's default font (its fallback).
         """
         for layer_def in self.style["layers"]:
             layout = layer_def.get("layout", {})
             fonts = layout.get("text-font")
-            if fonts:
+            if not fonts:
+                continue
+            if fonts[0] != "match":
                 layout["text-font"] = [fontstacks.get(font, font.strip()) for font in fonts]
+                continue
+            default = fonts[-1][1][0]
+            default = fontstacks.get(default, default.strip())
+            fonts[-1] = ["literal", [default]]
+            for i in range(3, len(fonts) - 1, 2):
+                fonts[i] = ["literal", [fontstacks.get(fonts[i][1][0], default)]]
 
     def round_numeric_values(self, obj):
         """

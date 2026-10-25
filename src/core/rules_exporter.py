@@ -122,6 +122,7 @@ from qgis.core import (
     QgsCsException,
     QgsDistanceArea,
     QgsExpressionContext,
+    QgsExpressionContextScope,
     QgsExpression,
     QgsExpressionContextUtils,
     QgsExpressionNode,
@@ -151,8 +152,8 @@ from ..utils.config import (
     _TILES_MAX_ZOOM,
 )
 from ..utils.flattened_rule import (
-    FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_INNER_VERTICES,
-    MARKER_LAST_VERTEX, marker_angle_field,
+    FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, marker_angle_field,
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
@@ -232,6 +233,10 @@ _RULE_OUTPUT_WKB = {
 
 # How an output field's value is produced in the rule-export pass.
 _FIELD_CONSTANT, _FIELD_COPY, _FIELD_EXPRESSION = range(3)
+
+# A field expression reading this variable is evaluated per part written
+# (a marker on each vertex turned with the line): the part's geometry.
+_PART_VARIABLE = "q2vt_part"
 
 # Expression fragments that read attributes dynamically, so their field
 # usage can't be determined statically by referencedColumns().
@@ -594,6 +599,9 @@ class _RuleOutput:
         # Problems that don't stop the export, reported once per group as
         # {what: [occurrences, first error]}.
         self.problems: Dict[str, List[Any]] = {}
+        # Per member: the indexes of its plan's fields evaluated per part
+        # (see _PART_VARIABLE), found on first use.
+        self.part_fields: Dict[int, List[int]] = {}
 
     def note(self, what: str, error: str) -> None:
         entry = self.problems.setdefault(what, [0, error])
@@ -3573,8 +3581,28 @@ class RulesExporter:
                         value = None
                 attributes.append(value)
 
+            part_fields = output.part_fields.get(member_index)
+            if part_fields is None:
+                part_fields = output.part_fields[member_index] = [
+                    i for i, (kind, _, source, _) in enumerate(output.plans[member_index])
+                    if kind == _FIELD_EXPRESSION and _PART_VARIABLE in source.referencedVariables()
+                ]
             for part in parts:
                 out = QgsFeature(output.fields)
+                if part_fields:
+                    attributes = list(attributes)
+                    scope = QgsExpressionContextScope()
+                    scope.setVariable(_PART_VARIABLE, part)
+                    context.appendScope(scope)
+                    try:
+                        for i in part_fields:
+                            _, field, source, convert = output.plans[member_index][i]
+                            value = source.evaluate(context)
+                            attributes[i] = self._convert_value(field, value) if convert else value
+                    except RuntimeError:
+                        pass
+                    finally:
+                        context.popScope()
                 out.setAttributes(attributes)
                 out.setGeometry(part)
                 output.batch.append(out)
@@ -4118,6 +4146,11 @@ class RulesExporter:
         settings = flat_rule.rule.settings()
         filter_exp = f'"{label_exp}"' if not settings.isExpression else label_exp
         text = self._with_type_case(settings, filter_exp)
+        if settings.wrapChar:
+            # QGIS breaks the line at (and drops) the wrap character; the
+            # web map breaks lines at line breaks.
+            text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
+            settings.wrapChar = ""
         if condition:
             text = f"CASE WHEN {condition} THEN ({text}) END"
         fields.append((10, text, field_name))
@@ -4243,18 +4276,22 @@ class RulesExporter:
         return f"nodes_to_points({line}, true)"  # Every vertex.
 
     def _marker_angle_fields(self, flat_rule: FlattenedRule) -> List[Tuple[int, str, str]]:
-        """A rotation field for a marker line drawn as points at one vertex
-        or the middle, when its markers follow the line.
+        """A rotation field for a marker line drawn as points, when its
+        markers follow the line.
 
         QGIS turns such markers with the line: by the line's direction,
         clockwise from east (line_interpolate_angle's bearing from north,
         less 90°), plus the marker's own angle. The sprite is drawn
-        unrotated, so the field holds the whole rotation.
+        unrotated, so the field holds the whole rotation. Markers on every
+        (or every inner) vertex each get their own: the direction where the
+        point lies on the line (at a vertex, between its two segments, as
+        QGIS turns them), evaluated per point (see _PART_VARIABLE).
         """
         if flat_rule.get_attr("t") != 0 or not flat_rule.rule.symbol():
             return []
         placement = flat_rule.get_attr("p")
-        if placement not in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT):
+        if placement not in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT,
+                             MARKER_ALL_VERTICES, MARKER_INNER_VERTICES):
             return []
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
         if symbol_layer.layerType() != "MarkerLine" or not symbol_layer.rotateSymbols():
@@ -4264,7 +4301,7 @@ class RulesExporter:
             MARKER_FIRST_VERTEX: "0",
             MARKER_LAST_VERTEX: f"length({line})",
             MARKER_CENTRAL_POINT: f"length({line}) / 2",
-        }[placement]
+        }.get(placement, f"line_locate_point({line}, @{_PART_VARIABLE})")
         own_angle = 0.0
         sub_symbol = symbol_layer.subSymbol()
         if sub_symbol is not None and sub_symbol.symbolLayerCount():
