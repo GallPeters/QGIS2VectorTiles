@@ -23,6 +23,7 @@ import { apply } from 'ol-mapbox-style';
 import { TerraDrawOpenLayersAdapter } from 'terra-draw-openlayers-adapter';
 import { startViewer } from '../shared/app.js';
 import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
+import { applySortKeys } from './sortkey.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
@@ -89,6 +90,10 @@ const isDataLayer = (layer) => layer.get('mapbox-source') === SOURCE;
 // The tiles come from the export's PMTiles file (see shared/style.js).
 const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => apply(map, style, {
     transformRequest: (url, type) => (type === 'Tiles' ? readPmtilesTile(url) : null) || undefined,
+}).then(() => {
+    // Labels in their QGIS priority order within each layer (see sortkey.js).
+    const zoomOf = (resolution) => map.getView().getZoomForResolution(resolution) - OL_ZOOM_OFFSET;
+    map.getLayers().getArray().filter(isDataLayer).forEach((layer) => applySortKeys(layer, style, zoomOf));
 })).then(() => {
     // The style may constrain the view; allow every zoom, as before.
     const old = map.getView();

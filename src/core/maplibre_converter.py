@@ -1700,7 +1700,9 @@ class TextPropertyExtractor:
         """Return ``symbol-sort-key`` from the label priority.
 
         QGIS places higher priorities (0-10) first; MapLibre places lower
-        sort keys first. A data-defined priority becomes an expression.
+        sort keys first. A data-defined priority becomes an expression,
+        as QGIS reads it: limited to 0-10, the static priority when empty
+        or not a number.
         """
         base = 10 - label_settings.priority
         try:
@@ -1713,9 +1715,11 @@ class TextPropertyExtractor:
         if resolved is None:
             return base
         if isinstance(resolved, list):
-            return ["-", 10, ["to-number", resolved, label_settings.priority]]
+            static = label_settings.priority
+            value = ["to-number", ["coalesce", resolved, static], static]
+            return ["-", 10, ["max", 0, ["min", 10, value]]]
         try:
-            return 10 - float(resolved)
+            return 10 - min(max(float(resolved), 0), 10)
         except (TypeError, ValueError):
             return base
 

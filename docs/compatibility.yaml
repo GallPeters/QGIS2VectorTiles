@@ -657,7 +657,7 @@ categories:
         maplibre_prop: "symbol-sort-key"
         supported: "Yes"
         data_driven: "Yes"
-        notes: "Higher-priority labels are placed first when labels collide; data-defined priority works per feature."
+        notes: "Higher-priority labels are placed first when labels collide, in both viewers; data-defined priority works per feature, limited to 0-10 as in QGIS (an empty value uses the static priority). OpenLayers resolves collisions tile by tile, so near a tile edge a lower-priority label can win."
       - qgis_prop: "Allow overlaps without penalty (show all labels)"
         maplibre_prop: "text-allow-overlap"
         supported: "Yes"

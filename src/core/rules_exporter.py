@@ -118,7 +118,6 @@ from qgis.core import (
     QgsApplication,
     QgsCoordinateReferenceSystem,
     QgsCsException,
-    QgsDataSourceUri,
     QgsDistanceArea,
     QgsExpressionContext,
     QgsExpression,
@@ -258,10 +257,6 @@ _OGR_FAMILY = {ogr.wkbPolygon: 0, ogr.wkbLineString: 1, ogr.wkbPoint: 2}
 _QGIS_FAMILY = {
     Qgis.GeometryType.Polygon: 0, Qgis.GeometryType.Line: 1, Qgis.GeometryType.Point: 2,
 }
-
-# A database row's size in a base layer, roughly, to stage it (see
-# _gdal_stage_path) by the server's row count.
-_DATABASE_ROW_BYTES = 1024
 
 # Output geometry per geometrybyexpression OUTPUT_GEOMETRY code, as OGR names:
 # the geometry type GDAL writes and the source geometries it keeps.
@@ -1836,8 +1831,7 @@ class RulesExporter:
         read it.
 
         GDAL reads local files whose URI has no options besides the layer
-        (a subset filter or a geometry type split falls back to QGIS), and
-        PostGIS tables (not queries, nor subset filters), in
+        (a subset filter or a geometry type split falls back to QGIS), in
         the layer's QGIS CRS, when the project sets no particular datum
         transformation for it and GDAL sees the geometry type QGIS does.
         Caller thread: the source is opened here, one at a time, as QGIS
@@ -1889,34 +1883,9 @@ class RulesExporter:
                 return None
             layer = ds.GetLayerByName(layer_name) if layer_name else ds.GetLayer(layer_index)
             return None if layer is None else (ds, layer, self._file_size(path))
-        # Databases: PostGIS. (GDAL's SQLite driver would load SpatiaLite
-        # in this process, whose locale changes race with other threads.)
-        if src.provider != "postgres":
-            return None
-        uri = QgsDataSourceUri(src.source_uri)
-        table, geometry = uri.table(), uri.geometryColumn()
-        if not table or not geometry or uri.sql() or table.startswith("("):
-            return None
-        # PostGIS: the connection QGIS makes (its authentication
-        # configuration resolved), limited to the one table. GDAL splits the
-        # TABLES list on commas, the schema at the dot, the column at "(".
-        schema = uri.schema() or "public"
-        if any(c in name for name in (schema, table, geometry) for c in ",()") or "." in table:
-            return None
-        connection = uri.connectionInfo(True)
-        if not connection:
-            return None
-        ds = gdal.OpenEx(
-            f"PG:{connection}", gdal.OF_VECTOR | gdal.OF_READONLY, allowed_drivers=["PostgreSQL"],
-            open_options=[f"TABLES={schema}.{table}({geometry})"],
-        )
-        if ds is None or ds.GetLayerCount() != 1:
-            return None
-        layer = ds.GetLayer(0)
-        # The server's estimate of the rows; unknown sizes are staged on disk.
-        count = layer.GetFeatureCount(0)
-        size = count * _DATABASE_ROW_BYTES if count >= 0 else _GDAL_MEMORY_INPUT_MAX + 1
-        return ds, layer, size
+        # Databases are read by their QGIS provider, which every connection
+        # setting and expression of QGIS applies to.
+        return None
 
     @staticmethod
     def _gdal_base_columns(layer, required_fields: Optional[Tuple[str, ...]]) -> Optional[str]:

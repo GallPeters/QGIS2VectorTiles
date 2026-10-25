@@ -182,7 +182,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         generalize_param.setFlags(
             generalize_param.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         generalize_param.setHelp(self.tr(
-            "Below the maximum zoom level: thins out points to one per rule every 16 pixels, "
+            "Below the maximum zoom level: thins out points to one per rule every 16 pixels "
+            "(the one with the highest label priority), "
             "leaves out polygons smaller than a pixel, simplifies lines and polygons to a "
             "pixel and halves the tile size limit. The maximum zoom level keeps every detail."))
         self.addParameter(generalize_param)

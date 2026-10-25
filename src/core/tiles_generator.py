@@ -69,8 +69,9 @@ _MIN_POLYGON_PIXELS = 0.25
 # Low-zoom generalization (optional, see GDALTilesGenerator): below the
 # tiles' highest zoom, polygons smaller than this share of a screen pixel are
 # left out, one point is kept per rule and grid cell of this many screen
-# pixels, lines and polygons are simplified to a screen pixel (8 tile units)
-# and tiles are limited to half the size.
+# pixels (the one whose label has the highest priority), lines and
+# polygons are simplified to a screen pixel (8 tile units) and tiles are
+# limited to half the size.
 _GENERALIZED_POLYGON_PIXELS = 1.0
 _GENERALIZED_POINT_CELL_PIXELS = 16
 _GENERALIZED_SIMPLIFICATION = 8
@@ -374,7 +375,8 @@ class GDALTilesGenerator:
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(layer, style_text, min_area, self._point_cell(last_zoom)))
+                f.write(self._vrt_layer_block(
+                    layer, style_text, min_area, self._point_cell(last_zoom), last_zoom))
             f.write("</OGRVRTDataSource>\n")
 
     def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
@@ -396,10 +398,13 @@ class GDALTilesGenerator:
         return _GENERALIZED_POINT_CELL_PIXELS * 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
-                         min_area: Optional[float] = None, point_cell: Optional[float] = None) -> str:
+                         min_area: Optional[float] = None, point_cell: Optional[float] = None,
+                         last_zoom: Optional[int] = None) -> str:
         """Return the VRT XML block for a single layer; a polygon layer's
         smaller polygons than ``min_area`` are left out, and a point layer
-        keeps its first point per rule and grid cell of ``point_cell``."""
+        keeps one point per rule and grid cell of ``point_cell``: the one
+        whose label MapLibre places first (see _label_sort_key), else its
+        first."""
         source = layer.source().split("|layername=")[0]
         geometry = re.search(r"c(\d\d)", self._layer_name(layer))
         geometry = geometry.group(1) if geometry else None
@@ -420,10 +425,17 @@ class GDALTilesGenerator:
                             f'CAST(floor(ST_Y("{column}") / {point_cell!r}) AS INTEGER)']
                     if source_layer.GetLayerDefn().GetFieldIndex(f"{_FIELD_PREFIX}_rule") >= 0:
                         keys.insert(0, f'"{_FIELD_PREFIX}_rule"')
+                    defn = source_layer.GetLayerDefn()
+                    fields = {defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())}
+                    sort_key = self._label_sort_key(self._layer_name(layer), fields, last_zoom)
+                    # SQLite takes a bare column (rowid) from the row whose
+                    # min() it returns.
+                    kept = (f'SELECT r FROM (SELECT rowid AS r, min(coalesce({sort_key}, 1e300)) '
+                            f'FROM "{name}" GROUP BY {", ".join(keys)})' if sort_key else
+                            f'SELECT min(rowid) FROM "{name}" GROUP BY {", ".join(keys)}')
                     # "+rowid": SQLite would otherwise fetch each kept row
                     # by its FID, a scan of the file each (minutes).
-                    sql = (f'SELECT * FROM "{name}" WHERE +rowid IN '  # nosec B608
-                           f'(SELECT min(rowid) FROM "{name}" GROUP BY {", ".join(keys)})')
+                    sql = f'SELECT * FROM "{name}" WHERE +rowid IN ({kept})'  # nosec B608
                     src_sql = f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
                 ds = None
         return (
@@ -435,6 +447,96 @@ class GDALTilesGenerator:
             f'{self._vrt_fields(source, style_text)}'
             f'    </OGRVRTLayer>\n'
         )
+
+    def _label_sort_key(self, source_layer: str, fields: set, zoom: Optional[int]) -> Optional[str]:
+        """The SQLite expression of a dataset's label sort key (MapLibre's
+        symbol-sort-key, from the QGIS label priority: lower is placed
+        first), when its labels have one varying by feature; else None.
+
+        One expression is needed: the style's label layers of the dataset
+        share one, or each draws one rule (q2vt_rule), whose keys are then
+        chosen by rule, or else (several labels of a feature) the lowest of
+        their keys, its best placed label."""
+        keyed = []
+        for layer_def in self.style.get("layers", []):
+            layout = layer_def.get("layout", {})
+            if (layer_def.get("source-layer") != source_layer or "text-field" not in layout
+                    or "symbol-sort-key" not in layout):
+                continue
+            if zoom is not None and not (layer_def.get("minzoom", 0) < zoom + 1
+                                         and zoom < layer_def.get("maxzoom", 99)):
+                continue
+            keyed.append((layer_def.get("filter"), layout["symbol-sort-key"]))
+        if not keyed or all(not isinstance(key, list) for _, key in keyed):
+            return None
+        try:
+            if all(key == keyed[0][1] for _, key in keyed):
+                return self._sql_of(keyed[0][1], fields, zoom)
+            rule_field = f"{_FIELD_PREFIX}_rule"
+            if rule_field in fields and all(
+                    isinstance(flt, list) and len(flt) == 3 and flt[0] == "=="
+                    and flt[1] == ["get", rule_field] and isinstance(flt[2], int)
+                    for flt, _ in keyed):
+                cases = " ".join(
+                    f"WHEN {flt[2]} THEN {self._sql_of(key, fields, zoom)}" for flt, key in keyed)
+                return f'(CASE "{rule_field}" {cases} END)'
+            keys = []
+            for _, key in keyed:
+                sql = f"coalesce({self._sql_of(key, fields, zoom)}, 1e300)"
+                if sql not in keys:
+                    keys.append(sql)
+            return f"min({', '.join(keys)})"
+        except ValueError:
+            return None
+
+    @classmethod
+    def _sql_of(cls, expression, fields: set, zoom: Optional[int]) -> str:
+        """A sort key expression, as the style writes them, in SQLite;
+        raises ValueError for anything else."""
+        def sql(e) -> str:
+            return cls._sql_of(e, fields, zoom)
+
+        if isinstance(expression, bool):
+            raise ValueError(expression)
+        if isinstance(expression, (int, float)):
+            return repr(float(expression))
+        if isinstance(expression, str):
+            return "'" + expression.replace("'", "''") + "'"
+        if not isinstance(expression, list) or not expression:
+            raise ValueError(expression)
+        op, args = expression[0], expression[1:]
+        if op == "get" and len(args) == 1 and isinstance(args[0], str):
+            return '"' + args[0].replace('"', '""') + '"' if args[0] in fields else "NULL"
+        if op == "literal" and len(args) == 1:
+            return sql(args[0])
+        if op == "zoom" and zoom is not None:
+            return repr(float(zoom))
+        if op == "-" and len(args) in (1, 2):
+            return f"(-{sql(args[0])})" if len(args) == 1 else f"({sql(args[0])} - {sql(args[1])})"
+        if op in ("+", "*") and args:
+            return "(" + f" {op} ".join(sql(a) for a in args) + ")"
+        if op in ("min", "max", "coalesce") and args:
+            items = [sql(a) for a in args]
+            return items[0] if len(items) == 1 else f"{op}({', '.join(items)})"
+        if op == "to-number" and args:
+            # SQLite's CAST makes any text a number (0 if not one).
+            return "coalesce(" + ", ".join(
+                f"CAST(NULLIF({sql(a)}, '') AS REAL)" for a in args) + ", 0)"
+        if op == "match" and len(args) >= 4 and len(args) % 2 == 0:
+            whens = []
+            for labels, output in zip(args[1:-1:2], args[2:-1:2]):
+                for label in labels if isinstance(labels, list) else [labels]:
+                    whens.append(f"WHEN {sql(label)} THEN {sql(output)}")
+            return f"(CASE {sql(args[0])} {' '.join(whens)} ELSE {sql(args[-1])} END)"
+        if op == "step" and len(args) >= 2 and args[0] == ["zoom"] and zoom is not None \
+                and len(args) % 2 == 0:
+            result = args[1]
+            for stop, output in zip(args[2::2], args[3::2]):
+                if zoom < stop:
+                    break
+                result = output
+            return sql(result)
+        raise ValueError(expression)
 
     @staticmethod
     def _is_tiled_field(field_name: str, style_text: str) -> bool:
