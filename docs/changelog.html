@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.1</strong>, 25 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.1</strong>, 26 Oct 2026.</p>
     </div>
   </section>
 
@@ -132,12 +132,18 @@
   <article class="release latest" id="v4-1">
     <div class="release-meta">
       <h2>v4.1</h2>
-      <time datetime="2026-10-25">25 Oct 2026</time>
+      <time datetime="2026-10-26">26 Oct 2026</time>
       <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
       <li>Outlines and point or line labels <strong>share their features' data</strong> in the tiles.</li>
+      <li><code>@map_scale</code> rules make <strong>one layer</strong> in the tiles and the style: smaller tiles, faster drawing.</li>
+      <li>Features drawn in the layer's <strong>rendering order</strong>.</li>
+      <li>Data-defined <strong>colours</strong> work out in C++, any number of them.</li>
+      <li><strong>PostGIS</strong> layers read faster.</li>
+      <li>Optional: <strong>generalize low zoom levels</strong> for smaller tiles.</li>
+      <li>Search shows <strong>one result per place</strong>.</li>
       <li>The map opens <strong>fitted to the export extent</strong>.</li>
       <li>Scale ranges switch at the <strong>exact zoom</strong>, measured at the data's latitude.</li>
       <li><strong>Hatched fills</strong> keep their hatching.</li>
@@ -148,6 +154,8 @@
       <li>Fixed: road casings of categorized layers could disappear.</li>
       <li>Fixed: some data-defined expressions crashed the export.</li>
       <li>Fixed: letters missing from labels sharing a font.</li>
+      <li>Fixed: <code>@map_scale</code> in data-defined show label or enabled.</li>
+      <li>Fixed: scale ranges beyond zoom 15 wrote their features twice.</li>
     </ul>
   </article>
   <article class="release" id="v4-0">

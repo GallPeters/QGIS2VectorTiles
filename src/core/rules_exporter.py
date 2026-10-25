@@ -101,7 +101,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import platform
 import re
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -112,13 +111,14 @@ from uuid import uuid4
 from xml.sax.saxutils import escape as xml_escape
 from osgeo import gdal, ogr
 from qgis.PyQt import sip
-from qgis.PyQt.QtCore import QMetaType, QVariant
+from qgis.PyQt.QtCore import QMetaType
 from processing import run as run_processing
 from qgis.core import (
     Qgis,
     QgsApplication,
     QgsCoordinateReferenceSystem,
     QgsCsException,
+    QgsDataSourceUri,
     QgsDistanceArea,
     QgsExpressionContext,
     QgsExpression,
@@ -255,6 +255,13 @@ _GDAL_MEMORY_INPUT_MAX = 256 * 1024 * 1024
 # Geometry family (geometrybyexpression OUTPUT_GEOMETRY code, as in
 # _OGR_OUTPUT) of an OGR layer geometry type, linear and single.
 _OGR_FAMILY = {ogr.wkbPolygon: 0, ogr.wkbLineString: 1, ogr.wkbPoint: 2}
+_QGIS_FAMILY = {
+    Qgis.GeometryType.Polygon: 0, Qgis.GeometryType.Line: 1, Qgis.GeometryType.Point: 2,
+}
+
+# A database row's size in a base layer, roughly, to stage it (see
+# _gdal_stage_path) by the server's row count.
+_DATABASE_ROW_BYTES = 1024
 
 # Output geometry per geometrybyexpression OUTPUT_GEOMETRY code, as OGR names:
 # the geometry type GDAL writes and the source geometries it keeps.
@@ -363,6 +370,9 @@ class _SourceSnapshot:
     # Whether a rule reads q2vt_biggest (the largest part of each feature):
     # otherwise GDAL-built base layers leave it at 1 for every part.
     needs_biggest: bool = True
+    # The layer's geometry type in QGIS, as an _OGR_FAMILY value; None if
+    # it has none.
+    family: Optional[int] = None
 
     @property
     def needs_serial_read(self) -> bool:
@@ -1342,6 +1352,7 @@ class RulesExporter:
                 required_fields=self._required_source_fields(groups),
                 live=_LiveSource.of(layer) if layer.providerType() in _LIVE_PROVIDERS else None,
                 crs_wkt=layer.crs().toWkt(Qgis.CrsWktVariant.Preferred) if layer.crs().isValid() else "",
+                family=_QGIS_FAMILY.get(layer.geometryType()),
                 needs_biggest=any(
                     grp.keep_biggest_part or any(
                         _BIGGEST_FIELD in expr for m in grp.members for _, expr, _ in m.expression_fields
@@ -1825,46 +1836,87 @@ class RulesExporter:
         read it.
 
         GDAL reads local files whose URI has no options besides the layer
-        (a subset filter or a geometry type split falls back to QGIS), in
+        (a subset filter or a geometry type split falls back to QGIS), and
+        PostGIS tables (not queries, nor subset filters), in
         the layer's QGIS CRS, when the project sets no particular datum
-        transformation for it. Caller thread: the source is opened here, one
-        at a time, as QGIS reads them.
+        transformation for it and GDAL sees the geometry type QGIS does.
+        Caller thread: the source is opened here, one at a time, as QGIS
+        reads them.
         """
-        if src.live is not None or src.provider != "ogr" or not src.crs_wkt:
-            return None
-        path, *options = src.source_uri.split("|")
-        layer_name, layer_index = None, 0
-        for option in options:
-            key, _, value = option.partition("=")
-            if key == "layername":
-                layer_name = value
-            elif key == "layerid" and value.isdigit():
-                layer_index = int(value)
-            else:
-                return None
-        if not os.path.isfile(path):
+        if src.live is not None or not src.crs_wkt:
             return None
         source_crs = QgsCoordinateReferenceSystem.fromWkt(src.crs_wkt)
         target_crs = QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}")
         if not source_crs.isValid() or self._transform_context.hasTransform(source_crs, target_crs):
             return None
         try:
-            ds = gdal.OpenEx(path, gdal.OF_VECTOR | gdal.OF_READONLY)
+            opened = self._gdal_open_source(src)
         except RuntimeError:
             return None
-        if ds is None:
+        if opened is None:
             return None
-        layer = ds.GetLayerByName(layer_name) if layer_name else ds.GetLayer(layer_index)
-        if layer is None:
-            return None
+        ds, layer, size = opened
         family = _OGR_FAMILY.get(ogr.GT_GetSingle(ogr.GT_GetLinear(ogr.GT_Flatten(layer.GetGeomType()))))
         select = self._gdal_base_columns(layer, src.required_fields)
         if family is None or select is None:
             return None
+        if src.family is not None and family != src.family:
+            return None
         # OGR SQL over a project source; every name in it is quoted and
         # escaped (_sql_name).
         sql = f'SELECT {select} FROM "{_sql_name(layer.GetName())}"'  # nosec B608
-        return {"dataset": ds, "sql": sql, "family": family, "size": self._file_size(path)}
+        return {"dataset": ds, "sql": sql, "family": family, "size": size}
+
+    def _gdal_open_source(self, src: _SourceSnapshot):
+        """(dataset, layer, size in bytes) of a source GDAL can read as QGIS
+        does (see _gdal_base_plan), or None. Raises RuntimeError if GDAL
+        fails to open it."""
+        if src.provider == "ogr":
+            path, *options = src.source_uri.split("|")
+            layer_name, layer_index = None, 0
+            for option in options:
+                key, _, value = option.partition("=")
+                if key == "layername":
+                    layer_name = value
+                elif key == "layerid" and value.isdigit():
+                    layer_index = int(value)
+                else:
+                    return None
+            if not os.path.isfile(path):
+                return None
+            ds = gdal.OpenEx(path, gdal.OF_VECTOR | gdal.OF_READONLY)
+            if ds is None:
+                return None
+            layer = ds.GetLayerByName(layer_name) if layer_name else ds.GetLayer(layer_index)
+            return None if layer is None else (ds, layer, self._file_size(path))
+        # Databases: PostGIS. (GDAL's SQLite driver would load SpatiaLite
+        # in this process, whose locale changes race with other threads.)
+        if src.provider != "postgres":
+            return None
+        uri = QgsDataSourceUri(src.source_uri)
+        table, geometry = uri.table(), uri.geometryColumn()
+        if not table or not geometry or uri.sql() or table.startswith("("):
+            return None
+        # PostGIS: the connection QGIS makes (its authentication
+        # configuration resolved), limited to the one table. GDAL splits the
+        # TABLES list on commas, the schema at the dot, the column at "(".
+        schema = uri.schema() or "public"
+        if any(c in name for name in (schema, table, geometry) for c in ",()") or "." in table:
+            return None
+        connection = uri.connectionInfo(True)
+        if not connection:
+            return None
+        ds = gdal.OpenEx(
+            f"PG:{connection}", gdal.OF_VECTOR | gdal.OF_READONLY, allowed_drivers=["PostgreSQL"],
+            open_options=[f"TABLES={schema}.{table}({geometry})"],
+        )
+        if ds is None or ds.GetLayerCount() != 1:
+            return None
+        layer = ds.GetLayer(0)
+        # The server's estimate of the rows; unknown sizes are staged on disk.
+        count = layer.GetFeatureCount(0)
+        size = count * _DATABASE_ROW_BYTES if count >= 0 else _GDAL_MEMORY_INPUT_MAX + 1
+        return ds, layer, size
 
     @staticmethod
     def _gdal_base_columns(layer, required_fields: Optional[Tuple[str, ...]]) -> Optional[str]:

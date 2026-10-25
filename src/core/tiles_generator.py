@@ -9,10 +9,10 @@ format, then copies them into the export's single PMTiles file
 The MVT driver works a run's zoom levels one after another and gains
 nothing from GDAL_NUM_THREADS (measured slower), so the zoom levels are
 split into parallel ogr2ogr runs, one process each, whose MBTiles are then
-merged into one (zoom levels never share a tile). Workers left over when
-there are fewer zoom levels than workers split zoom levels by area into
-strips of tile columns: a strip's run reads only the features near it and
-keeps only its own tiles.
+merged into one (zoom levels never share a tile). The runs are balanced by
+work: the lowest zoom levels share a run, and the costliest are split by
+area into strips of tile columns: a strip's run reads only the features
+near it, clipped to it, and keeps only its own tiles.
 
 Each run's temporary database, which the driver writes every feature of
 every tile to, is kept in memory while the runs' estimated sizes fit in
@@ -66,6 +66,25 @@ _TILE_PIXELS = 512
 # make the lowest zooms' tiles the heaviest, for specks hardly drawn.
 _MIN_POLYGON_PIXELS = 0.25
 
+# Low-zoom generalization (optional, see GDALTilesGenerator): below the
+# tiles' highest zoom, polygons smaller than this share of a screen pixel are
+# left out, one point is kept per rule and grid cell of this many screen
+# pixels, lines and polygons are simplified to a screen pixel (8 tile units)
+# and tiles are limited to half the size.
+_GENERALIZED_POLYGON_PIXELS = 1.0
+_GENERALIZED_POINT_CELL_PIXELS = 16
+_GENERALIZED_SIMPLIFICATION = 8
+
+# A zoom level's work per byte of its data: 1, plus this much times the
+# square root of its tile count, as features are cut into more tiles
+# (fitted on Natural Earth z0-z8 and a city z0-z15, see _plan_runs).
+_TILE_COST = 0.017
+
+# ogr2ogr runs per worker (see _plan_runs). More, smaller runs even out a
+# wrong estimate, but each reads and clips its features again: measured on
+# Natural Earth and a city, three per worker were slower than one.
+_RUNS_PER_WORKER = 1
+
 
 @dataclass
 class _Run:
@@ -76,6 +95,8 @@ class _Run:
     columns: Optional[Tuple[int, int]] = None
     output: str = ""
     in_memory: bool = False
+    # Estimated work (see GDALTilesGenerator._plan_runs).
+    cost: float = 0.0
 
 
 class GDALTilesGenerator:
@@ -89,6 +110,7 @@ class GDALTilesGenerator:
         extent,
         cpu_percent: int,
         feedback: QgsProcessingFeedback,
+        generalize: bool = False,
     ):
         self.layers = layers
         self.style = style
@@ -96,6 +118,9 @@ class GDALTilesGenerator:
         self.extent = extent
         self.cpu_percent = cpu_percent
         self.feedback = feedback
+        # Generalize the tiles below the highest zoom more (smaller, faster
+        # to draw, less detailed); off by default.
+        self.generalize = generalize
         # Set by cancel(), from another thread.
         self._cancelled = threading.Event()
 
@@ -129,11 +154,7 @@ class GDALTilesGenerator:
         last = min(max_zoom, _TILES_MAX_ZOOM)
         self._last_zoom = last
         workers = self._worker_count()
-        zoom_runs = [
-            run for run in self._zoom_runs(first, last, workers)
-            if self._run_layers(*run)
-        ] or [(first, last)]
-        runs = self._split_by_area(zoom_runs, workers)
+        runs = self._plan_runs(first, last, workers)
         self._place_temporary_dbs(runs)
         if len(runs) == 1:
             runs[0].output = output
@@ -179,56 +200,87 @@ class GDALTilesGenerator:
 
     def _max_tile_size(self, zoom: int) -> int:
         """MAX_SIZE of a run whose last zoom level is ``zoom``."""
-        return max(_TILE_MAX_SIZE, min(_TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE // self._tile_count(zoom)))
+        size = max(_TILE_MAX_SIZE, min(_TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE // self._tile_count(zoom)))
+        return size // 2 if self._generalized(zoom) else size
 
-    # --- Splitting zoom levels by area ---
+    def _generalized(self, last_zoom: Optional[int]) -> bool:
+        """Whether a run whose last zoom level is ``last_zoom`` is
+        generalized: when asked, below the tiles' highest zoom."""
+        return (self.generalize and last_zoom is not None
+                and last_zoom < getattr(self, "_last_zoom", last_zoom))
 
-    def _split_by_area(self, zoom_runs: List[Tuple[int, int]], workers: int) -> List[_Run]:
-        """The runs: one per zoom run, single-zoom ones split into strips of
-        tile columns while workers are left. Every zoom level costs about
-        the same (each writes every feature), so the zoom with the fewest
-        strips is split further, the one with most columns first."""
-        strips = {run: 1 for run in zoom_runs}
-        columns = {}
-        for lo, hi in zoom_runs:
-            c0, c1, _, _ = self._tile_range(hi)
-            columns[(lo, hi)] = c1 - c0 + 1
-        spare = workers - len(zoom_runs)
-        while spare > 0:
-            candidates = [
-                run for run in zoom_runs
-                if run[0] == run[1] and strips[run] < columns[run]
-            ]
-            if not candidates:
-                break
-            run = min(candidates, key=lambda r: (strips[r], -columns[r], -r[0]))
-            strips[run] += 1
-            spare -= 1
+    # --- Planning the parallel runs ---
+
+    def _plan_runs(self, first: int, last: int, workers: int) -> List[_Run]:
+        """The ogr2ogr runs, about _RUNS_PER_WORKER per worker, of about
+        equal work each, by estimate (_run_processes starts the largest
+        first, and the others as workers finish).
+
+        A zoom level's work is estimated from its datasets' size, more per
+        byte the more tiles it has (_TILE_COST): a city's zoom levels cost
+        about the same (its features are small next to the tiles, each
+        written about once), the world's grow with the zoom (an ocean is
+        cut into every tile). The lowest zoom levels share runs, and a zoom level
+        costing more than a run's share is split into strips of tile
+        columns. The estimate is rough: measured, a byte costs from one to
+        twenty times more, with the features' size. The old one run per
+        zoom level left most workers idle while Natural Earth's z8 took
+        four minutes.
+        """
+        zooms = [z for z in range(first, last + 1) if self._run_layers(z, z)]
+        if workers <= 1 or len(zooms) == 0:
+            return [_Run(first, last)]
+        cost = {}
+        for z in zooms:
+            data = sum(self._dataset_size(layer) for layer, _, _ in self._run_layers(z, z).values())
+            cost[z] = max(data, 1) * (1 + _TILE_COST * math.sqrt(self._tile_count(z)))
+        share = sum(cost.values()) / (workers * _RUNS_PER_WORKER)
+        plan: List[list] = []  # [lo, hi, strips, cost]
+        group: List[int] = []
+
+        def close_group():
+            if group:
+                plan.append([group[0], group[-1], 1, sum(cost[z] for z in group)])
+                group.clear()
+
+        for z in zooms:
+            if cost[z] >= share:
+                close_group()
+                c0, c1, _, _ = self._tile_range(z)
+                plan.append([z, z, max(1, min(c1 - c0 + 1, round(cost[z] / share))), cost[z]])
+                continue
+            if group and sum(cost[g] for g in group) + cost[z] > share:
+                close_group()
+            group.append(z)
+        close_group()
         runs = []
-        for lo, hi in zoom_runs:
-            count = strips[(lo, hi)]
-            if count == 1:
-                runs.append(_Run(lo, hi))
+        for lo, hi, strips, work in plan:
+            if strips == 1:
+                runs.append(_Run(lo, hi, cost=work))
                 continue
             c0, c1, _, _ = self._tile_range(hi)
             total = c1 - c0 + 1
             start = c0
-            for i in range(count):
-                width = total // count + (1 if i < total % count else 0)
-                runs.append(_Run(lo, hi, (start, start + width - 1)))
+            for i in range(strips):
+                width = total // strips + (1 if i < total % strips else 0)
+                runs.append(_Run(lo, hi, (start, start + width - 1), cost=work * width / total))
                 start += width
         return runs
 
     def _strip_filter(self, run: _Run) -> List[str]:
         """ogr2ogr's spatial filter for a strip: its columns, widened by a
         tile on each side so that every feature reaching into its tiles
-        (or their buffer) is read; nothing for a whole run."""
+        (or their buffer) is read; nothing for a whole run. Features are
+        also clipped to it: the driver writes a feature to every tile it
+        reaches, so an ocean or a continent read whole would be cut into
+        every tile of the world by every strip."""
         if run.columns is None:
             return []
         tile = 2 * _WORLD_HALF / 2 ** run.hi
         west = -_WORLD_HALF + run.columns[0] * tile - tile
         east = -_WORLD_HALF + (run.columns[1] + 1) * tile + tile
-        return ["-spat", repr(west), repr(-_WORLD_HALF), repr(east), repr(_WORLD_HALF)]
+        return ["-spat", repr(west), repr(-_WORLD_HALF), repr(east), repr(_WORLD_HALF),
+                "-clipsrc", "spat_extent"]
 
     # --- Temporary databases ---
 
@@ -279,19 +331,6 @@ class GDALTilesGenerator:
         except (AttributeError, OSError, ValueError):
             return 0
 
-    @staticmethod
-    def _zoom_runs(first: int, last: int, workers: int) -> List[Tuple[int, int]]:
-        """Zoom ranges of the parallel runs: one zoom level each, as many as
-        there are workers; the lowest levels, which have the fewest tiles,
-        share one run when there are more levels than workers."""
-        zooms = list(range(first, last + 1))
-        if workers <= 1 or len(zooms) <= 1:
-            return [(first, last)]
-        if len(zooms) <= workers:
-            return [(z, z) for z in zooms]
-        single = zooms[len(zooms) - (workers - 1):]
-        return [(first, single[0] - 1)] + [(z, z) for z in single]
-
     # --- Per-layer zoom configuration ---
 
     def _layer_zooms(self, layer: QgsVectorLayer) -> Tuple[int, int]:
@@ -335,7 +374,7 @@ class GDALTilesGenerator:
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(layer, style_text, min_area))
+                f.write(self._vrt_layer_block(layer, style_text, min_area, self._point_cell(last_zoom)))
             f.write("</OGRVRTDataSource>\n")
 
     def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
@@ -346,22 +385,46 @@ class GDALTilesGenerator:
         if last_zoom is None or last_zoom >= getattr(self, "_last_zoom", last_zoom):
             return None
         pixel = 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
-        return _MIN_POLYGON_PIXELS * pixel * pixel
+        pixels = _GENERALIZED_POLYGON_PIXELS if self._generalized(last_zoom) else _MIN_POLYGON_PIXELS
+        return pixels * pixel * pixel
+
+    def _point_cell(self, last_zoom: Optional[int]) -> Optional[float]:
+        """The grid cell (EPSG:3857 metres) of a generalized run's point
+        thinning; None when the run isn't generalized."""
+        if not self._generalized(last_zoom):
+            return None
+        return _GENERALIZED_POINT_CELL_PIXELS * 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
-                         min_area: Optional[float] = None) -> str:
+                         min_area: Optional[float] = None, point_cell: Optional[float] = None) -> str:
         """Return the VRT XML block for a single layer; a polygon layer's
-        smaller polygons than ``min_area`` are left out."""
+        smaller polygons than ``min_area`` are left out, and a point layer
+        keeps its first point per rule and grid cell of ``point_cell``."""
         source = layer.source().split("|layername=")[0]
         geometry = re.search(r"c(\d\d)", self._layer_name(layer))
+        geometry = geometry.group(1) if geometry else None
         src_sql = ""
-        if min_area and geometry and geometry.group(1) == "02":
+        if (min_area and geometry == "02") or (point_cell and geometry == "00"):
             ds = ogr.Open(source)
             if ds is not None:
-                # OGR SQL over the plugin's own dataset; the name is quoted.
-                name = ds.GetLayer(0).GetName().replace('"', '""')
-                sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
-                src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
+                # SQL over the plugin's own dataset; the names are quoted.
+                source_layer = ds.GetLayer(0)
+                name = source_layer.GetName().replace('"', '""')
+                if geometry == "02":
+                    sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
+                    src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
+                else:
+                    # Run by ogr2ogr: SQLite SQL never runs in QGIS's process.
+                    column = (source_layer.GetGeometryColumn() or "GEOMETRY").replace('"', '""')
+                    keys = [f'CAST(floor(ST_X("{column}") / {point_cell!r}) AS INTEGER)',
+                            f'CAST(floor(ST_Y("{column}") / {point_cell!r}) AS INTEGER)']
+                    if source_layer.GetLayerDefn().GetFieldIndex(f"{_FIELD_PREFIX}_rule") >= 0:
+                        keys.insert(0, f'"{_FIELD_PREFIX}_rule"')
+                    # "+rowid": SQLite would otherwise fetch each kept row
+                    # by its FID, a scan of the file each (minutes).
+                    sql = (f'SELECT * FROM "{name}" WHERE +rowid IN '  # nosec B608
+                           f'(SELECT min(rowid) FROM "{name}" GROUP BY {", ".join(keys)})')
+                    src_sql = f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
                 ds = None
         return (
             f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
@@ -435,8 +498,9 @@ class GDALTilesGenerator:
             temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
         # The driver applies SIMPLIFICATION_MAX_ZOOM at a run's last zoom:
         # only the tiles' real last zoom is left unsimplified.
+        simplification = _GENERALIZED_SIMPLIFICATION if self._generalized(hi) else _SIMPLIFICATION
         last_zoom_simplification = (
-            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else _SIMPLIFICATION
+            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else simplification
         )
         return [
             "ogr2ogr", "-f", "MBTiles", run.output, vrt_path,
@@ -449,13 +513,13 @@ class GDALTilesGenerator:
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", f"MAX_SIZE={self._max_tile_size(hi)}",
             "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
-            "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
+            "-dsco", f"SIMPLIFICATION={simplification}",
             "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
             *self._strip_filter(run),
         ]
 
     def _run_ogr2ogr_runs(self, runs: List[_Run]):
-        """Run ogr2ogr once per run, all at once, each on one thread; raises
+        """Run ogr2ogr once per run, a worker's each, on one thread; raises
         RuntimeError if any fails, and stops them all if the conversion is
         cancelled. A run that fails with its temporary database in memory
         (e.g. out of memory) is run again with it on disk."""
@@ -473,8 +537,9 @@ class GDALTilesGenerator:
             raise RuntimeError(error_msg)
 
     def _run_processes(self, runs: List[_Run]) -> List[Tuple[_Run, str]]:
-        """Run the runs' ogr2ogr processes at once; the failed runs with the
-        end of their error output."""
+        """Run the runs' ogr2ogr processes, as many at once as there are
+        workers, the largest estimated first; the failed runs with the end
+        of their error output."""
         env = os.environ.copy()
         env["GDAL_NUM_THREADS"] = "1"
         startupinfo = None
@@ -487,20 +552,37 @@ class GDALTilesGenerator:
 
         processes = []
         failed = []
+        waiting = sorted(runs, key=lambda r: -r.cost)
+        workers = self._worker_count()
+        # Per run: when it started, and how long it took.
+        started: Dict[int, float] = {}
+        took: Dict[int, float] = {}
         try:
-            for run in runs:
-                stderr_path = f"{run.output}.log"
-                with open(stderr_path, "w", encoding="utf-8") as stderr:
-                    processes.append((run, subprocess.Popen(
-                        self._ogr2ogr_command(run), env=env,
-                        stdout=subprocess.DEVNULL, stderr=stderr,
-                        startupinfo=startupinfo, creationflags=creationflags,
-                    ), stderr_path))
-            while any(process.poll() is None for _, process, _ in processes):
+            while waiting or any(process.poll() is None for _, process, _ in processes):
                 if self._cancelled.is_set() or (
                         self.feedback is not None and self.feedback.isCanceled()):
                     raise RuntimeError("Tile generation cancelled.")
+                for run, process, _ in processes:
+                    if process.poll() is not None and id(run) not in took:
+                        took[id(run)] = time.perf_counter() - started[id(run)]
+                while waiting and len(processes) - len(took) < workers:
+                    run = waiting.pop(0)
+                    stderr_path = f"{run.output}.log"
+                    with open(stderr_path, "w", encoding="utf-8") as stderr:
+                        started[id(run)] = time.perf_counter()
+                        processes.append((run, subprocess.Popen(
+                            self._ogr2ogr_command(run), env=env,
+                            stdout=subprocess.DEVNULL, stderr=stderr,
+                            startupinfo=startupinfo, creationflags=creationflags,
+                        ), stderr_path))
                 time.sleep(0.25)
+            if self.feedback is not None:
+                for run, _, _ in processes:
+                    columns = f" columns {run.columns[0]}-{run.columns[1]}" if run.columns else ""
+                    seconds = took.get(id(run), time.perf_counter() - started[id(run)])
+                    self.feedback.pushDebugInfo(
+                        f"Tiles z{run.lo}-{run.hi}{columns}: {seconds:.1f} s"
+                        f"{' (database in memory)' if run.in_memory else ''}")
             for run, process, stderr_path in processes:
                 if process.returncode != 0:
                     with open(stderr_path, encoding="utf-8", errors="replace") as f:

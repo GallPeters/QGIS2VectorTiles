@@ -123,6 +123,7 @@ def main(job_path: str) -> int:
         output_dir=params["output_dir"],
         included_fields=params["included_fields"],
         feedback=feedback,
+        generalize=params.get("generalize", False),
     )
     # The parent starts the tile server and changes its own project.
     runner.serve_tiles = lambda temp_dir: None
