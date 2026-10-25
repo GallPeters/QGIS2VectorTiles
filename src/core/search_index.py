@@ -37,8 +37,13 @@ from ..utils.flattened_rule import FlattenedRule
 _MERCATOR_RADIUS = 6378137.0
 # Features in the index at most; beyond it the index is cut and says so.
 _MAX_FEATURES = 200000
+# Entries read at most: duplicates (see _without_duplicates) are removed
+# before the index is cut to _MAX_FEATURES.
+_MAX_READ_FEATURES = 4 * _MAX_FEATURES
 # Longest field value kept, in characters.
 _MAX_VALUE_LENGTH = 120
+# Entries with the same name this close (degrees, about 1 km) are one place.
+_DUPLICATE_DISTANCE = 0.01
 _ORIG_ID = f"{_FIELD_PREFIX}_orig_id"
 _LABEL = f"{_FIELD_PREFIX}_label"
 
@@ -94,11 +99,11 @@ class SearchIndexBuilder:
                 return None
         if not count:
             return None
+        truncated = self._write(list(layers.values()), truncated)
         if truncated:
             self.feedback.pushWarning(
                 f"The search index holds the first {_MAX_FEATURES} features only."
             )
-        self._write(list(layers.values()), truncated)
         return self.output_path
 
     def _read_dataset(self, dataset: QgsVectorLayer, indexed: _IndexedLayer, count: int) -> Tuple[int, bool]:
@@ -128,7 +133,7 @@ class SearchIndexBuilder:
             key = feature.attribute(orig_idx)
             entry = indexed.features.get(key)
             if entry is None:
-                if count >= _MAX_FEATURES:
+                if count >= _MAX_READ_FEATURES:
                     truncated = True
                     continue
                 entry = indexed.features[key] = ({}, QgsRectangle(geometry.boundingBox()))
@@ -168,7 +173,8 @@ class SearchIndexBuilder:
 
         return [lon(box.xMinimum()), lat(box.yMinimum()), lon(box.xMaximum()), lat(box.yMaximum())]
 
-    def _write(self, layers: List[_IndexedLayer], truncated: bool) -> None:
+    def _write(self, layers: List[_IndexedLayer], truncated: bool) -> bool:
+        """Write the index; returns whether it was cut short."""
         layers_out: List[Dict[str, Any]] = []
         features_out: List[list] = []
         for layer in layers:
@@ -188,12 +194,96 @@ class SearchIndexBuilder:
                     [values.get(f) for f in layer.fields],
                     self._to_wgs84(box),
                 ])
+        features_out = self._without_duplicates(features_out, layers_out)
+        if len(features_out) > _MAX_FEATURES:
+            features_out = features_out[:_MAX_FEATURES]
+            truncated = True
         makedirs(dirname(self.output_path), exist_ok=True)
         with open(self.output_path, "w", encoding="utf-8") as f:
             json.dump(
                 {"layers": layers_out, "features": features_out, "truncated": truncated},
                 f, ensure_ascii=False, separators=(",", ":"),
             )
+        return truncated
+
+    @staticmethod
+    def _without_duplicates(features: List[list], layers: List[Dict[str, Any]]) -> List[list]:
+        """One result per place: entries with the same name whose boxes
+        touch or lie within _DUPLICATE_DISTANCE degrees are one feature
+        shown by several layers (a layer copied per scale range, a place
+        in two themes, a street in segments). They become one entry: the
+        one from the layer drawn at the most zoom levels (the viewer zooms
+        to it within them), with the boxes' union. Same names elsewhere
+        (a town and a street named after it) stay apart.
+        """
+        def name_of(entry) -> Optional[str]:
+            fields = layers[entry[0]]["fields"]
+            values = entry[1]
+            if "label" in fields and isinstance(values[fields.index("label")], str):
+                return values[fields.index("label")].strip().casefold() or None
+            return next((v.strip().casefold() for v in values if isinstance(v, str) and v.strip()), None)
+
+        def span(entry) -> int:
+            layer = layers[entry[0]]
+            return (layer.get("maxzoom") or 22) - (layer.get("minzoom") or 0)
+
+        cell = _DUPLICATE_DISTANCE * 4
+        kept: List[Optional[list]] = []
+        # Per (name, grid cell): indices into kept of the entries there;
+        # per name, the entries too large for the grid (checked one by one).
+        grid: Dict[tuple, List[int]] = {}
+        large: Dict[str, List[int]] = {}
+        by_name: Dict[str, List[int]] = {}
+
+        def cells_of(box) -> Optional[List[tuple]]:
+            xs = range(int(math.floor(box[0] / cell)), int(math.floor(box[2] / cell)) + 1)
+            ys = range(int(math.floor(box[1] / cell)), int(math.floor(box[3] / cell)) + 1)
+            if len(xs) * len(ys) > 64:
+                return None
+            return [(cx, cy) for cx in xs for cy in ys]
+
+        for entry in features:
+            name = name_of(entry)
+            if name is None:
+                kept.append(entry)
+                continue
+            west, south, east, north = entry[2]
+            near = (west - _DUPLICATE_DISTANCE, south - _DUPLICATE_DISTANCE,
+                    east + _DUPLICATE_DISTANCE, north + _DUPLICATE_DISTANCE)
+            near_cells = cells_of(near)
+            candidates = list(large.get(name, ()))
+            if near_cells is None:  # A large box: every entry of the name.
+                candidates = list(by_name.get(name, ()))
+            else:
+                for cx, cy in near_cells:
+                    candidates += grid.get((name, cx, cy), ())
+            match = None
+            for i in candidates:
+                box = kept[i][2]
+                if box[0] <= near[2] and box[2] >= near[0] and box[1] <= near[3] and box[3] >= near[1]:
+                    match = i
+                    break
+            if match is None:
+                kept.append(entry)
+                index = len(kept) - 1
+                by_name.setdefault(name, []).append(index)
+            else:
+                index = match
+                other = kept[match]
+                box = [min(other[2][0], west), min(other[2][1], south),
+                       max(other[2][2], east), max(other[2][3], north)]
+                best = entry if span(entry) > span(other) else other
+                kept[match] = [best[0], best[1], box]
+            box_cells = cells_of(kept[index][2])
+            if box_cells is None:
+                if index not in large.setdefault(name, []):
+                    large[name].append(index)
+            else:
+                for cx, cy in box_cells:
+                    slot = grid.setdefault((name, cx, cy), [])
+                    if index not in slot:
+                        slot.append(index)
+        return [entry for entry in kept if entry is not None]
 
     @staticmethod
     def _value(value) -> Any:
