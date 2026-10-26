@@ -154,7 +154,7 @@ from ..utils.config import (
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, cluster_settings,
-    displacement_settings, marker_angle_field, pinned_field,
+    displacement_label_settings, displacement_settings, marker_angle_field, pinned_field,
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
@@ -1418,6 +1418,8 @@ class RulesExporter:
         if rule_type == 0 and (cluster_settings(primary.rule.symbol()) is not None
                                or displacement_settings(primary.rule.symbol()) is not None):
             shareable = False  # Its points become clusters (group centres) in the tiles, alone.
+        if rule_type == 1 and displacement_label_settings(primary.rule.settings()) is not None:
+            shareable = False  # Its labels move beside their points in the tiles, alone.
         group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
         if group is None:
             holder = member
@@ -1571,6 +1573,8 @@ class RulesExporter:
         entry = placed.get(id(label.renderer)) if label.renderer is not None else None
         if entry is None or label.label_filter is None:
             return False
+        if displacement_label_settings(label.rule.settings()) is not None:
+            return False  # Placed beside its points by the tiles, in rows of its own.
         group, member = entry
         if self._merge_mode(group) != "parts":
             return False  # Its rows are merged or inverted (labels are per feature).

@@ -47,7 +47,7 @@ from ..utils.config import QDomDocument
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, OFFSET_PROPERTY,
-    HEATMAP_PROPERTY, CLUSTER_PROPERTY,
+    HEATMAP_PROPERTY, CLUSTER_PROPERTY, DISPLACEMENT_LABEL_PROPERTY, displacement_label_settings,
 )
 from ..utils.zoom_levels import ZoomLevels
 # Registers the q2vt_* expression functions the rules' geometry generators call.
@@ -256,16 +256,39 @@ class RulesFlattener:
         displacement settings (see displacement_settings). The tiles hold,
         per zoom level, the points moved and the groups' centres
         (GDALTilesGenerator)."""
-        # pylint: disable=import-outside-toplevel
-        from .maplibre_converter import PropertyExtractor
         embedded = displacement.embeddedRenderer()
         rules = QgsRuleBasedRenderer.convertFromRenderer(embedded) if embedded else None
         if rules is None:
             return None
+        settings = self._displacement_settings(displacement)
+        center = displacement.centerSymbol()
+        color = displacement.circleColor()
+
+        def marked(symbol, role: str):
+            for index in range(symbol.symbolLayerCount()):
+                symbol.symbolLayer(index).setDataDefinedProperty(
+                    CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps({**settings, "role": role}), False))
+            return symbol
+
+        # QGIS draws a group's circle, then its centre symbol, then its points.
+        if center is not None and center.symbolLayerCount():
+            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(center.clone(), "center")))
+        if color.isValid() and color.alpha() > 0:
+            circle = QgsSimpleMarkerSymbolLayer()
+            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(QgsMarkerSymbol([circle]), "circle")))
+        return rules
+
+    @staticmethod
+    def _displacement_settings(displacement) -> dict:
+        """A point displacement renderer's settings, as the style converter
+        and GDALTilesGenerator read them (see displacement_settings)."""
+        # pylint: disable=import-outside-toplevel
+        from .maplibre_converter import PropertyExtractor
+        embedded = displacement.embeddedRenderer()
         # The largest symbol's diagonal (QGIS spaces the points by the
         # group's largest).
         diagonal = 0.0
-        for symbol in embedded.symbols(QgsRenderContext()):
+        for symbol in (embedded.symbols(QgsRenderContext()) if embedded else []):
             if isinstance(symbol, QgsMarkerSymbol):
                 size = PropertyExtractor.convert_length_to_pixels(symbol.size(), symbol.sizeUnit())
                 diagonal = max(diagonal, math.sqrt(2) * (size or 0))
@@ -287,21 +310,9 @@ class RulesFlattener:
             "circle_px": PropertyExtractor.convert_length_to_pixels(
                 displacement.circleWidth(), Qgis.RenderUnit.Millimeters),
             "circle_color": [color.red(), color.green(), color.blue(), color.alphaF()],
+            "label_factor": displacement.labelDistanceFactor(),
         }
-
-        def marked(symbol, role: str):
-            for index in range(symbol.symbolLayerCount()):
-                symbol.symbolLayer(index).setDataDefinedProperty(
-                    CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps({**settings, "role": role}), False))
-            return symbol
-
-        # QGIS draws a group's circle, then its centre symbol, then its points.
-        if center is not None and center.symbolLayerCount():
-            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(center.clone(), "center")))
-        if color.isValid() and color.alpha() > 0:
-            circle = QgsSimpleMarkerSymbolLayer()
-            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(QgsMarkerSymbol([circle]), "circle")))
-        return rules
+        return settings
 
     def _get_inactive_item_indices(self, system) -> List[int]:
         """Return indices of inactive items from graduated or categorized renderers."""
@@ -317,19 +328,53 @@ class RulesFlattener:
         return []
 
     def _convert_labeling_to_rules(self, layer: QgsVectorLayer):
-        """Convert any labeling system to QgsRuleBasedLabeling."""
+        """Convert any labeling system to QgsRuleBasedLabeling, with a point
+        displacement renderer's own labels (see _displacement_label)."""
         system = layer.labeling()
-        if not system or not layer.labelsEnabled():
+        renderer_label = self._displacement_label(layer)
+        if (not system or not layer.labelsEnabled()) and renderer_label is None:
             return None
+        if system and layer.labelsEnabled():
+            system = system.clone()
+            if not isinstance(system, QgsRuleBasedLabeling):
+                root = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
+                root.appendChild(QgsRuleBasedLabeling.Rule(system.settings()))
+                system = QgsRuleBasedLabeling(root)
+        else:
+            system = QgsRuleBasedLabeling(QgsRuleBasedLabeling.Rule(QgsPalLayerSettings()))
+        if renderer_label is not None:
+            system.rootRule().appendChild(renderer_label)
+        return system
 
-        system = system.clone()
-        if isinstance(system, QgsRuleBasedLabeling):
-            return system
-
-        rule = QgsRuleBasedLabeling.Rule(system.settings())
-        root = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
-        root.appendChild(rule)
-        return QgsRuleBasedLabeling(root)
+    def _displacement_label(self, layer: QgsVectorLayer):
+        """A point displacement renderer's own labels (its label attribute,
+        font and colour, drawn by every point, from its label scale in) as
+        a label rule carrying the displacement settings (see
+        displacement_label_settings): placed in the tiles, per zoom level,
+        where QGIS draws them, beside each point (GDALTilesGenerator)."""
+        renderer = layer.renderer()
+        if renderer is None or renderer.type() != "pointDisplacement" or not renderer.labelAttributeName():
+            return None
+        settings = QgsPalLayerSettings()
+        settings.fieldName = renderer.labelAttributeName()
+        settings.isExpression = False
+        settings.placement = Qgis.LabelPlacement.OverPoint
+        settings.quadOffset = Qgis.LabelQuadrantPosition.AboveRight
+        settings.displayAll = True
+        text_format = QgsTextFormat()
+        font = renderer.labelFont()
+        text_format.setFont(font)
+        text_format.setSize(font.pointSizeF() if font.pointSizeF() > 0 else 10)
+        text_format.setSizeUnit(Qgis.RenderUnit.Points)
+        text_format.setColor(renderer.labelColor())
+        settings.setFormat(text_format)
+        settings.dataDefinedProperties().setProperty(
+            DISPLACEMENT_LABEL_PROPERTY,
+            QgsProperty.fromValue(json.dumps({**self._displacement_settings(renderer), "role": "label"}), False))
+        rule = QgsRuleBasedLabeling.Rule(settings)
+        if renderer.minimumLabelScale() > 0:
+            rule.setMinimumScale(renderer.minimumLabelScale())
+        return rule
 
     def _prepare_root_rule(self, rule_system, layer: QgsVectorLayer):
         """Set layer-level scale visibility on the root rule."""
@@ -815,6 +860,13 @@ class RulesFlattener:
         geometry = f"transform(@geometry, '{crs}', 'EPSG:3857')"
         return f"transform({expression.replace('@geometry', geometry)}, 'EPSG:3857', '{crs}')"
 
+    @classmethod
+    def _type_value(cls, symbol_layer, name: str) -> str:
+        """A type property as an expression: its data-defined value, else
+        NULL (the static type, see q2vt_arrow)."""
+        prop = cls._property(symbol_layer, name)
+        return f"({prop.asExpression()})" if prop and prop.isActive() else "NULL"
+
     def _arrow_generator(self, arrow: QgsArrowSymbolLayer, layer: QgsVectorLayer):
         """An arrow as a geometry generator making the polygons QGIS draws
         (q2vt_arrow: straight or curved, repeated or not, head(s), half
@@ -836,8 +888,9 @@ class RulesFlattener:
         on_screen = any("@map_scale" in length for length in lengths)
         pixel = self._ground_length(1, Qgis.RenderUnit.Pixels, layer) if on_screen else "1"
         expression = self._in_3857(
-            f"q2vt_arrow(@geometry, {', '.join(lengths)}, {int(arrow.headType())}, "
-            f"{int(arrow.arrowType())}, {int(arrow.isCurved())}, {int(arrow.isRepeated())}, {pixel})",
+            f"q2vt_arrow(@geometry, {', '.join(lengths)}, {self._type_value(arrow, 'ArrowHeadType')}, "
+            f"{self._type_value(arrow, 'ArrowType')}, {int(arrow.isCurved())}, {int(arrow.isRepeated())}, "
+            f"{pixel}, {int(arrow.headType())}, {int(arrow.arrowType())})",
             layer)
         generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
         generator.setSymbolType(Qgis.SymbolType.Fill)
@@ -1057,6 +1110,8 @@ class RulesFlattener:
 
     def _split_by_matching_renderers(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split a label rule by matching renderer rules with overlapping scale ranges."""
+        if displacement_label_settings(label_rule.rule.settings()) is not None:
+            return [label_rule]  # The renderer's own labels: one per point, as it draws them.
         split_rules = []
         seen_datasets: set = set()
         renderer_idx = 0

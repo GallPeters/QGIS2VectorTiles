@@ -41,7 +41,9 @@ from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
-from ..utils.flattened_rule import CLUSTER_SIZE_FIELD, DISPLACEMENT_RADIUS_FIELD, TILE_LAYERS_KEY
+from ..utils.flattened_rule import (
+    CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, TILE_LAYERS_KEY,
+)
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -334,8 +336,8 @@ class GDALTilesGenerator:
 
     def _build_layer_conf(self, conf_path: str, run_layers: dict, extra: Optional[dict] = None):
         """Write the MVT driver's CONF file: each layer's own zoom range
-        (and ``extra`` entries, e.g. a clustered layer's zoom levels, see
-        _cluster_blocks).
+        (and ``extra`` entries, e.g. a grouped layer's zoom levels, see
+        _group_blocks).
 
         Without it every layer is written to every zoom level of the
         dataset, although each style only shows it within its own range.
@@ -363,7 +365,7 @@ class GDALTilesGenerator:
                    extra: str = ""):
         """Write an OGR VRT containing one entry per layer, for a run whose
         last zoom level is ``last_zoom`` (see _min_area), and ``extra``
-        entries (see _cluster_blocks)."""
+        entries (see _group_blocks)."""
         style_text = str(self.style)
         min_area = self._min_area(last_zoom)
         with open(vrt_path, "w", encoding="utf-8") as f:
@@ -373,128 +375,51 @@ class GDALTilesGenerator:
             f.write(extra)
             f.write("</OGRVRTDataSource>\n")
 
-    # --- Point clusters ---
-
-    def _cluster_sources(self) -> Dict[str, dict]:
-        """The datasets drawn with a point cluster symbol (their style
-        layers' "q2vt:cluster" metadata: the clustering distance in pixels
-        or metres), by name."""
-        clusters = {}
-        for layer_def in self.style.get("layers", []):
-            distance = (layer_def.get("metadata") or {}).get("q2vt:cluster")
-            if distance and layer_def.get("source-layer"):
-                clusters[layer_def["source-layer"]] = distance
-        return clusters
-
     @staticmethod
     def _layer_prefix(name: str) -> str:
         """A dataset name's source layer and rule type ("l12t00")."""
         match = re.match(r"(l\d+t\d\d)", name)
         return match.group(1) if match else name
 
-    def _cluster_of(self, name: str, clusters: Dict[str, dict]) -> Optional[str]:
-        """The cluster dataset clustering a dataset's points: its own name
-        for a cluster dataset, that of its source layer's for the layer's
-        other point datasets (its points drawn alone), else None."""
-        if name in clusters:
-            return name
-        if re.search(r"c00", name):
-            prefix = self._layer_prefix(name)
-            return next((c for c in clusters if self._layer_prefix(c) == prefix), None)
-        return None
+    # --- Point clusters and point displacement ---
 
-    def _cluster_blocks(self, run_layers: dict, clusters: Dict[str, dict], tag: str) -> Tuple[str, dict]:
-        """VRT entries and CONF entries of a run's clustered datasets: per
-        zoom level, a cluster dataset as one point per cluster (the members'
-        mean position, their count in q2vt_cluster_size), the other point
-        datasets of its layer as the points alone in their cluster. Points
-        cluster in a grid of cells the clustering distance wide at that
-        zoom (QGIS clusters by distance from each point); each zoom's entry
-        writes the dataset's own tile layer (CONF target_name)."""
-        by_name = {self._layer_name(layer): layer for layer in self.layers}
-        blocks, conf = [], {}
-        for name, (layer, minzoom, maxzoom) in run_layers.items():
-            cluster = self._cluster_of(name, clusters)
-            if cluster is None or cluster not in by_name:
-                continue
-            source = layer.source().split("|layername=")[0]
-            cluster_source = by_name[cluster].source().split("|layername=")[0]
-            ds = ogr.Open(source)
-            cds = ogr.Open(cluster_source)
-            if ds is None or cds is None:
-                continue
-            layer_name = ds.GetLayer(0).GetName().replace('"', '""')
-            cluster_layer = cds.GetLayer(0).GetName()
-            ds = cds = None
-            distance = clusters[cluster]
-            for zoom in range(minzoom, maxzoom + 1):
-                cell = distance.get("m") or distance.get("px", 10) * 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** zoom)
-                key_x = f'CAST(floor(ST_X(GEOMETRY) / {cell!r}) AS INTEGER)'
-                key_y = f'CAST(floor(ST_Y(GEOMETRY) / {cell!r}) AS INTEGER)'
-                entry = f"{name}__z{zoom:02d}"
-                conf[entry] = {"target_name": name, "minzoom": zoom, "maxzoom": zoom}
-                if name == cluster:
-                    sql = (f"SELECT MakePoint(AVG(ST_X(GEOMETRY)), AVG(ST_Y(GEOMETRY)), {_EPSG_CRS}) AS GEOMETRY, "
-                           f'COUNT(*) AS "{CLUSTER_SIZE_FIELD}" FROM "{layer_name}" '
-                           f"GROUP BY {key_x}, {key_y} HAVING COUNT(*) > 1")  # nosec B608
-                    blocks.append(
-                        f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
-                        f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
-                        f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
-                        f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
-                        f'        <GeometryType>wkbPoint</GeometryType>\n'
-                        f'        <Field name="{CLUSTER_SIZE_FIELD}" type="Integer"/>\n'
-                        f'    </OGRVRTLayer>\n')
-                    continue
-                # The points alone in their cell, the cells counted over every
-                # point (the cluster dataset's), in one data source.
-                pair = join(QgsProcessingUtils.tempFolder(), f"cluster_{tag}_{len(blocks)}.vrt")
-                with open(pair, "w", encoding="utf-8") as f:
-                    f.write(
-                        "<OGRVRTDataSource>"
-                        f'<OGRVRTLayer name="pts"><SrcDataSource>{escape(source)}</SrcDataSource>'
-                        f"<SrcLayer>{escape(layer_name.replace(chr(34) * 2, chr(34)))}</SrcLayer></OGRVRTLayer>"
-                        f'<OGRVRTLayer name="allp"><SrcDataSource>{escape(cluster_source)}</SrcDataSource>'
-                        f"<SrcLayer>{escape(cluster_layer)}</SrcLayer></OGRVRTLayer>"
-                        "</OGRVRTDataSource>")
-                pts_x = key_x.replace("GEOMETRY", "pts.GEOMETRY")
-                pts_y = key_y.replace("GEOMETRY", "pts.GEOMETRY")
-                # (OGR finds the tables an SQLite query reads in its text:
-                # not inside a derived table, but in an IN subquery.)
-                sql = (f"SELECT pts.* FROM pts WHERE ({pts_x}, {pts_y}) IN "
-                       f"(SELECT {key_x}, {key_y} FROM allp GROUP BY 1, 2 HAVING COUNT(*) = 1)")  # nosec B608
-                blocks.append(
-                    f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
-                    f'        <SrcDataSource>{escape(pair)}</SrcDataSource>\n'
-                    f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
-                    f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
-                    f'        <GeometryType>wkbUnknown</GeometryType>\n'
-                    f'{self._vrt_fields(source, str(self.style))}'
-                    f'    </OGRVRTLayer>\n')
-        return "".join(blocks), conf
-
-    # --- Point displacement ---
-
-    def _displacement_sources(self) -> Dict[str, dict]:
-        """The datasets of point displacement renderers' circles and centre
-        symbols (their style layers' "q2vt:displacement" metadata), by name."""
+    def _group_sources(self) -> Dict[str, dict]:
+        """The datasets of point grouping renderers, by name, from their
+        style layers' metadata: a point cluster renderer's cluster symbol
+        ("q2vt:cluster", the distance: role "cluster"), a point displacement
+        renderer's circle, centre symbol and labels ("q2vt:displacement":
+        roles "circle", "center" and "label")."""
         sources = {}
         for layer_def in self.style.get("layers", []):
-            meta = (layer_def.get("metadata") or {}).get("q2vt:displacement")
-            if meta and layer_def.get("source-layer"):
-                sources[layer_def["source-layer"]] = meta
+            meta = layer_def.get("metadata") or {}
+            name = layer_def.get("source-layer")
+            if not name:
+                continue
+            if meta.get("q2vt:cluster"):
+                sources[name] = {"role": "cluster", "distance": meta["q2vt:cluster"]}
+            elif meta.get("q2vt:displacement"):
+                sources[name] = meta["q2vt:displacement"]
         return sources
 
-    def _displacement_of(self, name: str, sources: Dict[str, dict]) -> Optional[str]:
-        """The displacement dataset (a circle's or centre symbol's: every
-        point of the layer) grouping a dataset's points: its own name, or
-        that of its source layer's for the layer's other point datasets
-        (its points, moved), else None."""
-        if name in sources:
+    @staticmethod
+    def _layer_number(name: str) -> str:
+        """A dataset name's source layer ("l12")."""
+        match = re.match(r"(l\d+)t", name)
+        return match.group(1) if match else name
+
+    def _group_of(self, name: str, sources: Dict[str, dict]) -> Optional[str]:
+        """The dataset whose points (every point of the layer) group a
+        dataset's: a cluster's or a displacement's circle or centre symbol
+        dataset, for itself, its layer's labels of the displacement
+        renderer and its layer's other point datasets (its points, alone
+        or moved); else None."""
+        groups = [g for g, meta in sources.items() if meta.get("role") != "label"]
+        if name in groups:
             return name
-        if re.search(r"c00", name):
-            prefix = self._layer_prefix(name)
-            return next((s for s in sources if self._layer_prefix(s) == prefix), None)
+        if name in sources:  # A displacement renderer's labels.
+            return next((g for g in groups if self._layer_number(g) == self._layer_number(name)), None)
+        if re.search(r"t00\w*c00", name):  # The layer's points.
+            return next((g for g in groups if self._layer_prefix(g) == self._layer_prefix(name)), None)
         return None
 
     @staticmethod
@@ -534,17 +459,20 @@ class GDALTilesGenerator:
         return groups
 
     @staticmethod
-    def _displaced_offsets(n: int, meta: dict) -> Tuple[List[tuple], float]:
+    def _displaced_offsets(n: int, meta: dict) -> Tuple[List[tuple], List[tuple], float]:
         """QgsPointDisplacementRenderer's positions of a group's n points
-        around its centre, in screen pixels (x right, y down), and its
-        circle's radius (ring placements) or grid spacing (grid)."""
+        around its centre and of their labels (at the label distance factor
+        f), in screen pixels (x right, y down), and its circle's radius
+        (ring placements) or grid spacing (grid)."""
         d, a, cd = meta.get("d", 0.0), meta.get("a", 0.0), meta.get("cd", 0.0)
+        f = meta.get("f", 0.5)
+        side = d / math.sqrt(2)
         placement = meta.get("placement", 0)
         if n == 1:
-            return [(0.0, 0.0)], 0.0
+            return [(0.0, 0.0)], [(side * f, -side * f)], 0.0
         if placement == 1:  # Concentric rings.
             first = cd / 2 + d / 2
-            offsets, radius, ring = [], 0.0, 1
+            offsets, labels, radius, ring = [], [], 0.0, 1
             while len(offsets) < n:
                 radius = max(first + (ring - 1) * d + ring * a, 0)
                 capacity = max(int(math.floor(2 * math.pi * radius / d)) if d > 0 else n, 1)
@@ -552,8 +480,9 @@ class GDALTilesGenerator:
                 for j in range(count):
                     theta = j * 2 * math.pi / count
                     offsets.append((radius * math.sin(theta), radius * math.cos(theta)))
+                    labels.append(((radius + d * f) * math.sin(theta), (radius + d * f) * math.cos(theta)))
                 ring += 1
-            return offsets, radius
+            return offsets, labels, radius
         if placement == 2:  # Grid.
             size = int(math.ceil(math.sqrt(n)))
             if n - (size - 1) ** 2 < size:
@@ -561,32 +490,39 @@ class GDALTilesGenerator:
             spacing = ((cd / 2 + d / 2) + d) / 2 + a
             shift = -spacing * (size - 1) / 2
             offsets = [(spacing * (i % size) + shift, spacing * (i // size) + shift) for i in range(n)]
-            return offsets, spacing
+            labels = [(x + side * f * (-1 if x < 0 else 1), y - side * f * (1 if y < 0 else -1))
+                      for x, y in offsets]
+            return offsets, labels, spacing
         radius = max(d / 2, n * d / (2 * math.pi)) + a  # Ring.
-        offsets = [(radius * math.sin(k * 2 * math.pi / n), radius * math.cos(k * 2 * math.pi / n))
-                   for k in range(n)]
-        return offsets, radius
+        angles = [k * 2 * math.pi / n for k in range(n)]
+        offsets = [(radius * math.sin(t), radius * math.cos(t)) for t in angles]
+        labels = [((radius + d * f) * math.sin(t), (radius + d * f) * math.cos(t)) for t in angles]
+        return offsets, labels, radius
 
-    def _displacement_blocks(self, run_layers: dict, sources: Dict[str, dict],
-                             tag: str) -> Tuple[str, dict]:
-        """VRT entries and CONF entries of a run's displaced points: per
-        zoom level, the layer's points grouped as QGIS groups them (the
-        distance at that zoom), each point moved where QGIS draws it around
-        its group's centre, and the groups (of several points) as their
-        centre, holding their circle's radius in q2vt_displacement_radius,
-        or a grid's lines. Written to temporary files, each zoom's entry
-        writing the dataset's own tile layer (CONF target_name)."""
+    def _group_blocks(self, run_layers: dict, sources: Dict[str, dict],
+                      tag: str) -> Tuple[str, dict]:
+        """VRT entries and CONF entries of a run's grouped points: per zoom
+        level, the layer's points grouped as QGIS groups them (the distance
+        at that zoom). A cluster renderer's groups of several points become
+        their centre, counting them in q2vt_cluster_size, its other points
+        stay alone; a displacement renderer's points move where QGIS draws
+        them around their group's centre, with their labels, and its groups
+        become their centre, holding their circle's radius in
+        q2vt_displacement_radius, or a grid's lines. Written to temporary
+        files, each zoom's entry writing the dataset's own tile layer (CONF
+        target_name)."""
         by_name = {self._layer_name(layer): layer for layer in self.layers}
         blocks, conf = [], {}
         cache: Dict[tuple, tuple] = {}
         for name, (layer, minzoom, maxzoom) in run_layers.items():
-            group_source = self._displacement_of(name, sources)
+            group_source = self._group_of(name, sources)
             if group_source is None or group_source not in by_name:
                 continue
             meta = sources[group_source]
             source = layer.source().split("|layername=")[0]
             all_source = by_name[group_source].source().split("|layername=")[0]
-            role = meta.get("role") if name == group_source else None
+            role = meta.get("role") if name == group_source else sources.get(name, {}).get("role")
+            clusters = meta.get("role") == "cluster"
             out_path = join(QgsProcessingUtils.tempFolder(), f"displaced_{tag}_{len(blocks)}.gpkg")
             driver = ogr.GetDriverByName("GPKG")
             out = driver.CreateDataSource(out_path)
@@ -600,28 +536,40 @@ class GDALTilesGenerator:
             for zoom in range(minzoom, maxzoom + 1):
                 key = (group_source, zoom)
                 if key not in cache:
-                    cache[key] = self._displaced_points(all_source, meta, zoom)
-                moved, groups = cache[key]
+                    cache[key] = self._grouped_points(all_source, meta, zoom)
+                moved, labels, groups = cache[key]
                 geometry_type = ogr.wkbMultiLineString if role == "circle" and meta.get("placement") == 2 \
                     else ogr.wkbPoint
                 out_layer = out.CreateLayer(f"z{zoom:02d}", src_layer.GetSpatialRef(), geometry_type)
                 for i in range(fields.GetFieldCount()):
-                    out_layer.CreateField(fields.GetFieldDefn(i))
+                    field = ogr.FieldDefn(fields.GetFieldDefn(i).GetName(), fields.GetFieldDefn(i).GetType())
+                    field.SetSubType(fields.GetFieldDefn(i).GetSubType())  # Any width: values kept whole.
+                    out_layer.CreateField(field)
                 if role == "circle":
                     out_layer.CreateField(ogr.FieldDefn(DISPLACEMENT_RADIUS_FIELD, ogr.OFTReal))
+                if role == "cluster":
+                    out_layer.CreateField(ogr.FieldDefn(CLUSTER_SIZE_FIELD, ogr.OFTInteger))
+                if role == "label":
+                    out_layer.CreateField(ogr.FieldDefn(DISPLACEMENT_ANCHOR_FIELD, ogr.OFTString))
                 defn = out_layer.GetLayerDefn()
                 out_layer.StartTransaction()
-                if role is None:
+                if role in (None, "label"):
+                    positions = labels if role == "label" else moved
                     for _, feature in features:
                         point = feature.GetGeometryRef()
                         if point is None:
                             continue
                         orig = feature.GetField(orig_index) if orig_index >= 0 else None
-                        position = moved.get((orig, round(point.GetX(), 3), round(point.GetY(), 3)))
+                        point_key = (orig, round(point.GetX(), 3), round(point.GetY(), 3))
+                        if clusters and point_key in moved:
+                            continue  # In a cluster: drawn as the cluster.
+                        position = positions.get(point_key)
                         copy = ogr.Feature(defn)
                         copy.SetFrom(feature)
                         if position is not None:
                             copy.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({position[0]!r} {position[1]!r})"))
+                            if role == "label":
+                                copy.SetField(DISPLACEMENT_ANCHOR_FIELD, position[2])
                         out_layer.CreateFeature(copy)
                 else:
                     by_key = {}
@@ -630,7 +578,7 @@ class GDALTilesGenerator:
                         if point is not None:
                             orig = feature.GetField(orig_index) if orig_index >= 0 else None
                             by_key.setdefault((orig, round(point.GetX(), 3), round(point.GetY(), 3)), feature)
-                    for first_key, centre, radius, lines in groups:
+                    for first_key, centre, radius, lines, size in groups:
                         first = by_key.get(first_key)
                         copy = ogr.Feature(defn)
                         if first is not None:
@@ -641,12 +589,17 @@ class GDALTilesGenerator:
                             copy.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({centre[0]!r} {centre[1]!r})"))
                         if role == "circle":
                             copy.SetField(DISPLACEMENT_RADIUS_FIELD, radius)
+                        if role == "cluster":
+                            copy.SetField(CLUSTER_SIZE_FIELD, size)
                         out_layer.CreateFeature(copy)
                 out_layer.CommitTransaction()
                 entry = f"{name}__z{zoom:02d}"
                 conf[entry] = {"target_name": name, "minzoom": zoom, "maxzoom": zoom}
-                extra_field = (f'        <Field name="{DISPLACEMENT_RADIUS_FIELD}" type="Real"/>\n'
-                               if role == "circle" else "")
+                extra_field = {
+                    "circle": f'        <Field name="{DISPLACEMENT_RADIUS_FIELD}" type="Real"/>\n',
+                    "cluster": f'        <Field name="{CLUSTER_SIZE_FIELD}" type="Integer"/>\n',
+                    "label": f'        <Field name="{DISPLACEMENT_ANCHOR_FIELD}" type="String"/>\n',
+                }.get(role, "")
                 blocks.append(
                     f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
                     f'        <SrcDataSource>{escape(out_path)}</SrcDataSource>\n'
@@ -658,10 +611,12 @@ class GDALTilesGenerator:
             out = src = None
         return "".join(blocks), conf
 
-    def _displaced_points(self, all_source: str, meta: dict, zoom: int) -> tuple:
-        """A displacement layer's points at a zoom: {(orig id, x, y): moved
-        position} and its groups of several points as (first point's key,
-        centre, circle radius in pixels, grid lines' WKT or None)."""
+    def _grouped_points(self, all_source: str, meta: dict, zoom: int) -> tuple:
+        """A grouping layer's points at a zoom: {(orig id, x, y): moved
+        position} (a cluster renderer: the points in a cluster), {key: its
+        label's position and anchor} and its groups of several points as (first
+        point's key, centre, circle radius in pixels, grid lines' WKT or
+        None, number of points)."""
         resolution = 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** zoom)
         distance = meta.get("distance") or {}
         search = distance.get("m") or distance.get("px", 0) * resolution
@@ -678,16 +633,27 @@ class GDALTilesGenerator:
                 keys.append((orig, round(point.GetX(), 3), round(point.GetY(), 3)))
                 points.append((point.GetX(), point.GetY()))
         ds = None
-        moved, groups = {}, []
+        clusters = meta.get("role") == "cluster"
+        moved, labels, groups = {}, {}, []
         for members in self._displacement_groups(points, search):
             n = len(members)
             cx = sum(points[i][0] for i in members) / n
             cy = sum(points[i][1] for i in members) / n
-            offsets, radius = self._displaced_offsets(n, meta)
+            if clusters:
+                if n > 1:
+                    moved.update((keys[i], (cx, cy)) for i in members)
+                    groups.append((keys[members[0]], (cx, cy), 0.0, None, n))
+                continue
+            offsets, label_offsets, radius = self._displaced_offsets(n, meta)
             positions = []
-            for i, (dx, dy) in zip(members, offsets):
+            for i, (dx, dy), (lx, ly) in zip(members, offsets, label_offsets):
                 position = (cx + dx * resolution, cy - dy * resolution) if n > 1 else points[i]
                 moved[keys[i]] = position
+                origin = (cx, cy) if n > 1 else points[i]
+                # QGIS draws the text on its shift's side of the point:
+                # ending there to its left, hanging below it under it.
+                anchor = f"{'top' if ly > 0 else 'bottom'}-{'right' if lx < 0 else 'left'}"
+                labels[keys[i]] = (origin[0] + lx * resolution, origin[1] - ly * resolution, anchor)
                 positions.append(position)
             if n < 2:
                 continue
@@ -704,8 +670,8 @@ class GDALTilesGenerator:
                         segments.append((positions[i], positions[i + columns]))
                 lines = "MULTILINESTRING (" + ", ".join(
                     f"({a[0]!r} {a[1]!r}, {b[0]!r} {b[1]!r})" for a, b in segments) + ")" if segments else None
-            groups.append((keys[members[0]], (cx, cy), radius, lines))
-        return moved, groups
+            groups.append((keys[members[0]], (cx, cy), radius, lines, n))
+        return moved, labels, groups
 
     def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
         """The smallest polygon (EPSG:3857 square metres) a run's tiles
@@ -794,17 +760,12 @@ class GDALTilesGenerator:
         tag = f"{lo}_{hi}_{uuid4().hex}"
         vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
         conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
-        clusters = self._cluster_sources()
-        displaced = self._displacement_sources()
+        grouped = self._group_sources()
         plain = {name: entry for name, entry in run_layers.items()
-                 if self._cluster_of(name, clusters) is None and self._displacement_of(name, displaced) is None}
-        cluster_xml, cluster_conf = self._cluster_blocks(run_layers, clusters, tag) if clusters else ("", {})
-        if displaced:
-            displaced_xml, displaced_conf = self._displacement_blocks(run_layers, displaced, tag)
-            cluster_xml += displaced_xml
-            cluster_conf.update(displaced_conf)
-        self._build_vrt(vrt_path, [layer for layer, _, _ in plain.values()], hi, cluster_xml)
-        self._build_layer_conf(conf_path, plain, cluster_conf)
+                 if self._group_of(name, grouped) is None}
+        group_xml, group_conf = self._group_blocks(run_layers, grouped, tag) if grouped else ("", {})
+        self._build_vrt(vrt_path, [layer for layer, _, _ in plain.values()], hi, group_xml)
+        self._build_layer_conf(conf_path, plain, group_conf)
         # The temporary database is written heavily: in memory if it fits,
         # else on local disk, not next to the output (which may be a synced
         # or network folder).

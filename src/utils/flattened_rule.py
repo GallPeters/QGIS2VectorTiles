@@ -9,7 +9,9 @@ Imported by RulesFlattener, RulesExporter, and TilesStyler.
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from qgis.core import QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsSymbolLayer, QgsVectorLayer
+from qgis.core import (
+    QgsPalLayerSettings, QgsRuleBasedRenderer, QgsRuleBasedLabeling, QgsSymbolLayer, QgsVectorLayer,
+)
 
 from .config import _FIELD_PREFIX
 
@@ -43,10 +45,17 @@ HEATMAP_PROPERTY = QgsSymbolLayer.Property.PropertyName
 # layers never read inactive). The tiles then hold, per zoom level, one point
 # per cluster and the points left alone (GDALTilesGenerator).
 CLUSTER_PROPERTY = QgsSymbolLayer.Property.PropertyLayerEnabled
+# A point displacement renderer's own label rule (its label attribute)
+# carries the displacement settings, as JSON, in an inactive data-defined
+# property of this key (whether to draw its callout: it has none).
+DISPLACEMENT_LABEL_PROPERTY = QgsPalLayerSettings.Property.CalloutDraw
 # The number of points in a cluster, in the tiles.
 CLUSTER_SIZE_FIELD = f"{_FIELD_PREFIX}_cluster_size"
 # The radius (screen pixels) of a displaced group's circle, in the tiles.
 DISPLACEMENT_RADIUS_FIELD = f"{_FIELD_PREFIX}_displacement_radius"
+# A point displacement renderer's label's anchor (the side of its point it
+# is drawn on, as a MapLibre text-anchor), in the tiles.
+DISPLACEMENT_ANCHOR_FIELD = f"{_FIELD_PREFIX}_displacement_anchor"
 
 # The style's metadata key holding, by dataset, the tile layer of another
 # dataset it is written into (the style converter draws both as one layer).
@@ -70,6 +79,20 @@ def cluster_settings(symbol) -> "dict | None":
     """The clustering settings a symbol carries (see CLUSTER_PROPERTY)."""
     data = _grouping_settings(symbol)
     return data if data is not None and "role" not in data else None
+
+
+def displacement_label_settings(label_settings) -> "dict | None":
+    """The point displacement settings a point displacement renderer's own
+    label rule carries (see DISPLACEMENT_LABEL_PROPERTY)."""
+    import json  # pylint: disable=import-outside-toplevel
+    try:
+        prop = label_settings.dataDefinedProperties().property(DISPLACEMENT_LABEL_PROPERTY)
+        if prop is None or prop.isActive() or not prop.staticValue():
+            return None
+        data = json.loads(prop.staticValue())
+        return data if isinstance(data, dict) and data.get("role") == "label" else None
+    except (AttributeError, RuntimeError, ValueError, TypeError):
+        return None
 
 
 def displacement_settings(symbol) -> "dict | None":

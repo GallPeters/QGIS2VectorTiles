@@ -41,8 +41,9 @@ from .sprite_generator import (
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.flattened_rule import (
-    CLUSTER_SIZE_FIELD, DISPLACEMENT_RADIUS_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, TILE_LAYERS_KEY,
-    cluster_settings, displacement_settings, pinned_field,
+    CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, HEATMAP_PROPERTY,
+    OFFSET_PROPERTY, TILE_LAYERS_KEY,
+    cluster_settings, displacement_label_settings, displacement_settings, pinned_field,
 )
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
@@ -2632,6 +2633,15 @@ class QgisMapLibreStyleExporter:
             return {"m": value * metres}
         return {"px": PropertyExtractor.convert_length_to_pixels(value, unit)}
 
+    def _displacement_meta(self, displacement: dict) -> dict:
+        """A point displacement renderer's settings, for GDALTilesGenerator:
+        the role of the layer's dataset, the grouping distance, the
+        placement and the lengths (screen pixels) it places points by."""
+        return {"role": displacement["role"], "distance": self._cluster_distance(displacement),
+                "placement": displacement["placement"], "d": displacement["diagonal_px"],
+                "cd": displacement["center_px"], "a": displacement["addition_px"],
+                "f": displacement.get("label_factor", 0.5)}
+
     @staticmethod
     def _displacement_circle_layer(layer_def: dict, displacement: dict) -> dict:
         """A point displacement renderer's circle around each group (ring
@@ -2920,10 +2930,7 @@ class QgisMapLibreStyleExporter:
             return
         displacement = displacement_settings(symbol)
         if displacement is not None:
-            meta = {"role": displacement["role"], "distance": self._cluster_distance(displacement),
-                    "placement": displacement["placement"], "d": displacement["diagonal_px"],
-                    "cd": displacement["center_px"], "a": displacement["addition_px"]}
-            layer_def["metadata"] = {"q2vt:displacement": meta}
+            layer_def["metadata"] = {"q2vt:displacement": self._displacement_meta(displacement)}
             if displacement["role"] == "circle":
                 self.style["layers"].append(self._displacement_circle_layer(layer_def, displacement))
                 return
@@ -3513,6 +3520,16 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["text-offset"] = TextPropertyExtractor.radial_to_offset(
                 variable_anchor[0], radial
             )
+        # A point displacement renderer's own labels: placed by the tiles,
+        # beside each point, all drawn, as QGIS draws them.
+        displacement = displacement_label_settings(label_settings)
+        if displacement is not None:
+            layer_def["metadata"] = {"q2vt:displacement": self._displacement_meta(displacement)}
+            layer_def["layout"].update({
+                "text-allow-overlap": True, "text-ignore-placement": True,
+                "text-anchor": ["coalesce", ["get", DISPLACEMENT_ANCHOR_FIELD], "bottom-left"],
+                "text-offset": [0, 0],
+            })
         # Labels at their data-defined position: anchored there as QGIS
         # aligns them (variable anchors can't vary by feature: those
         # labels then keep them).

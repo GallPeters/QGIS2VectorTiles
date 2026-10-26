@@ -22,7 +22,7 @@ from qgis.PyQt.QtCore import QLineF, QPointF, QRectF
 from qgis.PyQt.QtGui import QFont, QFontMetricsF, QPainterPath, QTransform
 from qgis.core import (
     Qgis, QgsCircularString, QgsExpression, QgsGeometry, QgsLineString, QgsPoint, QgsPointXY,
-    QgsRectangle, qgsfunction,
+    QgsRectangle, QgsSymbolLayerUtils, qgsfunction,
 )
 
 _GROUP = "QGIS2VectorTiles"
@@ -292,12 +292,19 @@ def _arrows_of_line(points: List[QPointF], curved: bool, repeated: bool, args: t
 
 @qgsfunction(group=_GROUP, referenced_columns=[], handlesnull=True)
 def q2vt_arrow(geometry, start_width, width, head_length, head_thickness, offset,
-               head_type, arrow_type, curved, repeated, pixel, feature, parent):
+               head_type, arrow_type, curved, repeated, pixel, static_head_type,
+               static_arrow_type, feature, parent):
     """The arrows QGIS's arrow symbol layer draws along a line geometry
     (EPSG:3857), as a multipolygon: lengths in metres, ``pixel`` the length
-    of a screen pixel, in which QGIS draws (and flattens curves)."""
+    of a screen pixel, in which QGIS draws (and flattens curves). The head
+    and arrow types are read as QGIS reads them (a number or a name; the
+    static type where the value is empty or unknown)."""
     if geometry is None or geometry.isEmpty() or not pixel or pixel <= 0:
         return None
+    decoded, ok = QgsSymbolLayerUtils.decodeArrowHeadType(head_type)
+    head_type = int(decoded) if ok and head_type is not None else int(static_head_type)
+    decoded, ok = QgsSymbolLayerUtils.decodeArrowType(arrow_type)
+    arrow_type = int(decoded) if ok and arrow_type is not None else int(static_arrow_type)
     centre = geometry.boundingBox().center()
     # Screen pixels, y down (QGIS's drawing), around the geometry's centre.
     to_screen = lambda p: QPointF((p.x() - centre.x()) / pixel, (centre.y() - p.y()) / pixel)  # noqa: E731
