@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.1</strong>, 26 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.0</strong>, 14 Oct 2026.</p>
     </div>
   </section>
 
@@ -86,7 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
-        <li><a href="#v4-1">v4.1<small>Oct 2026</small></a></li>
+        <li><a href="#v4-1">v4.1<small>Coming soon</small></a></li>
         <li><a href="#v4-0">v4.0<small>Oct 2026</small></a></li>
         <li><a href="#v3-9">v3.9<small>Oct 2026</small></a></li>
         <li><a href="#v3-8">v3.8<small>Oct 2026</small></a></li>
@@ -129,14 +129,22 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
-  <article class="release latest" id="v4-1">
+  <article class="release" id="v4-1">
     <div class="release-meta">
       <h2>v4.1</h2>
-      <time datetime="2026-10-26">26 Oct 2026</time>
-      <span class="tag">Latest</span>
+      <span class="tag muted">Coming soon</span>
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
+      <li><strong>Point clusters</strong>, <strong>heatmaps</strong>, <strong>merged features</strong> and <strong>inverted polygons</strong>.</li>
+      <li><strong>Arrows drawn as in QGIS</strong>: curved or straight, on every segment or not, half arrows, tapered.</li>
+      <li><strong>Trimmed lines</strong> and <strong>fill offsets</strong>, data-defined too; outlines drawn <strong>inside polygons</strong>.</li>
+      <li><strong>Callouts</strong> to labels at a data-defined <strong>position (X, Y)</strong>, aligned there as in QGIS.</li>
+      <li>Markers on vertices and segment centres <strong>turned with the line</strong>.</li>
+      <li><strong>Map-unit size limits</strong>; label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
+      <li>Data-defined <strong>font family</strong>; labels <strong>wrap on a character</strong>, as in QGIS.</li>
+      <li><strong>Lighter style</strong>: default values and needless sorting left out, alike layers drawn as one.</li>
+      <li>The web map's server sends the style, scripts and search index <strong>compressed</strong>.</li>
       <li>Outlines and point or line labels <strong>share their features' data</strong> in the tiles.</li>
       <li><code>@map_scale</code> rules make <strong>one layer</strong> in the tiles and the style: smaller tiles, faster drawing.</li>
       <li>Features drawn in the layer's <strong>rendering order</strong>.</li>
@@ -158,10 +166,11 @@
       <li>Fixed: scale ranges beyond zoom 15 wrote their features twice.</li>
     </ul>
   </article>
-  <article class="release" id="v4-0">
+  <article class="release latest" id="v4-0">
     <div class="release-meta">
       <h2>v4.0</h2>
       <time datetime="2026-10-14">14 Oct 2026</time>
+      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Publish anywhere</strong>: a static web map with one <strong>PMTiles</strong> file.</li>

@@ -29,7 +29,7 @@ from typing import Optional, TypeAlias, Union
 
 from PIL import Image
 from qgis.core import (
-    Qgis, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
+    Qgis, QgsApplication, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
     QgsSymbolLayerUtils,
 )
 from qgis.PyQt.QtCore import qVersion
@@ -38,12 +38,14 @@ from ..utils.config import _CACHE_DIR_NAME, _CACHE_MAX_AGE_DAYS, _CACHE_MAX_MB
 
 _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
-    from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, Qt
-    from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPolygonF
+    from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, QRectF, Qt
+    from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt5.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.ReadWrite
 else:
-    from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, Qt
-    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPolygonF
+    from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, QRectF, Qt
+    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt6.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
 Img: TypeAlias = Image.Image
@@ -99,7 +101,26 @@ class BrushPattern:
     size: int = 8
 
 
-SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern]
+@dataclass
+class LabelShape:
+    """A label background shape, stretched around the text by MapLibre
+    (icon-text-fit), or drawn at a fixed size (``width`` x ``height``
+    pixels). A rectangle keeps its rounded corners and stroke when
+    stretched (MapLibre stretches only its middle: its sprite's stretchX,
+    stretchY and content); an ellipse is stretched whole, the text inside
+    the rectangle it encloses."""
+
+    ellipse: bool
+    fill: str             # #AARRGGBB
+    stroke: str           # #AARRGGBB
+    stroke_px: float
+    radius_px: float = 0.0
+    width: float = 0.0    # A fixed size; 0 to be stretched.
+    height: float = 0.0
+    svg: str = ""         # An SVG file, stretched whole (in the colours given).
+
+
+SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape]
 
 
 class _RenderCache:
@@ -168,6 +189,8 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
             definition = "hash" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(source.length)
         elif isinstance(source, BrushPattern):
             definition = f"brush{source.color}|{source.style}|{source.size}"
+        elif isinstance(source, LabelShape):
+            definition = f"shape{source!r}"
         else:
             definition = "symbol" + QgsSymbolLayerUtils.symbolProperties(source)
     except (OSError, RuntimeError, AttributeError, TypeError):
@@ -192,8 +215,16 @@ class SymbolImage:
     img: Img = field(init=False)
     width: int = field(init=False)
     height: int = field(init=False)
+    # Extra sprite metadata (stretchX, stretchY, content), in image pixels.
+    meta: dict = field(init=False, default_factory=dict)
 
     def __post_init__(self):
+        if isinstance(self.symbol, LabelShape):
+            # Cheap to draw, and its metadata comes with the drawing.
+            self._render_shape()
+            self.width = self.img.width
+            self.height = self.img.height
+            return
         key = _source_key(self.symbol, self.scale_factor) if self.cache else None
         cached = self.cache.get(key) if self.cache else None
         if cached is not None:
@@ -354,6 +385,85 @@ class SymbolImage:
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
 
+    def _render_shape(self):
+        """A label background shape (see LabelShape), with its sprite
+        metadata."""
+        shape = self.symbol
+        scale = self.scale_factor
+        try:
+            stroke = shape.stroke_px * scale
+            radius = min(shape.radius_px * scale, 64 * scale)
+            if shape.svg:
+                self._render_svg_shape(shape, scale)
+                return
+            if shape.width and shape.height:
+                width, height = max(2, round(shape.width * scale)), max(2, round(shape.height * scale))
+            elif shape.ellipse:
+                width = height = max(16, round(32 * scale + stroke * 2))
+            else:
+                # Corners in the margins, a stretchable 2 px middle.
+                margin = int(ceil(max(radius, stroke) + 2 * scale))
+                width = height = margin * 2 + max(2, round(2 * scale))
+            qt_img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            qt_img.fill(0)
+            painter = QPainter(qt_img)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            if stroke > 0 and QColor(shape.stroke).alpha():
+                painter.setPen(QPen(QColor(shape.stroke), stroke))
+            else:
+                painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(shape.fill)))
+            inset = stroke / 2
+            rect = QRectF(inset, inset, width - stroke, height - stroke)
+            if shape.ellipse:
+                painter.drawEllipse(rect)
+            elif radius > 0:
+                painter.drawRoundedRect(rect, radius, radius)
+            else:
+                painter.drawRect(rect)
+            painter.end()
+            self.img = self._qt_to_pil(qt_img)
+            if shape.width and shape.height:
+                return
+            if shape.ellipse:
+                # The text inside the rectangle the ellipse encloses.
+                inner = (1 - sqrt(0.5)) / 2
+                self.meta = {"content": [round(width * inner), round(height * inner),
+                                         round(width * (1 - inner)), round(height * (1 - inner))]}
+            else:
+                self.meta = {
+                    "stretchX": [[margin, width - margin]],
+                    "stretchY": [[margin, height - margin]],
+                    "content": [round(inset), round(inset), width - round(inset), height - round(inset)],
+                }
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
+            self.meta = {}
+
+    def _render_svg_shape(self, shape: LabelShape, scale: float):
+        """An SVG label background: drawn at its fixed size, or square to be
+        stretched whole around the text, the text inside a margin of an
+        eighth."""
+        if shape.width and shape.height:
+            width, height = max(2, round(shape.width * scale)), max(2, round(shape.height * scale))
+        else:
+            width = height = max(16, round(48 * scale))
+        content = QgsApplication.svgCache().svgContent(
+            shape.svg, max(width, height), QColor(shape.fill), QColor(shape.stroke),
+            shape.stroke_px * scale, 1.0)
+        if isinstance(content, tuple):  # (content, is missing) in some versions.
+            content = content[0]
+        qt_img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        qt_img.fill(0)
+        painter = QPainter(qt_img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        QSvgRenderer(content).render(painter, QRectF(0, 0, width, height))
+        painter.end()
+        self.img = self._qt_to_pil(qt_img)
+        if not (shape.width and shape.height):
+            margin_x, margin_y = round(width / 8), round(height / 8)
+            self.meta = {"content": [margin_x, margin_y, width - margin_x, height - margin_y]}
+
     @staticmethod
     def _resize_tile(tile: Img, width: int, height: int) -> Img:
         """Resize a repeating tile, sampling across its edges as if it were repeated."""
@@ -430,6 +540,7 @@ class SpriteImage:
     pixelspace: int = _SPRITE_GAP
     img: Img = field(init=False)
     imgscoords: dict = field(init=False)
+    meta: dict = field(init=False)
 
     def __post_init__(self):
         self._build()
@@ -446,8 +557,10 @@ class SpriteImage:
         self.img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
 
     def _populate(self):
-        """Paste symbols into the sheet and record their (x, y, w, h) coordinates."""
+        """Paste symbols into the sheet and record their (x, y, w, h)
+        coordinates, and their extra metadata."""
         self.imgscoords = {}
+        self.meta = {img.name: img.meta for row in self.matrix.imgsrows for img in row[2] if img.meta}
         y = self.pixelspace
         for row_width, row_height, row in self.matrix.imgsrows:
             x_start = round((self.img.width - row_width) / 2)
@@ -488,7 +601,7 @@ class SpriteJSON:
     def __post_init__(self):
         self.jsondict = {
             name: {"x": int(x), "y": int(y), "width": int(w), "height": int(h),
-                   "pixelRatio": self.pixel_ratio}
+                   "pixelRatio": self.pixel_ratio, **self.spriteimg.meta.get(name, {})}
             for name, (x, y, w, h) in self.spriteimg.imgscoords.items()
         }
 

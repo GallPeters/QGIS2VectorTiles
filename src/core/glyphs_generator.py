@@ -187,6 +187,12 @@ def _edt(mask: np.ndarray) -> np.ndarray:
     return distance_transform_edt(mask)
 
 
+# A fonts_datasets "dataset" of this prefix, with no field, gives its
+# characters themselves (text the tiles hold but no dataset does, e.g. the
+# counts of point clusters).
+CHARS_PREFIX = "chars:"
+
+
 class GlyphGenerator:
     """
     Generates MapLibre-compatible SDF glyphs (PBF format) from system fonts,
@@ -290,6 +296,10 @@ class GlyphGenerator:
         unique_chars: Set[str] = set()
 
         for path, field_name in datasets:
+            if field_name is None:  # Characters given as they are (see CHARS_PREFIX).
+                if path.startswith(CHARS_PREFIX):
+                    unique_chars.update(path[len(CHARS_PREFIX):])
+                continue
             ds = None
             try:
                 ds = ogr.Open(path)

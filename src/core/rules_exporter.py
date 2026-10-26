@@ -122,6 +122,7 @@ from qgis.core import (
     QgsCsException,
     QgsDistanceArea,
     QgsExpressionContext,
+    QgsExpressionContextScope,
     QgsExpression,
     QgsExpressionContextUtils,
     QgsExpressionNode,
@@ -151,12 +152,15 @@ from ..utils.config import (
     _TILES_MAX_ZOOM,
 )
 from ..utils.flattened_rule import (
-    FlattenedRule, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX, MARKER_INNER_VERTICES,
-    MARKER_LAST_VERTEX, marker_angle_field,
+    FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
+    MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, cluster_settings,
+    marker_angle_field, pinned_field,
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
+# Registers the q2vt_* expression functions the rules' geometry generators call.
+from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 
 
 # ============================================================================
@@ -232,6 +236,10 @@ _RULE_OUTPUT_WKB = {
 
 # How an output field's value is produced in the rule-export pass.
 _FIELD_CONSTANT, _FIELD_COPY, _FIELD_EXPRESSION = range(3)
+
+# A field expression reading this variable is evaluated per part written
+# (a marker on each vertex turned with the line): the part's geometry.
+_PART_VARIABLE = "q2vt_part"
 
 # Expression fragments that read attributes dynamically, so their field
 # usage can't be determined statically by referencedColumns().
@@ -594,6 +602,9 @@ class _RuleOutput:
         # Problems that don't stop the export, reported once per group as
         # {what: [occurrences, first error]}.
         self.problems: Dict[str, List[Any]] = {}
+        # Per member: the indexes of its plan's fields evaluated per part
+        # (see _PART_VARIABLE), found on first use.
+        self.part_fields: Dict[int, List[int]] = {}
 
     def note(self, what: str, error: str) -> None:
         entry = self.problems.setdefault(what, [0, error])
@@ -1401,6 +1412,8 @@ class RulesExporter:
         # Rules drawn by symbol levels keep their own datasets: QGIS draws
         # them level by level, not feature by feature.
         shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
+        if rule_type == 0 and cluster_settings(primary.rule.symbol()) is not None:
+            shareable = False  # Its points become clusters in the tiles, alone.
         group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
         if group is None:
             holder = member
@@ -1555,6 +1568,8 @@ class RulesExporter:
         if entry is None or label.label_filter is None:
             return False
         group, member = entry
+        if self._merge_mode(group) != "parts":
+            return False  # Its rows are merged or inverted (labels are per feature).
         if (geom_expr != "@geometry" or group.geometry_expression != "@geometry"
                 or self._enum_int(geom_target) != self._enum_int(group.geometry_target)
                 or self._merges_lines(label, geom_target)):
@@ -3573,8 +3588,28 @@ class RulesExporter:
                         value = None
                 attributes.append(value)
 
+            part_fields = output.part_fields.get(member_index)
+            if part_fields is None:
+                part_fields = output.part_fields[member_index] = [
+                    i for i, (kind, _, source, _) in enumerate(output.plans[member_index])
+                    if kind == _FIELD_EXPRESSION and _PART_VARIABLE in source.referencedVariables()
+                ]
             for part in parts:
                 out = QgsFeature(output.fields)
+                if part_fields:
+                    attributes = list(attributes)
+                    scope = QgsExpressionContextScope()
+                    scope.setVariable(_PART_VARIABLE, part)
+                    context.appendScope(scope)
+                    try:
+                        for i in part_fields:
+                            _, field, source, convert = output.plans[member_index][i]
+                            value = source.evaluate(context)
+                            attributes[i] = self._convert_value(field, value) if convert else value
+                    except RuntimeError:
+                        pass
+                    finally:
+                        context.popScope()
                 out.setAttributes(attributes)
                 out.setGeometry(part)
                 output.batch.append(out)
@@ -3826,6 +3861,11 @@ class RulesExporter:
         label text (labels are placed per part, or on the largest) keep
         their parts. In C++ (SQLite and SpatiaLite), when GDAL has them:
         one ogr2ogr process per dataset, several at once.
+
+        Layers drawn with the merged features renderer have the rows of one
+        rule and style values merged into one, as QGIS merges its features
+        per symbol; with the inverted polygon renderer, they become the
+        export extent outside them (see _MERGE_MODES).
         """
         sqlite, spatialite = _sqlite_capabilities()
         if not (sqlite and spatialite):
@@ -3838,23 +3878,42 @@ class RulesExporter:
             if any(name.startswith(f"{_FIELD_PREFIX}_label")
                    for m in grp.members for _, _, name in m.expression_fields):
                 continue
-            todo.append((grp, path))
+            mode = self._merge_mode(grp)
+            todo.append((grp, path, mode))
         if not todo:
             return
         workers = max(1, int((os.cpu_count() or 1) * self.cpu_percent / 100))
         with ThreadPoolExecutor(max_workers=min(workers, len(todo)),
                                 thread_name_prefix="rules-parts") as pool:
-            for future in [pool.submit(self._collect_parts_of, grp, path) for grp, path in todo]:
+            for future in [pool.submit(self._collect_parts_of, grp, path, mode)
+                           for grp, path, mode in todo]:
                 try:
                     future.result()
                 except _Cancelled:
                     return
 
-    def _collect_parts_of(self, grp: _RuleGroupSnapshot, path: str) -> None:
-        """Rejoin one dataset's parts (see _collect_parts). Worker thread."""
+    @staticmethod
+    def _merge_mode(grp: _RuleGroupSnapshot) -> str:
+        """How a symbology dataset's rows are joined (see _collect_parts):
+        "parts", "merge" or "invert". Caller thread (reads the layer)."""
+        try:
+            kind = grp.flat_rules[0].layer.renderer().type()
+        except (AttributeError, IndexError, RuntimeError):
+            return "parts"
+        polygons = abs(RulesExporter._enum_int(grp.geometry_target) - 2) == 0
+        lines = abs(RulesExporter._enum_int(grp.geometry_target) - 2) == 1
+        if kind == "mergedFeatureRenderer" and (polygons or lines):
+            return "merge"
+        if kind == "invertedPolygonRenderer" and polygons:
+            return "invert"
+        return "parts"
+
+    def _collect_parts_of(self, grp: _RuleGroupSnapshot, path: str, mode: str = "parts") -> None:
+        """Rejoin one dataset's parts, or merge or invert its features (see
+        _collect_parts). Worker thread."""
         if self._is_cancelled():
             raise _Cancelled()
-        if not self._has_repeated_values(path, f"{_FIELD_PREFIX}_orig_id"):
+        if mode == "parts" and not self._has_repeated_values(path, f"{_FIELD_PREFIX}_orig_id"):
             return
         multi = {0: "MULTIPOLYGON", 1: "MULTILINESTRING", 2: "MULTIPOINT"}.get(
             abs(self._enum_int(grp.geometry_target) - 2))
@@ -3876,11 +3935,26 @@ class RulesExporter:
                 + "/>")
         layer_name = layer.GetName()
         ds = None
+        orig = f'"{_sql_name(f"{_FIELD_PREFIX}_orig_id")}"'
+        keys = columns if mode == "parts" else [c for c in columns if c != orig]
+        selected = [c if c in keys else f"MIN({c}) AS {c}" for c in columns]
+        if mode == "merge":
+            geometry = ("ST_LineMerge(ST_Union(GEOMETRY))" if multi == "MULTILINESTRING"
+                        else "ST_Union(GEOMETRY)")
+        elif mode == "invert":
+            e = self.extent
+            pad_x, pad_y = e.width() * 0.05, e.height() * 0.05
+            box = (f"BuildMbr({e.xMinimum() - pad_x!r}, {e.yMinimum() - pad_y!r}, "
+                   f"{e.xMaximum() + pad_x!r}, {e.yMaximum() + pad_y!r}, ST_SRID(ST_Union(GEOMETRY)))")
+            geometry = f"ST_Difference({box}, ST_Union(GEOMETRY))"
+        else:
+            geometry = "ST_Collect(GEOMETRY)"
         # SQL over the plugin's own rule dataset; every name is quoted.
         sql = (
-            f"SELECT {', '.join(columns)}, ST_Collect(GEOMETRY) AS GEOMETRY "
-            f'FROM "{_sql_name(layer_name)}" GROUP BY {", ".join(columns)} '
-            "ORDER BY MIN(ROWID)"  # nosec B608
+            f"SELECT {', '.join(selected)}, {geometry} AS GEOMETRY "
+            f'FROM "{_sql_name(layer_name)}" '
+            + (f'GROUP BY {", ".join(keys)} ' if keys else "")
+            + "ORDER BY MIN(ROWID)"  # nosec B608
         )
         try:
             with open(vrt_path, "w", encoding="utf-8") as f:
@@ -4118,6 +4192,20 @@ class RulesExporter:
         settings = flat_rule.rule.settings()
         filter_exp = f'"{label_exp}"' if not settings.isExpression else label_exp
         text = self._with_type_case(settings, filter_exp)
+        if settings.wrapChar:
+            # QGIS breaks the line at (and drops) the wrap character; the
+            # web map breaks lines at line breaks.
+            text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
+            settings.wrapChar = ""
+        position = flat_rule.label_position
+        if position is not None:
+            # The labels placed at their position (see
+            # _get_labeling_transformation), which QGIS aligns there by
+            # their own corner (the style converter's text-anchor).
+            pinned = f"({position[0]}) IS NOT NULL AND ({position[1]}) IS NOT NULL"
+            if condition:
+                pinned = f"({condition}) AND {pinned}"
+            fields.append((2, f"CASE WHEN {pinned} THEN 1 END", pinned_field(field_name)))
         if condition:
             text = f"CASE WHEN {condition} THEN ({text}) END"
         fields.append((10, text, field_name))
@@ -4178,7 +4266,30 @@ class RulesExporter:
             transform_expr = self._polygon_label_point_expression(flat_rule)
             flat_rule.set_attr("c", 0)
             target_geom = 0
+        position = self._label_position(settings, flat_rule.layer)
+        if position is not None and target_geom == 0:
+            # A data-defined position (X, Y in the layer's CRS) where the
+            # feature has one, as QGIS places it; else the label's own point.
+            flat_rule.label_position = position
+            x, y = position
+            layer_crs = flat_rule.layer.crs().authid()
+            transform_expr = (
+                f"if(({x}) IS NULL OR ({y}) IS NULL, {transform_expr}, "
+                f"transform(make_point(to_real({x}), to_real({y})), '{layer_crs}', 'EPSG:3857'))")
         return [target_geom, transform_expr]
+
+    @staticmethod
+    def _label_position(settings, layer) -> Optional[Tuple[str, str]]:
+        """A label's data-defined X and Y position, as expressions; None
+        unless both are set."""
+        if not settings:
+            return None
+        props = settings.dataDefinedProperties()
+        x = props.property(QgsPalLayerSettings.Property.PositionX)
+        y = props.property(QgsPalLayerSettings.Property.PositionY)
+        if not (x and y and x.isActive() and y.isActive()):
+            return None
+        return x.asExpression(), y.asExpression()
 
     def _get_renderer_transformation(self, flat_rule: FlattenedRule):
         symbol = flat_rule.rule.symbol()
@@ -4234,6 +4345,13 @@ class RulesExporter:
             return f"end_point({line})"
         if placement == MARKER_CENTRAL_POINT:
             return f"line_interpolate_point({line}, length({line}) / 2)"
+        if placement == MARKER_SEGMENT_CENTERS:
+            segment = "make_line(point_n(@line, @element), point_n(@line, @element + 1))"
+            return (
+                f"with_variable('line', {line}, if(num_points(@line) > 1, collect_geometries("
+                f"array_foreach(generate_series(1, num_points(@line) - 1), "
+                f"line_interpolate_point({segment}, length({segment}) / 2))), NULL))"
+            )
         if placement == MARKER_INNER_VERTICES:
             return (
                 f"with_variable('line', {line}, if(num_points(@line) > 2, collect_geometries("
@@ -4243,18 +4361,22 @@ class RulesExporter:
         return f"nodes_to_points({line}, true)"  # Every vertex.
 
     def _marker_angle_fields(self, flat_rule: FlattenedRule) -> List[Tuple[int, str, str]]:
-        """A rotation field for a marker line drawn as points at one vertex
-        or the middle, when its markers follow the line.
+        """A rotation field for a marker line drawn as points, when its
+        markers follow the line.
 
         QGIS turns such markers with the line: by the line's direction,
         clockwise from east (line_interpolate_angle's bearing from north,
         less 90°), plus the marker's own angle. The sprite is drawn
-        unrotated, so the field holds the whole rotation.
+        unrotated, so the field holds the whole rotation. Markers on every
+        (or every inner) vertex each get their own: the direction where the
+        point lies on the line (at a vertex, between its two segments, as
+        QGIS turns them), evaluated per point (see _PART_VARIABLE).
         """
         if flat_rule.get_attr("t") != 0 or not flat_rule.rule.symbol():
             return []
         placement = flat_rule.get_attr("p")
-        if placement not in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT):
+        if placement not in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX, MARKER_CENTRAL_POINT,
+                             MARKER_ALL_VERTICES, MARKER_INNER_VERTICES, MARKER_SEGMENT_CENTERS):
             return []
         symbol_layer = flat_rule.rule.symbol().symbolLayers()[0]
         if symbol_layer.layerType() != "MarkerLine" or not symbol_layer.rotateSymbols():
@@ -4264,7 +4386,7 @@ class RulesExporter:
             MARKER_FIRST_VERTEX: "0",
             MARKER_LAST_VERTEX: f"length({line})",
             MARKER_CENTRAL_POINT: f"length({line}) / 2",
-        }[placement]
+        }.get(placement, f"line_locate_point({line}, @{_PART_VARIABLE})")
         own_angle = 0.0
         sub_symbol = symbol_layer.subSymbol()
         if sub_symbol is not None and sub_symbol.symbolLayerCount():
