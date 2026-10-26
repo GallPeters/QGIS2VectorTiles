@@ -475,6 +475,23 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   white-space: nowrap;
 }
 .hero-tag svg { width: 17px; height: 17px; flex: none; color: var(--brand); }
+/* Phones: the two columns as wide as their facts, apart to the edges, so
+   the longest fact ("Coupled data & style") stays inside the screen. */
+@media (max-width: 480px) {
+  .hero-tags { grid-template-columns: repeat(2, auto); justify-content: space-between; gap: 10px 12px; }
+  .hero-tag { font-size: 14px; gap: 7px; }
+  .hero-tag svg { width: 15px; height: 15px; }
+}
+@media (max-width: 380px) {
+  .hero-tags { gap: 9px 10px; }
+  .hero-tag { font-size: 13px; gap: 6px; }
+  .hero-tag svg { width: 14px; height: 14px; }
+}
+/* The smallest phones: a fact may take two lines. */
+@media (max-width: 340px) {
+  .hero-tags { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-tag { white-space: normal; line-height: 1.25; }
+}
 .hero-tag-more {
   grid-column: 1 / -1;
   justify-content: space-between;

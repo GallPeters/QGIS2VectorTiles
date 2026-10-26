@@ -41,8 +41,8 @@ from .sprite_generator import (
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.flattened_rule import (
-    CLUSTER_SIZE_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, TILE_LAYERS_KEY, cluster_settings,
-    pinned_field,
+    CLUSTER_SIZE_FIELD, DISPLACEMENT_RADIUS_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, TILE_LAYERS_KEY,
+    cluster_settings, displacement_settings, pinned_field,
 )
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
@@ -93,6 +93,9 @@ _MAX_LABEL_FONTS = 16
 # Qt brush styles a simple fill draws as a repeated pattern: Dense1-7,
 # horizontal, vertical, cross, diagonal and diagonal cross hatching.
 _BRUSH_PATTERNS = frozenset(range(2, 15))
+
+# QgsPointDisplacementRenderer.Placement.Grid
+_DISPLACEMENT_GRID = 2
 
 # A style filter selecting one rule's rows of a shared dataset (TilesStyler).
 _RULE_FILTER = re.compile(r'"' + re.escape(RULE_FIELD) + r'" = (\d+)')
@@ -162,7 +165,7 @@ def _mergeable(first: dict, other: dict) -> bool:
     """Whether two rule layers of one dataset can be drawn as one layer."""
     if _rule_of(first) is None or _rule_of(other) is None:
         return False
-    for key in ("type", "source", "source-layer", "minzoom", "maxzoom", "_enabled", "metadata"):
+    for key in ("type", "source", "source-layer", "minzoom", "maxzoom", "_enabled", "_only", "metadata"):
         if first.get(key) != other.get(key):
             return False
     for section, varying in (("layout", _DATA_DRIVEN_LAYOUT), ("paint", None)):
@@ -277,7 +280,8 @@ def _band_key(layer_def: dict) -> tuple:
     name = re.sub(r"_\d+$", "", re.sub(r"o\d\di\d\d", "", layer_def.get("id", "")))
     return (layer_def.get("type"), layer_def.get("source-layer"), name,
             json.dumps(layer_def.get("filter"), sort_keys=True),
-            json.dumps(layer_def.get("_enabled"), sort_keys=True))
+            json.dumps(layer_def.get("_enabled"), sort_keys=True),
+            json.dumps(layer_def.get("_only"), sort_keys=True))
 
 
 def _steppable(run: List[dict]) -> bool:
@@ -340,24 +344,8 @@ def merge_zoom_bands(layers: List[dict]) -> List[dict]:
     layers = _group_bands(layers)
 
     def flush():
-        if len(run) == 1:
-            merged.append(run[0])
-        elif run:
-            layer_def = copy.deepcopy(run[0])
-            layer_def["maxzoom"] = run[-1].get("maxzoom")
-            for section in ("layout", "paint"):
-                for key in layer_def.get(section, {}):
-                    values = [member[section][key] for member in run]
-                    if all(v == values[0] for v in values):
-                        continue
-                    expression = ["step", ["zoom"], _match_value(values[0])]
-                    previous = values[0]
-                    for member, value in zip(run[1:], values[1:]):
-                        if value != previous:  # A stop only where the value changes.
-                            expression += [member.get("minzoom", 0), _match_value(value)]
-                            previous = value
-                    layer_def[section][key] = expression
-            merged.append(layer_def)
+        if run:
+            merged.append(_merged_bands(run))
         run.clear()
 
     for layer_def in layers:
@@ -372,6 +360,112 @@ def merge_zoom_bands(layers: List[dict]) -> List[dict]:
         run.append(layer_def)
     flush()
     return merged
+
+
+def _merged_bands(run: List[dict]) -> dict:
+    """One layer drawing a run of zoom bands (in zoom order): a value that
+    differs between them becomes ["step", ["zoom"], ...], switching at each
+    band's first zoom."""
+    if len(run) == 1:
+        return run[0]
+    layer_def = copy.deepcopy(run[0])
+    layer_def["maxzoom"] = run[-1].get("maxzoom")
+    for section in ("layout", "paint"):
+        for key in layer_def.get(section, {}):
+            values = [member[section][key] for member in run]
+            if all(v == values[0] for v in values):
+                continue
+            expression = ["step", ["zoom"], _match_value(values[0])]
+            previous = values[0]
+            for member, value in zip(run[1:], values[1:]):
+                if value != previous:  # A stop only where the value changes.
+                    expression += [member.get("minzoom", 0), _match_value(value)]
+                    previous = value
+            layer_def[section][key] = expression
+    return layer_def
+
+
+# The zoom range part of a dataset name (the tiles' zooms it is written to).
+_DATASET_ZOOMS = re.compile(r"o\d\di\d\d")
+
+
+def _dataset_band_key(layer_def: dict) -> Optional[tuple]:
+    """What a zoom band's layer draws regardless of its zooms and of its
+    dataset's: two layers with equal keys are bands of one rule drawn from
+    datasets of their own (a geometry made for each zoom's scale)."""
+    source_layer = layer_def.get("source-layer")
+    if not source_layer or not _DATASET_ZOOMS.search(source_layer):
+        return None
+    meta = layer_def.get("metadata") or {}
+    if meta.get("q2vt:cluster") or meta.get("q2vt:displacement") or layer_def.get("type") == "heatmap":
+        return None
+    if RULE_FIELD in json.dumps(layer_def.get("filter")):
+        # A dataset shared by rules: merge_rule_layers draws its rules as one.
+        return None
+    name = re.sub(r"_\d+$", "", _DATASET_ZOOMS.sub("", layer_def.get("id", "")))
+    return (layer_def.get("type"), _DATASET_ZOOMS.sub("", source_layer), name,
+            json.dumps(layer_def.get("filter"), sort_keys=True),
+            json.dumps(layer_def.get("_enabled"), sort_keys=True),
+            json.dumps(layer_def.get("_only"), sort_keys=True),
+            json.dumps(layer_def.get("metadata"), sort_keys=True))
+
+
+def _dataset_zooms(layer_def: dict) -> Tuple[int, int]:
+    """The tile zooms a layer's dataset is written to (its name's oNNiNN)."""
+    zooms = _DATASET_ZOOMS.search(layer_def.get("source-layer", "")).group()
+    return int(zooms[1:3]), int(zooms[4:6])
+
+
+def _mergeable_bands(run: List[dict]) -> bool:
+    """Whether a rule's zoom band layers (in zoom order) can be one layer:
+    they follow each other, their datasets in tiles of their own zooms (a
+    band switching within a zoom shares its tiles), with steppable values."""
+    return all(
+        a.get("maxzoom") is not None and b.get("minzoom") is not None
+        and abs(a["maxzoom"] - b["minzoom"]) < 1e-6
+        and _dataset_zooms(a)[1] < _dataset_zooms(b)[0]
+        for a, b in zip(run, run[1:])) and _steppable(run)
+
+
+def merge_dataset_bands(layers: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
+    """Merge the layers of one rule's zoom bands that each draw a dataset of
+    their own (a rule whose geometry follows the scale: arrows, trims,
+    offsets or callouts sized on screen) into one layer, as merge_zoom_bands
+    merges bands sharing a dataset. Their datasets are written into one tile
+    layer, the first band's, each still at its own zooms only
+    (GDALTilesGenerator), so every zoom draws its own band.
+
+    A run of consecutive band layers of one rule (a fill band and its
+    outline band in turn) becomes one layer per kind, kinds in the order
+    they first appear (each zoom still draws its fill, then its outline),
+    only if every kind merges; otherwise it is left as it is.
+
+    Returns the layers and, by dataset, the tile layer it is written to.
+    """
+    result: List[dict] = []
+    shared: Dict[str, str] = {}
+    i = 0
+    while i < len(layers):
+        key = _dataset_band_key(layers[i])
+        j = i + 1
+        while (key is not None and j < len(layers) and _dataset_band_key(layers[j]) is not None
+               and _dataset_band_key(layers[j])[1] == key[1]):
+            j += 1
+        block = layers[i:j]
+        kinds: Dict[tuple, List[dict]] = {}
+        for layer_def in block:
+            if key is not None:
+                kinds.setdefault(_dataset_band_key(layer_def), []).append(layer_def)
+        runs = [sorted(run, key=lambda l: l.get("minzoom") or 0) for run in kinds.values()]
+        if key is not None and any(len(run) > 1 for run in runs) and all(map(_mergeable_bands, runs)):
+            for run in runs:
+                for member in run[1:]:
+                    shared[member["source-layer"]] = run[0]["source-layer"]
+                result.append(_merged_bands(run))
+        else:
+            result.extend(block)
+        i = j
+    return result, shared
 
 
 def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
@@ -477,7 +571,7 @@ def strip_defaults(layers: List[dict]) -> List[dict]:
 
 
 # A label callout's dataset (RulesFlattener._callout_rule: symbol layer 99).
-_CALLOUT_DATASET = re.compile(r"t00d\d\dr\d\dg\d\dc01o\d\di\d\ds99$")
+_CALLOUT_DATASET = re.compile(r"t00d\d\dr\d\dg\d\dc0[12]o\d\di\d\ds99$")
 
 
 def raise_callouts(layers: List[dict]) -> List[dict]:
@@ -491,9 +585,6 @@ def raise_callouts(layers: List[dict]) -> List[dict]:
                         if "text-field" in l.get("layout", {})), len(rest))
     return rest[:first_label] + callouts + rest[first_label:]
 
-
-# The zoom range part of a dataset name (the tiles' zooms it is written to).
-_DATASET_ZOOMS = re.compile(r"o\d\di\d\d")
 
 
 def share_tile_layers(layers: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
@@ -514,7 +605,8 @@ def share_tile_layers(layers: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
         a, b = first.get("source-layer"), other.get("source-layer")
         if (not a or not b or a == b or refs[a] != 1 or refs[b] != 1
                 or first.get("type") not in ("fill", "line", "symbol")
-                or (first.get("metadata") or {}).get("q2vt:cluster")):
+                or (first.get("metadata") or {}).get("q2vt:cluster")
+                or (first.get("metadata") or {}).get("q2vt:displacement")):
             return False
         zooms_a, zooms_b = _DATASET_ZOOMS.search(a), _DATASET_ZOOMS.search(b)
         if not zooms_a or not zooms_b or zooms_a.group() != zooms_b.group():
@@ -1847,10 +1939,16 @@ class TextPropertyExtractor:
     _VALI = {"bottom": "bottom", "base": "bottom", "half": "", "cap": "top", "top": "top"}
 
     @staticmethod
-    def get_pinned_anchor(label_settings: QgsPalLayerSettings) -> Optional[str]:
+    def _anchor_name(vertical: str, horizontal: str) -> str:
+        """A MapLibre anchor from its parts ("" for the middle)."""
+        return "-".join(part for part in (vertical, horizontal) if part) or "center"
+
+    @staticmethod
+    def get_pinned_anchor(label_settings: QgsPalLayerSettings) -> Union[None, str, List]:
         """``text-anchor`` of labels at a data-defined position (X, Y): the
-        label's corner QGIS puts there, from its (static) data-defined
-        alignment, by default its bottom left; None without a position."""
+        label's corner QGIS puts there, from its data-defined alignment
+        (horizontal and vertical, static or per feature), by default its
+        bottom left; None without a position."""
         props = label_settings.dataDefinedProperties()
         x = props.property(QgsPalLayerSettings.Property.PositionX)
         y = props.property(QgsPalLayerSettings.Property.PositionY)
@@ -1859,14 +1957,47 @@ class TextPropertyExtractor:
         parts = []
         for key, names, default in ((QgsPalLayerSettings.Property.Vali, TextPropertyExtractor._VALI, "bottom"),
                                     (QgsPalLayerSettings.Property.Hali, TextPropertyExtractor._HALI, "left")):
-            value = default
             prop = props.property(key)
-            if prop and prop.isActive():
-                static = QgsExpression(prop.asExpression()).evaluate()
-                value = names.get(str(static).lower(), default) if static is not None else default
-            if value:
-                parts.append(value)
-        return "-".join(parts) or "center"
+            value = PropertyExtractor.get_value_or_expression(None, prop) if prop and prop.isActive() else None
+            if isinstance(value, list):
+                # Per feature: QGIS reads the name in any case; others give the default.
+                cases = ["match", ["downcase", ["to-string", ["coalesce", value, ""]]]]
+                for name, part in names.items():
+                    cases += [name, part]
+                parts.append(cases + [default])
+            else:
+                parts.append(names.get(str(value).lower(), default) if value is not None else default)
+        vertical, horizontal = parts
+        if isinstance(vertical, str) and isinstance(horizontal, str):
+            return TextPropertyExtractor._anchor_name(vertical, horizontal)
+        # Every combination of the parts, as a match on them.
+        vertical_cases = vertical if isinstance(vertical, list) else ["literal", vertical]
+        horizontal_cases = horizontal if isinstance(horizontal, list) else ["literal", horizontal]
+        expression = ["match", ["concat", vertical_cases, "|", horizontal_cases]]
+        for v in ("bottom", "", "top"):
+            for h in ("left", "", "right"):
+                expression += [f"{v}|{h}", TextPropertyExtractor._anchor_name(v, h)]
+        return expression + ["bottom-left"]
+
+    @staticmethod
+    def pinned_anchor_expression(label_settings: QgsPalLayerSettings) -> str:
+        """get_pinned_anchor as a QGIS expression (the label's anchor name per
+        feature, from the settings' own data-defined alignment)."""
+        props = label_settings.dataDefinedProperties()
+        parts = []
+        for key, names, default in ((QgsPalLayerSettings.Property.Vali, TextPropertyExtractor._VALI, "bottom"),
+                                    (QgsPalLayerSettings.Property.Hali, TextPropertyExtractor._HALI, "left")):
+            prop = props.property(key)
+            if not (prop and prop.isActive()):
+                parts.append(QgsExpression.quotedString(default))
+                continue
+            value = f"lower(to_string(({prop.asExpression()})))"
+            cases = " ".join(f"WHEN {value} = {QgsExpression.quotedString(name)} "
+                             f"THEN {QgsExpression.quotedString(part)}" for name, part in names.items())
+            parts.append(f"CASE {cases} ELSE {QgsExpression.quotedString(default)} END")
+        vertical, horizontal = parts
+        joined = f"array_to_string(array_filter(array({vertical}, {horizontal}), @element <> ''), '-')"
+        return f"coalesce(nullif({joined}, ''), 'center')"
 
     @staticmethod
     def get_text_justify(label_settings: QgsPalLayerSettings) -> Union[str, List]:
@@ -2350,13 +2481,22 @@ class QgisMapLibreStyleExporter:
                 self._convert_labeling_style(style)
 
         self._map_raw_colors(self.style["layers"])
+        self.style["layers"], band_datasets = merge_dataset_bands(merge_zoom_bands(self.style["layers"]))
         self.style["layers"] = self.finish_filters(merge_rule_layers(group_rule_layers(
-            merge_zoom_bands(self.style["layers"]))))
+            self.style["layers"])))
         # After merging, which compares the layers' zoom ranges.
         archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
         self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
         self.style["layers"] = raise_callouts(self.style["layers"])
         self.style["layers"], shared = share_tile_layers(self.style["layers"])
+        shared.update(band_datasets)
+        for dataset in shared:
+            # Through each step to the tile layer finally drawn (a band's
+            # dataset in its first band's, that one in a like layer's).
+            target = shared[dataset]
+            while target in shared and shared[target] != target:
+                target = shared[target]
+            shared[dataset] = target
         if shared:
             # For GDALTilesGenerator; not written to style.json.
             self.style["metadata"] = {TILE_LAYERS_KEY: shared}
@@ -2433,13 +2573,16 @@ class QgisMapLibreStyleExporter:
 
     @staticmethod
     def finish_filters(layers: List[dict]) -> List[dict]:
-        """Add each layer's "show" condition to its (rule) filter."""
+        """Add each layer's "show" condition, and the part of its features a
+        layer of its own draws ("_only": labels at their position), to its
+        (rule) filter."""
         for layer_def in layers:
-            condition = layer_def.pop("_enabled", None)
-            if condition is None:
-                continue
-            existing = layer_def.get("filter")
-            layer_def["filter"] = ["all", existing, condition] if existing else condition
+            for key in ("_enabled", "_only"):
+                condition = layer_def.pop(key, None)
+                if condition is None:
+                    continue
+                existing = layer_def.get("filter")
+                layer_def["filter"] = ["all", existing, condition] if existing else condition
         return layers
 
     def _map_raw_colors(self, layers: List[dict]) -> None:
@@ -2488,6 +2631,29 @@ class QgisMapLibreStyleExporter:
                       else PropertyExtractor.ground_m)
             return {"m": value * metres}
         return {"px": PropertyExtractor.convert_length_to_pixels(value, unit)}
+
+    @staticmethod
+    def _displacement_circle_layer(layer_def: dict, displacement: dict) -> dict:
+        """A point displacement renderer's circle around each group (ring
+        placements: a circle of the radius the tiles hold, in screen pixels
+        as QGIS draws it) or the lines joining a grid's points."""
+        r, g, b, a = displacement["circle_color"]
+        color = f"rgba({r}, {g}, {b}, {a})"
+        layer_def = dict(layer_def)
+        if displacement["placement"] == _DISPLACEMENT_GRID:
+            layer_def["type"] = "line"
+            layer_def["paint"] = {"line-color": color, "line-width": displacement["circle_px"]}
+            layer_def["layout"] = {"visibility": "visible"}
+            return layer_def
+        layer_def["type"] = "circle"
+        layer_def["paint"] = {
+            "circle-radius": ["get", DISPLACEMENT_RADIUS_FIELD],
+            "circle-color": "rgba(0, 0, 0, 0)",
+            "circle-stroke-color": color,
+            "circle-stroke-width": displacement["circle_px"],
+        }
+        layer_def["layout"] = {"visibility": "visible"}
+        return layer_def
 
     def _cluster_count_layer(self, font_marker, layer_def: dict) -> dict:
         """A cluster symbol's font marker as the cluster's count: a label of
@@ -2752,6 +2918,17 @@ class QgisMapLibreStyleExporter:
         if heatmap is not None:
             self.style["layers"].append(heatmap)
             return
+        displacement = displacement_settings(symbol)
+        if displacement is not None:
+            meta = {"role": displacement["role"], "distance": self._cluster_distance(displacement),
+                    "placement": displacement["placement"], "d": displacement["diagonal_px"],
+                    "cd": displacement["center_px"], "a": displacement["addition_px"]}
+            layer_def["metadata"] = {"q2vt:displacement": meta}
+            if displacement["role"] == "circle":
+                self.style["layers"].append(self._displacement_circle_layer(layer_def, displacement))
+                return
+            # The centre symbol: drawn at every group's centre, as QGIS does.
+            layer_def["layout"].update({"icon-allow-overlap": True, "icon-ignore-placement": True})
         cluster = cluster_settings(symbol)
         if cluster is not None:
             layer_def["metadata"] = {"q2vt:cluster": self._cluster_distance(cluster)}
@@ -3340,14 +3517,28 @@ class QgisMapLibreStyleExporter:
         # aligns them (variable anchors can't vary by feature: those
         # labels then keep them).
         pinned_anchor = TextPropertyExtractor.get_pinned_anchor(label_settings)
-        if pinned_anchor and text_field and not variable_anchor:
+        pinned_def = None
+        if pinned_anchor and text_field:
             layout = layer_def["layout"]
             pinned = ["==", ["get", pinned_field(text_field[1])], 1]
-            offset = layout["text-offset"]
-            if not (offset and isinstance(offset[0], str)):
-                offset = ["literal", offset]
-            layout["text-anchor"] = ["case", pinned, pinned_anchor, layout["text-anchor"]]
-            layout["text-offset"] = ["case", pinned, ["literal", [0, 0]], offset]
+            if variable_anchor:
+                # Variable anchors can't vary by feature: the labels at their
+                # position are a layer of their own, anchored there (above,
+                # placed first), the others keep theirs.
+                pinned_def = copy.deepcopy(layer_def)
+                pinned_def["id"] = f"{style_name}_pinned"
+                pinned_def["layout"].pop("text-variable-anchor", None)
+                pinned_def["layout"].pop("text-radial-offset", None)
+                pinned_def["layout"]["text-anchor"] = pinned_anchor
+                pinned_def["layout"]["text-offset"] = [0, 0]
+                pinned_def["_only"] = pinned
+                layer_def["_only"] = ["!=", ["get", pinned_field(text_field[1])], 1]
+            else:
+                offset = layout["text-offset"]
+                if not (offset and isinstance(offset[0], str)):
+                    offset = ["literal", offset]
+                layout["text-anchor"] = ["case", pinned, pinned_anchor, layout["text-anchor"]]
+                layout["text-offset"] = ["case", pinned, ["literal", [0, 0]], offset]
 
 
         #         "text-halo-blur": TextPropertyExtractor.get_text_halo_blur(
@@ -3382,6 +3573,14 @@ class QgisMapLibreStyleExporter:
             self._apply_default_icon_props(layer_def)
 
         self.style["layers"].append(layer_def)
+        if pinned_def is not None:
+            for section in ("layout", "paint"):
+                for key, value in layer_def.get(section, {}).items():
+                    if key not in ("text-variable-anchor", "text-radial-offset"):
+                        pinned_def[section].setdefault(key, value)
+            if "metadata" in layer_def:
+                pinned_def["metadata"] = layer_def["metadata"]
+            self.style["layers"].append(pinned_def)
 
     def _apply_icon_from_background(self, layer_def: dict, background, style_name: str,
                                     shape: Optional[tuple] = None):

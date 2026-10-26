@@ -41,7 +41,7 @@ from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
-from ..utils.flattened_rule import CLUSTER_SIZE_FIELD, TILE_LAYERS_KEY
+from ..utils.flattened_rule import CLUSTER_SIZE_FIELD, DISPLACEMENT_RADIUS_FIELD, TILE_LAYERS_KEY
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -66,16 +66,6 @@ _TILE_PIXELS = 512
 # tiles below the highest zoom: dense small polygons (parcels, buildings)
 # make the lowest zooms' tiles the heaviest, for specks hardly drawn.
 _MIN_POLYGON_PIXELS = 0.25
-
-# Low-zoom generalization (optional, see GDALTilesGenerator): below the
-# tiles' highest zoom, polygons smaller than this share of a screen pixel are
-# left out, one point is kept per rule and grid cell of this many screen
-# pixels (the one whose label has the highest priority), lines and
-# polygons are simplified to a screen pixel (8 tile units) and tiles are
-# limited to half the size.
-_GENERALIZED_POLYGON_PIXELS = 1.0
-_GENERALIZED_POINT_CELL_PIXELS = 16
-_GENERALIZED_SIMPLIFICATION = 8
 
 # A zoom level's work per byte of its data: 1, plus this much times the
 # square root of its tile count, as features are cut into more tiles
@@ -112,7 +102,6 @@ class GDALTilesGenerator:
         extent,
         cpu_percent: int,
         feedback: QgsProcessingFeedback,
-        generalize: bool = False,
     ):
         self.layers = layers
         self.style = style
@@ -120,9 +109,6 @@ class GDALTilesGenerator:
         self.extent = extent
         self.cpu_percent = cpu_percent
         self.feedback = feedback
-        # Generalize the tiles below the highest zoom more (smaller, faster
-        # to draw, less detailed); off by default.
-        self.generalize = generalize
         # Set by cancel(), from another thread.
         self._cancelled = threading.Event()
 
@@ -202,14 +188,7 @@ class GDALTilesGenerator:
 
     def _max_tile_size(self, zoom: int) -> int:
         """MAX_SIZE of a run whose last zoom level is ``zoom``."""
-        size = max(_TILE_MAX_SIZE, min(_TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE // self._tile_count(zoom)))
-        return size // 2 if self._generalized(zoom) else size
-
-    def _generalized(self, last_zoom: Optional[int]) -> bool:
-        """Whether a run whose last zoom level is ``last_zoom`` is
-        generalized: when asked, below the tiles' highest zoom."""
-        return (self.generalize and last_zoom is not None
-                and last_zoom < getattr(self, "_last_zoom", last_zoom))
+        return max(_TILE_MAX_SIZE, min(_TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE // self._tile_count(zoom)))
 
     # --- Planning the parallel runs ---
 
@@ -390,8 +369,7 @@ class GDALTilesGenerator:
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(
-                    layer, style_text, min_area, self._point_cell(last_zoom), last_zoom))
+                f.write(self._vrt_layer_block(layer, style_text, min_area))
             f.write(extra)
             f.write("</OGRVRTDataSource>\n")
 
@@ -495,6 +473,240 @@ class GDALTilesGenerator:
                     f'    </OGRVRTLayer>\n')
         return "".join(blocks), conf
 
+    # --- Point displacement ---
+
+    def _displacement_sources(self) -> Dict[str, dict]:
+        """The datasets of point displacement renderers' circles and centre
+        symbols (their style layers' "q2vt:displacement" metadata), by name."""
+        sources = {}
+        for layer_def in self.style.get("layers", []):
+            meta = (layer_def.get("metadata") or {}).get("q2vt:displacement")
+            if meta and layer_def.get("source-layer"):
+                sources[layer_def["source-layer"]] = meta
+        return sources
+
+    def _displacement_of(self, name: str, sources: Dict[str, dict]) -> Optional[str]:
+        """The displacement dataset (a circle's or centre symbol's: every
+        point of the layer) grouping a dataset's points: its own name, or
+        that of its source layer's for the layer's other point datasets
+        (its points, moved), else None."""
+        if name in sources:
+            return name
+        if re.search(r"c00", name):
+            prefix = self._layer_prefix(name)
+            return next((s for s in sources if self._layer_prefix(s) == prefix), None)
+        return None
+
+    @staticmethod
+    def _displacement_groups(points: List[tuple], search: float) -> List[List[int]]:
+        """QgsPointDistanceRenderer's groups of points ((x, y) in drawing
+        order): a point joins the group, among those whose first point lies
+        within ``search`` of it (a square), whose centre (its points' mean)
+        is nearest, else starts one. Returns each group's point indices."""
+        cell = search if search > 0 else 1.0
+        seeds: Dict[tuple, List[int]] = {}
+        groups: List[List[int]] = []
+        centres: List[List[float]] = []
+        origins: List[tuple] = []
+        for index, (x, y) in enumerate(points):
+            cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+            best, best_d = -1, None
+            for gx in (cx - 1, cx, cx + 1):
+                for gy in (cy - 1, cy, cy + 1):
+                    for group in seeds.get((gx, gy), ()):
+                        sx, sy = origins[group]
+                        if abs(sx - x) > search or abs(sy - y) > search:
+                            continue
+                        mx, my = centres[group]
+                        d = (mx - x) ** 2 + (my - y) ** 2
+                        if best_d is None or d < best_d or (d == best_d and group < best):
+                            best, best_d = group, d
+            if best < 0:
+                seeds.setdefault((cx, cy), []).append(len(groups))
+                origins.append((x, y))
+                centres.append([x, y])
+                groups.append([index])
+                continue
+            n = len(groups[best])
+            centre = centres[best]
+            centre[0], centre[1] = (centre[0] * n + x) / (n + 1), (centre[1] * n + y) / (n + 1)
+            groups[best].append(index)
+        return groups
+
+    @staticmethod
+    def _displaced_offsets(n: int, meta: dict) -> Tuple[List[tuple], float]:
+        """QgsPointDisplacementRenderer's positions of a group's n points
+        around its centre, in screen pixels (x right, y down), and its
+        circle's radius (ring placements) or grid spacing (grid)."""
+        d, a, cd = meta.get("d", 0.0), meta.get("a", 0.0), meta.get("cd", 0.0)
+        placement = meta.get("placement", 0)
+        if n == 1:
+            return [(0.0, 0.0)], 0.0
+        if placement == 1:  # Concentric rings.
+            first = cd / 2 + d / 2
+            offsets, radius, ring = [], 0.0, 1
+            while len(offsets) < n:
+                radius = max(first + (ring - 1) * d + ring * a, 0)
+                capacity = max(int(math.floor(2 * math.pi * radius / d)) if d > 0 else n, 1)
+                count = min(capacity, n - len(offsets))
+                for j in range(count):
+                    theta = j * 2 * math.pi / count
+                    offsets.append((radius * math.sin(theta), radius * math.cos(theta)))
+                ring += 1
+            return offsets, radius
+        if placement == 2:  # Grid.
+            size = int(math.ceil(math.sqrt(n)))
+            if n - (size - 1) ** 2 < size:
+                size -= 1
+            spacing = ((cd / 2 + d / 2) + d) / 2 + a
+            shift = -spacing * (size - 1) / 2
+            offsets = [(spacing * (i % size) + shift, spacing * (i // size) + shift) for i in range(n)]
+            return offsets, spacing
+        radius = max(d / 2, n * d / (2 * math.pi)) + a  # Ring.
+        offsets = [(radius * math.sin(k * 2 * math.pi / n), radius * math.cos(k * 2 * math.pi / n))
+                   for k in range(n)]
+        return offsets, radius
+
+    def _displacement_blocks(self, run_layers: dict, sources: Dict[str, dict],
+                             tag: str) -> Tuple[str, dict]:
+        """VRT entries and CONF entries of a run's displaced points: per
+        zoom level, the layer's points grouped as QGIS groups them (the
+        distance at that zoom), each point moved where QGIS draws it around
+        its group's centre, and the groups (of several points) as their
+        centre, holding their circle's radius in q2vt_displacement_radius,
+        or a grid's lines. Written to temporary files, each zoom's entry
+        writing the dataset's own tile layer (CONF target_name)."""
+        by_name = {self._layer_name(layer): layer for layer in self.layers}
+        blocks, conf = [], {}
+        cache: Dict[tuple, tuple] = {}
+        for name, (layer, minzoom, maxzoom) in run_layers.items():
+            group_source = self._displacement_of(name, sources)
+            if group_source is None or group_source not in by_name:
+                continue
+            meta = sources[group_source]
+            source = layer.source().split("|layername=")[0]
+            all_source = by_name[group_source].source().split("|layername=")[0]
+            role = meta.get("role") if name == group_source else None
+            out_path = join(QgsProcessingUtils.tempFolder(), f"displaced_{tag}_{len(blocks)}.gpkg")
+            driver = ogr.GetDriverByName("GPKG")
+            out = driver.CreateDataSource(out_path)
+            src = ogr.Open(source)
+            if out is None or src is None:
+                continue
+            src_layer = src.GetLayer(0)
+            fields = src_layer.GetLayerDefn()
+            orig_index = fields.GetFieldIndex(f"{_FIELD_PREFIX}_orig_id")
+            features = [(f.GetFID(), f.Clone()) for f in src_layer]
+            for zoom in range(minzoom, maxzoom + 1):
+                key = (group_source, zoom)
+                if key not in cache:
+                    cache[key] = self._displaced_points(all_source, meta, zoom)
+                moved, groups = cache[key]
+                geometry_type = ogr.wkbMultiLineString if role == "circle" and meta.get("placement") == 2 \
+                    else ogr.wkbPoint
+                out_layer = out.CreateLayer(f"z{zoom:02d}", src_layer.GetSpatialRef(), geometry_type)
+                for i in range(fields.GetFieldCount()):
+                    out_layer.CreateField(fields.GetFieldDefn(i))
+                if role == "circle":
+                    out_layer.CreateField(ogr.FieldDefn(DISPLACEMENT_RADIUS_FIELD, ogr.OFTReal))
+                defn = out_layer.GetLayerDefn()
+                out_layer.StartTransaction()
+                if role is None:
+                    for _, feature in features:
+                        point = feature.GetGeometryRef()
+                        if point is None:
+                            continue
+                        orig = feature.GetField(orig_index) if orig_index >= 0 else None
+                        position = moved.get((orig, round(point.GetX(), 3), round(point.GetY(), 3)))
+                        copy = ogr.Feature(defn)
+                        copy.SetFrom(feature)
+                        if position is not None:
+                            copy.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({position[0]!r} {position[1]!r})"))
+                        out_layer.CreateFeature(copy)
+                else:
+                    by_key = {}
+                    for _, feature in features:
+                        point = feature.GetGeometryRef()
+                        if point is not None:
+                            orig = feature.GetField(orig_index) if orig_index >= 0 else None
+                            by_key.setdefault((orig, round(point.GetX(), 3), round(point.GetY(), 3)), feature)
+                    for first_key, centre, radius, lines in groups:
+                        first = by_key.get(first_key)
+                        copy = ogr.Feature(defn)
+                        if first is not None:
+                            copy.SetFrom(first)
+                        if role == "circle" and lines is not None:
+                            copy.SetGeometry(ogr.CreateGeometryFromWkt(lines))
+                        else:
+                            copy.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({centre[0]!r} {centre[1]!r})"))
+                        if role == "circle":
+                            copy.SetField(DISPLACEMENT_RADIUS_FIELD, radius)
+                        out_layer.CreateFeature(copy)
+                out_layer.CommitTransaction()
+                entry = f"{name}__z{zoom:02d}"
+                conf[entry] = {"target_name": name, "minzoom": zoom, "maxzoom": zoom}
+                extra_field = (f'        <Field name="{DISPLACEMENT_RADIUS_FIELD}" type="Real"/>\n'
+                               if role == "circle" else "")
+                blocks.append(
+                    f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
+                    f'        <SrcDataSource>{escape(out_path)}</SrcDataSource>\n'
+                    f'        <SrcLayer>z{zoom:02d}</SrcLayer>\n'
+                    f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
+                    f'        <GeometryType>wkbUnknown</GeometryType>\n'
+                    f'{self._vrt_fields(source, str(self.style))}{extra_field}'
+                    f'    </OGRVRTLayer>\n')
+            out = src = None
+        return "".join(blocks), conf
+
+    def _displaced_points(self, all_source: str, meta: dict, zoom: int) -> tuple:
+        """A displacement layer's points at a zoom: {(orig id, x, y): moved
+        position} and its groups of several points as (first point's key,
+        centre, circle radius in pixels, grid lines' WKT or None)."""
+        resolution = 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** zoom)
+        distance = meta.get("distance") or {}
+        search = distance.get("m") or distance.get("px", 0) * resolution
+        ds = ogr.Open(all_source)
+        keys, points = [], []
+        if ds is not None:
+            layer = ds.GetLayer(0)
+            orig_index = layer.GetLayerDefn().GetFieldIndex(f"{_FIELD_PREFIX}_orig_id")
+            for feature in layer:
+                point = feature.GetGeometryRef()
+                if point is None:
+                    continue
+                orig = feature.GetField(orig_index) if orig_index >= 0 else None
+                keys.append((orig, round(point.GetX(), 3), round(point.GetY(), 3)))
+                points.append((point.GetX(), point.GetY()))
+        ds = None
+        moved, groups = {}, []
+        for members in self._displacement_groups(points, search):
+            n = len(members)
+            cx = sum(points[i][0] for i in members) / n
+            cy = sum(points[i][1] for i in members) / n
+            offsets, radius = self._displaced_offsets(n, meta)
+            positions = []
+            for i, (dx, dy) in zip(members, offsets):
+                position = (cx + dx * resolution, cy - dy * resolution) if n > 1 else points[i]
+                moved[keys[i]] = position
+                positions.append(position)
+            if n < 2:
+                continue
+            lines = None
+            if meta.get("placement") == 2:
+                columns = int(math.ceil(math.sqrt(n)))
+                if n - (columns - 1) ** 2 < columns:
+                    columns -= 1
+                segments = []
+                for i in range(n):
+                    if i + 1 < n and (i + 1) % columns != 0:
+                        segments.append((positions[i], positions[i + 1]))
+                    if i + columns < n:
+                        segments.append((positions[i], positions[i + columns]))
+                lines = "MULTILINESTRING (" + ", ".join(
+                    f"({a[0]!r} {a[1]!r}, {b[0]!r} {b[1]!r})" for a, b in segments) + ")" if segments else None
+            groups.append((keys[members[0]], (cx, cy), radius, lines))
+        return moved, groups
+
     def _min_area(self, last_zoom: Optional[int]) -> Optional[float]:
         """The smallest polygon (EPSG:3857 square metres) a run's tiles
         keep: _MIN_POLYGON_PIXELS of a screen pixel at its last zoom level,
@@ -503,56 +715,23 @@ class GDALTilesGenerator:
         if last_zoom is None or last_zoom >= getattr(self, "_last_zoom", last_zoom):
             return None
         pixel = 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
-        pixels = _GENERALIZED_POLYGON_PIXELS if self._generalized(last_zoom) else _MIN_POLYGON_PIXELS
-        return pixels * pixel * pixel
-
-    def _point_cell(self, last_zoom: Optional[int]) -> Optional[float]:
-        """The grid cell (EPSG:3857 metres) of a generalized run's point
-        thinning; None when the run isn't generalized."""
-        if not self._generalized(last_zoom):
-            return None
-        return _GENERALIZED_POINT_CELL_PIXELS * 2 * _WORLD_HALF / (_TILE_PIXELS * 2 ** last_zoom)
+        return _MIN_POLYGON_PIXELS * pixel * pixel
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
-                         min_area: Optional[float] = None, point_cell: Optional[float] = None,
-                         last_zoom: Optional[int] = None) -> str:
+                         min_area: Optional[float] = None) -> str:
         """Return the VRT XML block for a single layer; a polygon layer's
-        smaller polygons than ``min_area`` are left out, and a point layer
-        keeps one point per rule and grid cell of ``point_cell``: the one
-        whose label MapLibre places first (see _label_sort_key), else its
-        first."""
+        smaller polygons than ``min_area`` are left out."""
         source = layer.source().split("|layername=")[0]
         geometry = re.search(r"c(\d\d)", self._layer_name(layer))
         geometry = geometry.group(1) if geometry else None
         src_sql = ""
-        if (min_area and geometry == "02") or (point_cell and geometry == "00"):
+        if min_area and geometry == "02":
             ds = ogr.Open(source)
             if ds is not None:
-                # SQL over the plugin's own dataset; the names are quoted.
-                source_layer = ds.GetLayer(0)
-                name = source_layer.GetName().replace('"', '""')
-                if geometry == "02":
-                    sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
-                    src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
-                else:
-                    # Run by ogr2ogr: SQLite SQL never runs in QGIS's process.
-                    column = (source_layer.GetGeometryColumn() or "GEOMETRY").replace('"', '""')
-                    keys = [f'CAST(floor(ST_X("{column}") / {point_cell!r}) AS INTEGER)',
-                            f'CAST(floor(ST_Y("{column}") / {point_cell!r}) AS INTEGER)']
-                    if source_layer.GetLayerDefn().GetFieldIndex(f"{_FIELD_PREFIX}_rule") >= 0:
-                        keys.insert(0, f'"{_FIELD_PREFIX}_rule"')
-                    defn = source_layer.GetLayerDefn()
-                    fields = {defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())}
-                    sort_key = self._label_sort_key(self._layer_name(layer), fields, last_zoom)
-                    # SQLite takes a bare column (rowid) from the row whose
-                    # min() it returns.
-                    kept = (f'SELECT r FROM (SELECT rowid AS r, min(coalesce({sort_key}, 1e300)) '
-                            f'FROM "{name}" GROUP BY {", ".join(keys)})' if sort_key else
-                            f'SELECT min(rowid) FROM "{name}" GROUP BY {", ".join(keys)}')
-                    # "+rowid": SQLite would otherwise fetch each kept row
-                    # by its FID, a scan of the file each (minutes).
-                    sql = f'SELECT * FROM "{name}" WHERE +rowid IN ({kept})'  # nosec B608
-                    src_sql = f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
+                # SQL over the plugin's own dataset; the name is quoted.
+                name = ds.GetLayer(0).GetName().replace('"', '""')
+                sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
+                src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
                 ds = None
         return (
             f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
@@ -563,98 +742,6 @@ class GDALTilesGenerator:
             f'{self._vrt_fields(source, style_text)}'
             f'    </OGRVRTLayer>\n'
         )
-
-    def _label_sort_key(self, source_layer: str, fields: set, zoom: Optional[int]) -> Optional[str]:
-        """The SQLite expression of a dataset's label sort key (MapLibre's
-        symbol-sort-key, from the QGIS label priority: lower is placed
-        first), when its labels have one varying by feature; else None.
-
-        One expression is needed: the style's label layers of the dataset
-        share one, or each draws one rule (q2vt_rule), whose keys are then
-        chosen by rule, or else (several labels of a feature) the lowest of
-        their keys, its best placed label."""
-        keyed = []
-        # A dataset sharing another's tile layer is drawn by that one's layers.
-        source_layer = self._shared_tile_layers().get(source_layer, source_layer)
-        for layer_def in self.style.get("layers", []):
-            layout = layer_def.get("layout", {})
-            if (layer_def.get("source-layer") != source_layer or "text-field" not in layout
-                    or "symbol-sort-key" not in layout):
-                continue
-            if zoom is not None and not (layer_def.get("minzoom", 0) < zoom + 1
-                                         and zoom < layer_def.get("maxzoom", 99)):
-                continue
-            keyed.append((layer_def.get("filter"), layout["symbol-sort-key"]))
-        if not keyed or all(not isinstance(key, list) for _, key in keyed):
-            return None
-        try:
-            if all(key == keyed[0][1] for _, key in keyed):
-                return self._sql_of(keyed[0][1], fields, zoom)
-            rule_field = f"{_FIELD_PREFIX}_rule"
-            if rule_field in fields and all(
-                    isinstance(flt, list) and len(flt) == 3 and flt[0] == "=="
-                    and flt[1] == ["get", rule_field] and isinstance(flt[2], int)
-                    for flt, _ in keyed):
-                cases = " ".join(
-                    f"WHEN {flt[2]} THEN {self._sql_of(key, fields, zoom)}" for flt, key in keyed)
-                return f'(CASE "{rule_field}" {cases} END)'
-            keys = []
-            for _, key in keyed:
-                sql = f"coalesce({self._sql_of(key, fields, zoom)}, 1e300)"
-                if sql not in keys:
-                    keys.append(sql)
-            return f"min({', '.join(keys)})"
-        except ValueError:
-            return None
-
-    @classmethod
-    def _sql_of(cls, expression, fields: set, zoom: Optional[int]) -> str:
-        """A sort key expression, as the style writes them, in SQLite;
-        raises ValueError for anything else."""
-        def sql(e) -> str:
-            return cls._sql_of(e, fields, zoom)
-
-        if isinstance(expression, bool):
-            raise ValueError(expression)
-        if isinstance(expression, (int, float)):
-            return repr(float(expression))
-        if isinstance(expression, str):
-            return "'" + expression.replace("'", "''") + "'"
-        if not isinstance(expression, list) or not expression:
-            raise ValueError(expression)
-        op, args = expression[0], expression[1:]
-        if op == "get" and len(args) == 1 and isinstance(args[0], str):
-            return '"' + args[0].replace('"', '""') + '"' if args[0] in fields else "NULL"
-        if op == "literal" and len(args) == 1:
-            return sql(args[0])
-        if op == "zoom" and zoom is not None:
-            return repr(float(zoom))
-        if op == "-" and len(args) in (1, 2):
-            return f"(-{sql(args[0])})" if len(args) == 1 else f"({sql(args[0])} - {sql(args[1])})"
-        if op in ("+", "*") and args:
-            return "(" + f" {op} ".join(sql(a) for a in args) + ")"
-        if op in ("min", "max", "coalesce") and args:
-            items = [sql(a) for a in args]
-            return items[0] if len(items) == 1 else f"{op}({', '.join(items)})"
-        if op == "to-number" and args:
-            # SQLite's CAST makes any text a number (0 if not one).
-            return "coalesce(" + ", ".join(
-                f"CAST(NULLIF({sql(a)}, '') AS REAL)" for a in args) + ", 0)"
-        if op == "match" and len(args) >= 4 and len(args) % 2 == 0:
-            whens = []
-            for labels, output in zip(args[1:-1:2], args[2:-1:2]):
-                for label in labels if isinstance(labels, list) else [labels]:
-                    whens.append(f"WHEN {sql(label)} THEN {sql(output)}")
-            return f"(CASE {sql(args[0])} {' '.join(whens)} ELSE {sql(args[-1])} END)"
-        if op == "step" and len(args) >= 2 and args[0] == ["zoom"] and zoom is not None \
-                and len(args) % 2 == 0:
-            result = args[1]
-            for stop, output in zip(args[2::2], args[3::2]):
-                if zoom < stop:
-                    break
-                result = output
-            return sql(result)
-        raise ValueError(expression)
 
     @staticmethod
     def _is_tiled_field(field_name: str, style_text: str) -> bool:
@@ -708,9 +795,14 @@ class GDALTilesGenerator:
         vrt_path = join(QgsProcessingUtils.tempFolder(), f"layers_{tag}.vrt")
         conf_path = join(QgsProcessingUtils.tempFolder(), f"layers_conf_{tag}.json")
         clusters = self._cluster_sources()
+        displaced = self._displacement_sources()
         plain = {name: entry for name, entry in run_layers.items()
-                 if self._cluster_of(name, clusters) is None}
+                 if self._cluster_of(name, clusters) is None and self._displacement_of(name, displaced) is None}
         cluster_xml, cluster_conf = self._cluster_blocks(run_layers, clusters, tag) if clusters else ("", {})
+        if displaced:
+            displaced_xml, displaced_conf = self._displacement_blocks(run_layers, displaced, tag)
+            cluster_xml += displaced_xml
+            cluster_conf.update(displaced_conf)
         self._build_vrt(vrt_path, [layer for layer, _, _ in plain.values()], hi, cluster_xml)
         self._build_layer_conf(conf_path, plain, cluster_conf)
         # The temporary database is written heavily: in memory if it fits,
@@ -722,9 +814,8 @@ class GDALTilesGenerator:
             temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
         # The driver applies SIMPLIFICATION_MAX_ZOOM at a run's last zoom:
         # only the tiles' real last zoom is left unsimplified.
-        simplification = _GENERALIZED_SIMPLIFICATION if self._generalized(hi) else _SIMPLIFICATION
         last_zoom_simplification = (
-            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else simplification
+            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else _SIMPLIFICATION
         )
         return [
             "ogr2ogr", "-f", "MBTiles", run.output, vrt_path,
@@ -737,7 +828,7 @@ class GDALTilesGenerator:
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", f"MAX_SIZE={self._max_tile_size(hi)}",
             "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
-            "-dsco", f"SIMPLIFICATION={simplification}",
+            "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
             "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
             *self._strip_filter(run),
         ]

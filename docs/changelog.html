@@ -136,29 +136,29 @@
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
-      <li><strong>Point clusters</strong>, <strong>heatmaps</strong>, <strong>merged features</strong> and <strong>inverted polygons</strong>.</li>
-      <li><strong>Arrows drawn as in QGIS</strong>: curved or straight, on every segment or not, half arrows, tapered.</li>
-      <li><strong>Trimmed lines</strong> and <strong>fill offsets</strong>, data-defined too; outlines drawn <strong>inside polygons</strong>.</li>
-      <li><strong>Callouts</strong> to labels at a data-defined <strong>position (X, Y)</strong>, aligned there as in QGIS.</li>
-      <li>Markers on vertices and segment centres <strong>turned with the line</strong>.</li>
-      <li><strong>Map-unit size limits</strong>; label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
-      <li>Data-defined <strong>font family</strong>; labels <strong>wrap on a character</strong>, as in QGIS.</li>
-      <li><strong>Lighter style</strong>: default values and needless sorting left out, alike layers drawn as one.</li>
-      <li>The web map's server sends the style, scripts and search index <strong>compressed</strong>.</li>
+      <li><strong>Point clusters</strong>, <strong>point displacement</strong>, <strong>heatmaps</strong>, <strong>merged features</strong> and <strong>inverted polygons</strong>.</li>
+      <li><strong>Label priority</strong> as in QGIS in both viewers, data-defined too.</li>
+      <li><strong>Lighter, faster web maps</strong>: half-size styles, fewer layers (alike layers and zoom bands drawn as one), no needless sorting.</li>
       <li>Outlines and point or line labels <strong>share their features' data</strong> in the tiles.</li>
       <li><code>@map_scale</code> rules make <strong>one layer</strong> in the tiles and the style: smaller tiles, faster drawing.</li>
+      <li><strong>Arrows drawn as in QGIS</strong>: curved or straight, on every segment or not, half arrows, tapered.</li>
+      <li><strong>Callouts</strong> (simple, Manhattan, curved, balloon) to labels at a data-defined <strong>position (X, Y)</strong>, aligned there as in QGIS, data-defined alignment too.</li>
       <li>Features drawn in the layer's <strong>rendering order</strong>.</li>
       <li>Data-defined <strong>colours</strong> work out in C++, any number of them.</li>
-      <li><strong>Label priority</strong> as in QGIS in both viewers, data-defined too.</li>
-      <li>Optional: <strong>generalize low zoom levels</strong> for smaller tiles, keeping the highest-priority labels.</li>
-      <li>Search shows <strong>one result per place</strong>.</li>
-      <li>The map opens <strong>fitted to the export extent</strong>.</li>
+      <li>Rules on <strong>fields a layer lacks</strong> (a style shared by layers) export in C++ too.</li>
+      <li><strong>Trimmed lines</strong> and <strong>fill offsets</strong>, data-defined too; outlines drawn <strong>inside polygons</strong>.</li>
+      <li>Markers <strong>turned with the line</strong> on vertices and segment centres; first and last markers <strong>offset along the line</strong>.</li>
       <li>Scale ranges switch at the <strong>exact zoom</strong>, measured at the data's latitude.</li>
+      <li><strong>Map-unit size limits</strong>; label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
       <li><strong>Hatched fills</strong> keep their hatching.</li>
-      <li>Data-defined <strong>marker colours and shapes</strong>.</li>
+      <li>Data-defined <strong>marker colours and shapes</strong> and <strong>font family</strong>.</li>
       <li>Data-defined <strong>show label</strong> and symbol layer <strong>enabled</strong>.</li>
       <li>Line labels <strong>once per line</strong>; <strong>merge connected lines</strong>.</li>
-      <li><strong>Outside-polygon</strong> labels and <strong>title case</strong>.</li>
+      <li><strong>Outside-polygon</strong> labels, <strong>title case</strong> and labels that <strong>wrap on a character</strong>.</li>
+      <li>Search shows <strong>one result per place</strong>.</li>
+      <li>The map opens <strong>fitted to the export extent</strong>.</li>
+      <li>The web map's server sends the style, scripts and search index <strong>compressed</strong>.</li>
+      <li>An export that <strong>crashes runs again</strong> by itself.</li>
       <li>Fixed: road casings of categorized layers could disappear.</li>
       <li>Fixed: some data-defined expressions crashed the export.</li>
       <li>Fixed: letters missing from labels sharing a font.</li>

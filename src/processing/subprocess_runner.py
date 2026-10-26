@@ -31,6 +31,18 @@ _MESSAGE_PREFIX = "\x1eQ2VT "            # Must match worker.MESSAGE_PREFIX.
 _CANCEL_GRACE_S = 30                     # Then the child is killed.
 _STDERR_LINES_KEPT = 400
 _STDERR_LINES_SHOWN = 60
+# Runs after the first that a native crash of the child is retried with.
+_CRASH_RETRIES = 1
+
+
+class _NativeCrash(Exception):
+    """The child process died of a native crash (its fault report)."""
+
+
+def _fault_line(lines) -> Optional[str]:
+    """The child's native fault report line, if it crashed."""
+    return next((line.strip() for line in lines
+                 if "fatal exception" in line.lower() or "Fatal Python error" in line), None)
 
 
 def _crash_report(lines) -> str:
@@ -66,8 +78,25 @@ def python_executable() -> Optional[str]:
 def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedback) -> dict:
     """Run the conversion in a child process; returns its result message.
 
-    Raises QgsProcessingException if the child fails.
+    A native crash of the child (a fault in a library it runs, seen once
+    in many runs and not reproduced) is retried, the base layers it built
+    being cached by then. Raises QgsProcessingException if the child fails.
     """
+    for attempt in range(_CRASH_RETRIES + 1):
+        try:
+            return _run_once(project_path, package_dir, params, feedback)
+        except _NativeCrash as crash:
+            if attempt == _CRASH_RETRIES or feedback.isCanceled():
+                raise QgsProcessingException(str(crash)) from None
+            feedback.pushInfo(f". The conversion process stopped unexpectedly ({crash.args[1]}); "
+                              "running it again...")
+    raise QgsProcessingException("The conversion process failed.")
+
+
+def _run_once(project_path: str, package_dir: str, params: dict, feedback) -> dict:
+    """One run of the conversion in a child process; returns its result
+    message. Raises _NativeCrash if the child crashed, QgsProcessingException
+    if it failed otherwise."""
     python = python_executable()
     if python is None:
         raise QgsProcessingException("QGIS's Python interpreter was not found.")
@@ -123,7 +152,8 @@ def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedbac
             stderr_tail.append(line)
 
     threading.Thread(target=read_stdout, daemon=True).start()
-    threading.Thread(target=read_stderr, daemon=True).start()
+    stderr_reader = threading.Thread(target=read_stderr, daemon=True)
+    stderr_reader.start()
 
     result: Optional[dict] = None
     fatal_errors = []
@@ -165,12 +195,18 @@ def run_in_subprocess(project_path: str, package_dir: str, params: dict, feedbac
             else:
                 feedback.reportError(message["text"])
 
+    process.wait()
+    process.stdout.close()
+    stderr_reader.join(timeout=5)
+    process.stderr.close()
     shutil.rmtree(work_dir, ignore_errors=True)
     if result is not None:
         return result
     if feedback.isCanceled():
         return {"temp_dir": None, "min_zoom": None, "canceled": True}
     details = "\n".join(fatal_errors) or _crash_report(list(stderr_tail)) or "no output"
-    raise QgsProcessingException(
-        f"The conversion process failed (exit code {process.returncode}):\n{details}"
-    )
+    message = f"The conversion process failed (exit code {process.returncode}):\n{details}"
+    fault = None if fatal_errors else _fault_line(list(stderr_tail))
+    if fault:
+        raise _NativeCrash(message, fault)
+    raise QgsProcessingException(message)

@@ -18,9 +18,12 @@ import it, see rules_exporter).
 import math
 from typing import List, Optional
 
-from qgis.PyQt.QtCore import QPointF, QRectF
-from qgis.PyQt.QtGui import QFont, QFontMetricsF, QPainterPath, QPolygonF
-from qgis.core import Qgis, QgsExpression, QgsGeometry, QgsPointXY, QgsRectangle, qgsfunction
+from qgis.PyQt.QtCore import QLineF, QPointF, QRectF
+from qgis.PyQt.QtGui import QFont, QFontMetricsF, QPainterPath, QTransform
+from qgis.core import (
+    Qgis, QgsCircularString, QgsExpression, QgsGeometry, QgsLineString, QgsPoint, QgsPointXY,
+    QgsRectangle, qgsfunction,
+)
 
 _GROUP = "QGIS2VectorTiles"
 
@@ -369,6 +372,13 @@ _LABEL_ANCHORS = {
 # QgsCallout.AnchorPoint
 _POLE, _EXTERIOR, _SURFACE, _CENTROID = range(4)
 
+# Callout kinds (RulesFlattener): QgsSimpleLineCallout, QgsManhattanLineCallout,
+# QgsCurvedLineCallout, QgsBalloonCallout.
+CALLOUT_SIMPLE, CALLOUT_MANHATTAN, CALLOUT_CURVED, CALLOUT_BALLOON = range(4)
+
+# QgsCurvedLineCallout.Orientation
+_AUTOMATIC, _CLOCKWISE, _COUNTER_CLOCKWISE = range(3)
+
 _metrics_cache = {}
 
 
@@ -387,64 +397,281 @@ def _text_size(text: str, family: str, pixel_size: float, line_height: float) ->
     return width, len(lines) * line_height * pixel_size
 
 
-def _feature_anchor(geometry: QgsGeometry, kind: int, toward: QgsPointXY) -> Optional[QgsGeometry]:
-    """The point of a feature a callout starts from (QgsCallout.AnchorPoint)."""
-    geometry_type = int(getattr(geometry.type(), "value", geometry.type()))
-    if geometry_type == 0:
-        return geometry.centroid() if geometry.isMultipart() else geometry
-    if geometry_type == 1:
-        if kind == _EXTERIOR:
-            return geometry.nearestPoint(QgsGeometry.fromPointXY(toward))
-        return geometry.interpolate(geometry.length() / 2)
+def _near(a: float, b: float, epsilon: float = 1e-8) -> bool:
+    return abs(a - b) <= epsilon
+
+
+def _closest_side_of_rectangle(right, bottom, left, top, x, y) -> int:
+    """QgsGeometryUtilsBase::closestSideOfRectangle: 1 top, 2 top right,
+    3 right, 4 bottom right, 5 bottom, 6 bottom left, 7 left, 8 top left
+    (y up; callers pass a screen rectangle's sides as QGIS does)."""
+    if x <= left and y <= bottom:
+        dx, dy = left - x, bottom - y
+        return 6 if _near(dx, dy) else (5 if dx < dy else 7)
+    if x >= right and y >= top:
+        dx, dy = x - right, y - top
+        return 2 if _near(dx, dy) else (1 if dx < dy else 3)
+    if x >= right and y <= bottom:
+        dx, dy = x - right, bottom - y
+        return 4 if _near(dx, dy) else (5 if dx < dy else 3)
+    if x <= left and y >= top:
+        dx, dy = left - x, y - top
+        return 8 if _near(dx, dy) else (1 if dx < dy else 7)
+    if x <= left:
+        return 7
+    if x >= right:
+        return 3
+    if y <= bottom:
+        return 5
+    if y >= top:
+        return 1
+    smallest_x = min(right - x, x - left)
+    smallest_y = min(top - y, y - bottom)
+    if smallest_x < smallest_y:
+        return 3 if right - x < x - left else 7
+    return 1 if top - y < y - bottom else 5
+
+
+def _automatic_orientation(rect: QRectF, start: QPointF, end: QPointF) -> int:
+    """QgsCurvedLineCallout's automatic orientation (screen coordinates)."""
+    side = _closest_side_of_rectangle(rect.right(), rect.bottom(), rect.left(), rect.top(),
+                                      start.x(), start.y())
+    sx, sy, ex, ey = start.x(), start.y(), end.x(), end.y()
+    mid_x, mid_y = rect.left() + 0.5 * rect.width(), rect.top() + 0.5 * rect.height()
+    cw, ccw = _CLOCKWISE, _COUNTER_CLOCKWISE
+    if side == 1:
+        if _near(ex, sx):
+            return ccw if sx < mid_x else cw
+        return ccw if ex > sx else cw
+    if side == 2:
+        if ex < sx:
+            return cw
+        if ey < sy:
+            return ccw
+        return cw if (ex - sx) < (ey - sy) else ccw
+    if side == 3:
+        if _near(ey, sy):
+            return cw if sy < mid_y else ccw
+        return ccw if ey < sy else cw
+    if side == 4:
+        if ex < sx:
+            return ccw
+        if ey > sy:
+            return cw
+        return ccw if (ex - sx) < (sy - ey) else cw
+    if side == 5:
+        if _near(ex, sx):
+            return cw if sx < mid_x else ccw
+        return ccw if ex < sx else cw
+    if side == 6:
+        if ex > sx:
+            return cw
+        if ey > sy:
+            return ccw
+        return cw if (sx - ex) < (sy - ey) else ccw
+    if side == 7:
+        if _near(ey, sy):
+            return ccw if sy < mid_y else cw
+        return ccw if ey > sy else cw
+    if side == 8:
+        if ex > sx:
+            return ccw
+        if ey < sy:
+            return cw
+        return ccw if (sx - ex) < (ey - sy) else cw
+    return _AUTOMATIC
+
+
+def _curved_line(rect: QRectF, start: QPointF, end: QPointF, curvature: float, orientation: int):
+    """QgsCurvedLineCallout::createCalloutLine: a circular arc from start to
+    end through their middle moved aside by curvature × their distance."""
+    if orientation == _AUTOMATIC:
+        orientation = _automatic_orientation(rect, start, end)
+    sign = 1 if orientation == _CLOCKWISE else -1
+    dx, dy = end.x() - start.x(), end.y() - start.y()
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return QgsLineString([QgsPoint(start.x(), start.y()), QgsPoint(end.x(), end.y())])
+    offset = sign * length * curvature
+    mid_x = start.x() + 0.5 * dx + offset * dy / length
+    mid_y = start.y() + 0.5 * dy - offset * dx / length
+    return QgsCircularString(QgsPoint(start.x(), start.y()), QgsPoint(mid_x, mid_y),
+                             QgsPoint(end.x(), end.y()))
+
+
+def _balloon_side(i: int, rect: QRectF, r: float) -> QLineF:
+    """QgsShapeGenerator's balloon side i (top, right, bottom, left), inset
+    by the corner radius."""
+    ym = -1 if rect.height() < 0 else 1
+    if i == 0:
+        return QLineF(rect.left() + r, rect.top(), rect.right() - r, rect.top())
+    if i == 1:
+        return QLineF(rect.right(), rect.top() + ym * r, rect.right(), rect.bottom() - ym * r)
+    if i == 2:
+        return QLineF(rect.right() - r, rect.bottom(), rect.left() + r, rect.bottom())
+    return QLineF(rect.left(), rect.bottom() - ym * r, rect.left(), rect.top() + ym * r)
+
+
+def _closest_on_segment(line: QLineF, p: QPointF) -> QPointF:
+    dx, dy = line.dx(), line.dy()
+    length2 = dx * dx + dy * dy
+    t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((p.x() - line.x1()) * dx + (p.y() - line.y1()) * dy) / length2))
+    return QPointF(line.x1() + t * dx, line.y1() + t * dy)
+
+
+def _balloon(origin: QPointF, rect: QRectF, wedge_width: float, r: float) -> List[QPointF]:
+    """QgsShapeGenerator::createBalloon: the label's rectangle, its corners
+    rounded, with a wedge pointing at origin from its nearest side."""
+    inverted = rect.height() < 0
+    r = min(r, min(abs(rect.height()), rect.width()) / 2)
+    balloon_segment = -1
+    p1 = p2 = QPointF()
+    if not rect.contains(origin):
+        best_d, best = float("inf"), -1
+        best_p, best_side = QPointF(), QLineF()
+        for i in range(4):
+            side = _balloon_side(i, rect, r)
+            p = _closest_on_segment(side, origin)
+            d = (p.x() - origin.x()) ** 2 + (p.y() - origin.y()) ** 2
+            prefer = False
+            if _near(d, best_d):
+                theta = (math.degrees(math.atan2(p.x() - origin.x(), p.y() - origin.y())) + 360) % 360
+                prefer = ((theta < 45 or theta > 315) and i == 0) or (45 <= theta < 135 and i == 3) \
+                    or (135 <= theta < 225 and i == 2) or (225 <= theta <= 315 and i == 1)
+            elif d < best_d:
+                prefer = True
+            if prefer:
+                best, best_d, best_p, best_side = i, d, p, side
+        balloon_segment = best
+        length = best_side.length()
+        w = max(0.0, min(wedge_width, length))
+        a, b = best_side.p1(), best_side.p2()
+        p1 = best_p
+        if math.hypot(p1.x() - b.x(), p1.y() - b.y()) < w:
+            unit = (a - b) / max(length, 1e-12)
+            p1 = b + unit * w
+        to_b = b - p1
+        distance = math.hypot(to_b.x(), to_b.y())
+        p2 = p1 + (to_b / distance * w if distance else QPointF())
+    path = QPainterPath()
+    first = last = QPointF()
+    for i in range(4):
+        side = _balloon_side(i, rect, r)
+        if i == 0:
+            path.moveTo(side.p1())
+            first = side.p1()
+        else:
+            corner = QRectF(min(last.x(), side.p1().x()), min(last.y(), side.p1().y()), r, r)
+            start = {1: -90, 2: 0, 3: 90}[i] if inverted else {1: 90, 2: 0, 3: -90}[i]
+            path.arcTo(corner, start, 90 if inverted else -90)
+        if i == balloon_segment:
+            path.lineTo(p1)
+            path.lineTo(origin)
+            path.lineTo(p2)
+        last = side.p2()
+        path.lineTo(last)
+    corner = QRectF(min(last.x(), first.x()), min(last.y(), first.y()), r, r)
+    path.arcTo(corner, 180 if inverted else -180, 90 if inverted else -90)
+    polygon = path.toFillPolygon()
+    # Copies: the points of the polygon go with it.
+    return [QPointF(p.x(), p.y()) for p in polygon]
+
+
+def _part_anchor(part: QgsGeometry, kind: int, box: QgsGeometry) -> Optional[QgsGeometry]:
+    """The point of a feature's part a callout runs to (QgsCallout's
+    calloutLineToPart): a point itself, a line's point nearest the label,
+    a polygon's anchor point; None if the label is on the polygon."""
+    part_type = int(getattr(part.type(), "value", part.type()))
+    if part_type == 0:
+        return part
+    if part_type == 1:
+        line = box.shortestLine(part)
+        return QgsGeometry(line.vertexAt(1)) if not line.isEmpty() else None
+    if box.intersects(part):
+        return None
     if kind == _EXTERIOR:
-        return geometry.convertToType(Qgis.GeometryType.Line, True).nearestPoint(QgsGeometry.fromPointXY(toward))
+        line = box.shortestLine(part.convertToType(Qgis.GeometryType.Line, False))
+        return QgsGeometry(line.vertexAt(1)) if not line.isEmpty() else None
     if kind == _SURFACE:
-        return geometry.pointOnSurface()
+        return part.pointOnSurface()
     if kind == _CENTROID:
-        return geometry.centroid()
-    pole = geometry.poleOfInaccessibility(max(geometry.boundingBox().width(), 1) / 1000)
+        return part.centroid()
+    bbox = part.boundingBox()
+    pole = part.poleOfInaccessibility(max(bbox.width(), bbox.height()) / 20)
     return pole[0] if isinstance(pole, tuple) else pole
 
 
 @qgsfunction(group=_GROUP, referenced_columns=[], handlesnull=True)
 def q2vt_callout(geometry, label_point, text, family, text_px, line_height, anchor,
-                 offset_x, offset_y, feature_anchor, label_anchor, manhattan,
-                 min_length, from_anchor, from_label, pixel, feature, parent):
-    """A label's callout (EPSG:3857 line): from the feature's anchor point
-    to its label's box drawn at ``label_point`` (text box laid out as
-    MapLibre lays it: ``anchor`` and ``offset_x``/``offset_y`` ems), as
-    QgsSimpleLineCallout (or QgsManhattanLineCallout) draws it. Lengths in
-    metres; ``pixel`` the length of a screen pixel."""
+                 offset_x, offset_y, feature_anchor, label_anchor, kind,
+                 min_length, from_anchor, from_label, pixel, curvature, orientation,
+                 wedge_width, corner_radius, margin_left, margin_top, margin_right,
+                 margin_bottom, feature, parent):
+    """A label's callout as QGIS draws it, on the ground (EPSG:3857): the
+    line (simple, Manhattan or curved) from its label's box drawn at
+    ``label_point`` (laid out as MapLibre lays it: ``anchor`` and
+    ``offset_x``/``offset_y`` ems) to the feature's anchor point, or the
+    balloon around the box pointing at it (a polygon). Lengths in metres;
+    ``pixel`` the length of a screen pixel, in which QGIS draws."""
     if geometry is None or label_point is None or text in (None, "") or not pixel or pixel <= 0:
         return None
-    point = label_point.asPoint()
+    centre = label_point.asPoint()
+    # Screen pixels around the label's point, y down (QGIS's drawing).
+    to_screen = QTransform(1 / pixel, 0, 0, -1 / pixel, -centre.x() / pixel, centre.y() / pixel)
     width, height = _text_size(text, family, text_px, line_height)
     fx, fy = _ANCHOR_FRACTIONS.get(anchor, (0.5, 0.5))
-    # The box's top left, on the ground (y up).
-    left = point.x() + (offset_x * text_px - fx * width) * pixel
-    top = point.y() - (offset_y * text_px - fy * height) * pixel
-    w, h = width * pixel, height * pixel
-    box = QgsGeometry.fromRect(QgsRectangle(left, top - h, left + w, top))
-    start = _feature_anchor(geometry, int(feature_anchor), QgsPointXY(left + w / 2, top - h / 2))
-    if start is None or start.isEmpty() or box.contains(start):
+    rect = QRectF(offset_x * text_px - fx * width, offset_y * text_px - fy * height, width, height)
+    box = QgsGeometry.fromRect(QgsRectangle(rect.left(), rect.top(), rect.right(), rect.bottom()))
+    part = QgsGeometry(geometry)
+    part.transform(to_screen)
+    end = _part_anchor(part, int(feature_anchor), box)
+    if end is None or end.isEmpty():
         return None
     fractions = _LABEL_ANCHORS.get(int(label_anchor))
     if fractions is None:
-        end = box.convertToType(Qgis.GeometryType.Line, False).nearestPoint(start)
+        start = box.convertToType(Qgis.GeometryType.Line, False).nearestPoint(end)
     else:
-        end = QgsGeometry.fromPointXY(QgsPointXY(left + fractions[0] * w, top - fractions[1] * h))
-    a, b = start.asPoint(), end.asPoint()
-    length = math.hypot(b.x() - a.x(), b.y() - a.y())
-    if length <= 0 or length < min_length:
+        start = QgsGeometry.fromPointXY(QgsPointXY(rect.left() + fractions[0] * width,
+                                                   rect.top() + fractions[1] * height))
+        if int(getattr(part.type(), "value", part.type())) == 1:
+            end = QgsGeometry(start.shortestLine(part).vertexAt(1))
+    s, e = start.asPoint(), end.asPoint()
+    s, e = QPointF(s.x(), s.y()), QPointF(e.x(), e.y())
+    if math.hypot(e.x() - s.x(), e.y() - s.y()) < min_length / pixel:
         return None
-    # Shortened by the offsets from the feature and from the label.
-    if from_anchor + from_label >= length:
-        return None
-    ux, uy = (b.x() - a.x()) / length, (b.y() - a.y()) / length
-    a = QgsPointXY(a.x() + ux * from_anchor, a.y() + uy * from_anchor)
-    b = QgsPointXY(b.x() - ux * from_label, b.y() - uy * from_label)
-    points = [a, QgsPointXY(b.x(), a.y()), b] if manhattan else [a, b]
-    return QgsGeometry.fromPolylineXY(points)
+    kind = int(kind)
+    if kind == CALLOUT_CURVED:
+        line = _curved_line(rect, s, e, curvature, int(orientation))
+    elif kind == CALLOUT_MANHATTAN:
+        line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(s.x(), e.y()), QgsPoint(e.x(), e.y())])
+    else:
+        line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(e.x(), e.y())])
+    length = line.length()
+    to_ground, _ = to_screen.inverted()
+    if kind == CALLOUT_BALLOON:
+        origin = e
+        if from_anchor > 0 and length > 0:
+            tip = line.interpolatePoint(max(0.0, length - from_anchor / pixel))
+            origin = QPointF(tip.x(), tip.y()) if tip else e
+        rect = QRectF(rect.left() - margin_left / pixel, rect.top() - margin_top / pixel,
+                      width + (margin_left + margin_right) / pixel,
+                      height + (margin_top + margin_bottom) / pixel)
+        if rect.width() <= 0 or rect.height() <= 0:
+            return None
+        ring = [QgsPointXY(p.x(), p.y()) for p in _balloon(origin, rect, wedge_width / pixel,
+                                                           corner_radius / pixel)]
+        if len(ring) < 4:
+            return None
+        result = QgsGeometry.fromPolygonXY([ring]).makeValid(Qgis.MakeValidMethod.Structure)
+    else:
+        # Shortened by the offsets from the label and from the feature.
+        start_at, end_at = from_label / pixel, length - from_anchor / pixel
+        if end_at <= start_at:
+            return None
+        trimmed = line.curveSubstring(start_at, end_at)
+        result = QgsGeometry(trimmed.curveToLine() if hasattr(trimmed, "curveToLine") else trimmed)
+    result.transform(to_ground)
+    return result
 
 
 def registered() -> bool:

@@ -154,7 +154,7 @@ from ..utils.config import (
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, cluster_settings,
-    marker_angle_field, pinned_field,
+    displacement_settings, marker_angle_field, pinned_field,
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
@@ -981,7 +981,8 @@ class _SqliteCompiler:
     IS [NOT]; IN lists; + - * of numbers, / (as real), % of integers;
     || of texts and integers; CASE WHEN; coalesce(), if(), upper(),
     lower(), abs(), round(x, n). Text compares byte-wise and case-sensitively in both;
-    NULL propagates alike. Anything else raises _NotCompilable.
+    NULL propagates alike, a field the layer lacks being NULL. Anything
+    else raises _NotCompilable.
     """
 
     _Node = QgsExpressionNode.NodeType
@@ -1053,7 +1054,9 @@ class _SqliteCompiler:
         if node_type == self._Node.ntColumnRef:
             idx = self.fields.lookupField(node.name())
             if idx < 0:
-                raise _NotCompilable(node.name())
+                # A field the layer doesn't have is NULL in QGIS (a style
+                # shared by layers of different fields).
+                return "NULL", self._NULL
             field = self.fields.at(idx)
             kind = self._FIELD_KINDS.get(RulesExporter._enum_int(field.type()))
             if kind is None:
@@ -1412,8 +1415,9 @@ class RulesExporter:
         # Rules drawn by symbol levels keep their own datasets: QGIS draws
         # them level by level, not feature by feature.
         shareable = rule_type == 1 or not self._uses_symbol_levels(primary.layer)
-        if rule_type == 0 and cluster_settings(primary.rule.symbol()) is not None:
-            shareable = False  # Its points become clusters in the tiles, alone.
+        if rule_type == 0 and (cluster_settings(primary.rule.symbol()) is not None
+                               or displacement_settings(primary.rule.symbol()) is not None):
+            shareable = False  # Its points become clusters (group centres) in the tiles, alone.
         group, holder = self._dataset_for(datasets.setdefault(key, []), member, shareable)
         if group is None:
             holder = member

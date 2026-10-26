@@ -9,7 +9,6 @@ from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsProcessingParameterDefinition,
     QgsProcessingAlgorithm,
-    QgsProcessingParameterBoolean,
     QgsProcessingParameterNumber,
     QgsProcessingParameterExtent,
     QgsProcessingParameterFolderDestination,
@@ -48,7 +47,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
     INCLUDED_FIELDS = "FIELDS_INCLUDED"
     OUTPUT_TYPE = "OUTPUT_TYPE"
     VIEWER = "VIEWER"
-    GENERALIZE = "LOW_ZOOM_GENERALIZATION"
 
     def __init__(self):
         """Initialize the algorithm"""
@@ -171,23 +169,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
-        # Smaller, faster-drawing tiles below the highest zoom, less
-        # detailed: off by default, an advanced choice.
-        generalize_param = QgsProcessingParameterBoolean(
-            self.GENERALIZE,
-            self.tr("Generalize Low Zoom Levels (smaller tiles, less detail)"),
-            defaultValue=False,
-            optional=True,
-        )
-        generalize_param.setFlags(
-            generalize_param.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
-        generalize_param.setHelp(self.tr(
-            "Below the maximum zoom level: thins out points to one per rule every 16 pixels "
-            "(the one with the highest label priority), "
-            "leaves out polygons smaller than a pixel, simplifies lines and polygons to a "
-            "pixel and halves the tile size limit. The maximum zoom level keeps every detail."))
-        self.addParameter(generalize_param)
-
         # Kept, hidden and ignored, so that models and scripts that still set
         # it keep working: since v4.0 one output opens in both viewers.
         viewer_param = QgsProcessingParameterEnum(
@@ -284,7 +265,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         cpu_percent = self.parameterAsInt(parameters, self.CPU_PERCENT, context)
         output_dir = self.parameterAsString(parameters, self.OUTPUT_DIR, context)
         included_fields = self.parameterAsEnum(parameters, self.INCLUDED_FIELDS, context)
-        generalize = self.parameterAsBool(parameters, self.GENERALIZE, context)
 
         if self._project_path:
             return self._process_in_worker(
@@ -297,7 +277,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                     "cpu_percent": cpu_percent,
                     "output_dir": output_dir,
                     "included_fields": included_fields,
-                    "generalize": generalize,
                 },
             )
 
@@ -311,7 +290,6 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
                 output_dir=output_dir,
                 included_fields=included_fields,
                 feedback=feedback,
-                generalize=generalize,
             )
 
             # Run the generation process (in the processing thread; the

@@ -10,6 +10,7 @@ Depends on: config, zoom_levels, flattened_rule
 """
 
 import json
+import math
 from typing import List, Optional, Union
 
 from qgis.core import (
@@ -24,6 +25,7 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer,
     QgsCategorizedSymbolRenderer,
     QgsReadWriteContext,
+    QgsRenderContext,
     QgsExpression,
     QgsExpressionNode,
     QgsSimpleLineSymbolLayer,
@@ -173,6 +175,8 @@ class RulesFlattener:
             return self._heatmap_rules(system, layer)
         if system.type() == "pointCluster":
             return self._cluster_rules(system)
+        if system.type() == "pointDisplacement":
+            return self._displacement_rules(system)
 
         inactive_indices = self._get_inactive_item_indices(system)
         rule_renderer = QgsRuleBasedRenderer.convertFromRenderer(system)
@@ -242,6 +246,61 @@ class RulesFlattener:
             symbol.symbolLayer(index).setDataDefinedProperty(
                 CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps(settings), False))
         rules.rootRule().appendChild(QgsRuleBasedRenderer.Rule(symbol))
+        return rules
+
+    def _displacement_rules(self, displacement):
+        """A point displacement renderer as its own renderer's rules (each
+        point drawn where QGIS draws it: alone, or around its group's
+        centre) and, drawn below them, a rule drawing the groups' circle (a
+        placeholder marker) and the centre symbol's rules, all carrying the
+        displacement settings (see displacement_settings). The tiles hold,
+        per zoom level, the points moved and the groups' centres
+        (GDALTilesGenerator)."""
+        # pylint: disable=import-outside-toplevel
+        from .maplibre_converter import PropertyExtractor
+        embedded = displacement.embeddedRenderer()
+        rules = QgsRuleBasedRenderer.convertFromRenderer(embedded) if embedded else None
+        if rules is None:
+            return None
+        # The largest symbol's diagonal (QGIS spaces the points by the
+        # group's largest).
+        diagonal = 0.0
+        for symbol in embedded.symbols(QgsRenderContext()):
+            if isinstance(symbol, QgsMarkerSymbol):
+                size = PropertyExtractor.convert_length_to_pixels(symbol.size(), symbol.sizeUnit())
+                diagonal = max(diagonal, math.sqrt(2) * (size or 0))
+        center = displacement.centerSymbol()
+        center_diagonal = 0.0
+        if center is not None:
+            size = PropertyExtractor.convert_length_to_pixels(center.size(), center.sizeUnit())
+            center_diagonal = math.sqrt(2) * (size or 0)
+        scale = displacement.toleranceMapUnitScale()
+        color = displacement.circleColor()
+        settings = {
+            "tolerance": displacement.tolerance(),
+            "unit": int(getattr(displacement.toleranceUnit(), "value", displacement.toleranceUnit())),
+            "min_scale": scale.minScale, "max_scale": scale.maxScale,
+            "placement": int(getattr(displacement.placement(), "value", displacement.placement())),
+            "diagonal_px": diagonal, "center_px": center_diagonal,
+            "addition_px": PropertyExtractor.convert_length_to_pixels(
+                displacement.circleRadiusAddition(), Qgis.RenderUnit.Millimeters),
+            "circle_px": PropertyExtractor.convert_length_to_pixels(
+                displacement.circleWidth(), Qgis.RenderUnit.Millimeters),
+            "circle_color": [color.red(), color.green(), color.blue(), color.alphaF()],
+        }
+
+        def marked(symbol, role: str):
+            for index in range(symbol.symbolLayerCount()):
+                symbol.symbolLayer(index).setDataDefinedProperty(
+                    CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps({**settings, "role": role}), False))
+            return symbol
+
+        # QGIS draws a group's circle, then its centre symbol, then its points.
+        if center is not None and center.symbolLayerCount():
+            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(center.clone(), "center")))
+        if color.isValid() and color.alpha() > 0:
+            circle = QgsSimpleMarkerSymbolLayer()
+            rules.rootRule().insertChild(0, QgsRuleBasedRenderer.Rule(marked(QgsMarkerSymbol([circle]), "circle")))
         return rules
 
     def _get_inactive_item_indices(self, system) -> List[int]:
@@ -367,10 +426,8 @@ class RulesFlattener:
         if not self._is_within_zoom_range(flat_rule):
             return inheritance_source
 
-        callout = self._callout_rule(flat_rule) if rule_type == 1 else None
-        split_rules = self._split_rule(flat_rule, rule_type)
-        if callout is not None:
-            split_rules.append(callout)
+        callouts = self._callout_rules(flat_rule) if rule_type == 1 else []
+        split_rules = self._split_rule(flat_rule, rule_type) + callouts
         self._clip_rules_to_zoom_range(split_rules)
         for split_rule in split_rules:
             self.flattened_rules.extend(self._split_by_scale_expressions(split_rule))
@@ -380,28 +437,36 @@ class RulesFlattener:
     # label's own numbers, no symbol layer has).
     CALLOUT_SYMBOL_LAYER = 99
 
-    def _callout_rule(self, label_rule: FlattenedRule) -> Optional[FlattenedRule]:
+    # q2vt_callout's kind of each QGIS callout type.
+    _CALLOUT_KINDS = {"simple": 0, "manhattan": 1, "curved": 2, "balloon": 3}
+
+    def _callout_rules(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """A label's callout, for labels at a data-defined position (X, Y),
-        as a renderer rule drawing the callout's line symbol along the
-        line QGIS draws (q2vt_callout): from the feature to the label's box
-        as the web map lays it out, which only a fixed position makes known.
-        Simple and Manhattan callouts; a curved one is drawn straight."""
+        as renderer rules drawing what QGIS draws (q2vt_callout): the
+        simple, Manhattan or curved line from the label's box (as the web
+        map lays it out, which only a fixed position makes known) to the
+        feature, with the callout's line symbol, or the balloon around the
+        label pointing at the feature, with its fill symbol (and outline)."""
         # pylint: disable=import-outside-toplevel
         from .maplibre_converter import TextPropertyExtractor
         settings = label_rule.rule.settings()
         callout = settings.callout() if settings else None
-        if (callout is None or not callout.enabled() or callout.type() not in ("simple", "manhattan", "curved")
-                or callout.lineSymbol() is None):
-            return None
+        kind = self._CALLOUT_KINDS.get(callout.type()) if callout is not None else None
+        if callout is None or not callout.enabled() or kind is None:
+            return []
+        balloon = kind == self._CALLOUT_KINDS["balloon"]
+        symbol = callout.fillSymbol() if balloon else callout.lineSymbol()
+        if symbol is None:
+            return []
         props = settings.dataDefinedProperties()
         x = props.property(QgsPalLayerSettings.Property.PositionX)
         y = props.property(QgsPalLayerSettings.Property.PositionY)
         if not (x and y and x.isActive() and y.isActive()):
-            return None
+            return []
         layer = label_rule.layer
         label_exp = settings.getLabelExpression().expression()
         if not label_exp:
-            return None
+            return []
         text = label_exp if settings.isExpression else QgsExpression.quotedColumnRef(label_exp)
         if settings.wrapChar:
             text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
@@ -409,47 +474,70 @@ class RulesFlattener:
         if case != "none":
             text = f"{'upper' if case == 'uppercase' else 'lower'}({text})"
         text_format = settings.format()
-        # The label's box as the web map lays it out at the position.
-        anchor, offset = TextPropertyExtractor.get_pinned_anchor(settings), [0, 0]
-        variable = TextPropertyExtractor.get_text_variable_anchor(settings)
-        if variable:
-            # The web map's first position (as the style's text-anchor).
-            anchor = variable[0]
-            offset = TextPropertyExtractor.radial_to_offset(
-                anchor, TextPropertyExtractor.get_text_radial_offset(settings))
+        # The label's box as the web map lays it out at the position
+        # (aligned there as QGIS aligns it: the style converter's anchor).
+        anchor, offset = TextPropertyExtractor.pinned_anchor_expression(settings), [0, 0]
         crs = layer.crs().authid()
         point = (f"transform(make_point(to_real({x.asExpression()}), to_real({y.asExpression()})), "
                  f"'{crs}', 'EPSG:3857')")
         ground = lambda value, unit: self._ground_length(value, unit, layer)  # noqa: E731
+
+        def length(name: str) -> str:
+            """A callout length (one a balloon has none of: 0)."""
+            if not hasattr(callout, name):
+                return "0"
+            return ground(getattr(callout, name)(), getattr(callout, f"{name}Unit")())
+        curvature = callout.curvature() if hasattr(callout, "curvature") else 0
+        orientation = int(callout.orientation()) if hasattr(callout, "orientation") else 0
+        wedge = ground(callout.wedgeWidth(), callout.wedgeWidthUnit()) if balloon else "0"
+        corner = ground(callout.cornerRadius(), callout.cornerRadiusUnit()) if balloon else "0"
+        margins = callout.margins() if balloon else None
+        margin_values = ([ground(m, callout.marginsUnit()) for m in
+                          (margins.left(), margins.top(), margins.right(), margins.bottom())]
+                         if balloon else ["0"] * 4)
         arguments = [
             "@geometry", point, f"to_string({text})",
             QgsExpression.quotedString(text_format.font().family()),
             repr(TextPropertyExtractor.get_text_size_px(text_format)),
             repr(TextPropertyExtractor.get_text_line_height(text_format)),
-            QgsExpression.quotedString(anchor), repr(offset[0]), repr(offset[1]),
+            anchor, repr(offset[0]), repr(offset[1]),
             str(int(callout.anchorPoint())), str(int(callout.labelAnchorPoint())),
-            "1" if callout.type() == "manhattan" else "0",
-            ground(callout.minimumLength(), callout.minimumLengthUnit()),
-            ground(callout.offsetFromAnchor(), callout.offsetFromAnchorUnit()),
-            ground(callout.offsetFromLabel(), callout.offsetFromLabelUnit()),
+            str(kind),
+            length("minimumLength"), length("offsetFromAnchor"), length("offsetFromLabel"),
             ground(1, Qgis.RenderUnit.Pixels),
+            repr(float(curvature)), str(orientation), wedge, corner, *margin_values,
         ]
-        generator = QgsGeometryGeneratorSymbolLayer.create(
-            {"geometryModifier": self._in_3857(f"q2vt_callout({', '.join(arguments)})", layer)})
-        generator.setSymbolType(Qgis.SymbolType.Line)
-        generator.setSubSymbol(callout.lineSymbol().clone())
-        symbol = QgsLineSymbol([generator])
-        rule = QgsRuleBasedRenderer.Rule(symbol)
-        rule.setFilterExpression(label_rule.rule.filterExpression())
-        rule.setMinimumScale(label_rule.rule.minimumScale())
-        rule.setMaximumScale(label_rule.rule.maximumScale())
-        # The label's numbers, as a renderer rule's ("f": the label's).
-        rule.setDescription(label_rule.rule.description().replace("f00", ""))
-        callout_rule = FlattenedRule(rule, layer)
-        callout_rule.set_attr("t", 0)
-        callout_rule.set_attr("c", 1)
-        callout_rule.set_attr("s", self.CALLOUT_SYMBOL_LAYER)
-        return callout_rule
+        expression = self._in_3857(f"q2vt_callout({', '.join(arguments)})", layer)
+
+        def rule_drawing(sub_symbol) -> FlattenedRule:
+            generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
+            generator.setSymbolType(sub_symbol.type())
+            generator.setSubSymbol(sub_symbol)
+            rule_symbol = (QgsFillSymbol if balloon else QgsLineSymbol)([generator])
+            rule = QgsRuleBasedRenderer.Rule(rule_symbol)
+            rule.setFilterExpression(label_rule.rule.filterExpression())
+            rule.setMinimumScale(label_rule.rule.minimumScale())
+            rule.setMaximumScale(label_rule.rule.maximumScale())
+            # The label's numbers, as a renderer rule's ("f": the label's).
+            rule.setDescription(label_rule.rule.description().replace("f00", ""))
+            callout_rule = FlattenedRule(rule, layer)
+            callout_rule.set_attr("t", 0)
+            callout_rule.set_attr("c", 2 if balloon else 1)
+            callout_rule.set_attr("s", self.CALLOUT_SYMBOL_LAYER)
+            return callout_rule
+
+        fill = symbol.clone()
+        rules = []
+        if balloon:
+            # Its outline, as a fill's: a rule of its own, along the rings.
+            outline = self._convert_fill_outline_to_line_symbol(fill)
+            if outline and fill.symbolLayer(0).strokeStyle() != Qt.PenStyle.NoPen:
+                rules.append(rule_drawing(outline))
+                fill.symbolLayer(0).setStrokeStyle(Qt.PenStyle.NoPen)
+                if fill.symbolLayer(0).brushStyle() == Qt.BrushStyle.NoBrush:
+                    return rules
+        # The outline first, as a fill's (_split_by_symbol_layers): drawn above it.
+        return rules + [rule_drawing(fill)]
 
     def _sync_labeling_scale_range(self, rule):
         """Copy label settings scale visibility to the rule if the rule has no range set."""
@@ -855,11 +943,62 @@ class RulesFlattener:
             point_rule.set_attr("p", code)
             point_symbol_layer = point_rule.rule.symbol().symbolLayers()[0]
             point_symbol_layer.setPlacements(flag)
+            if code in (MARKER_FIRST_VERTEX, MARKER_LAST_VERTEX):
+                offset_marker = self._offset_vertex_marker(
+                    point_symbol_layer, code == MARKER_LAST_VERTEX, rule_clone.get_attr("g"), layer)
+                if offset_marker is not None:
+                    point_rule.rule.setSymbol(offset_marker)
             rules.append(point_rule)
         if remaining:
             symbol_layer.setPlacements(remaining)
             rules.append(rule_clone)
         return rules
+
+    def _offset_vertex_marker(self, marker_line, last: bool, source_geom: int,
+                              layer: QgsVectorLayer) -> Optional[QgsMarkerSymbol]:
+        """A first (or last) vertex marker moved along its line by the marker
+        line's offset along line, as QGIS moves it: forward from the first
+        vertex (back from the last), not drawn past the line's other end,
+        around a ring; turned with the segment it lands on. A geometry
+        generator placing the marker there (screen lengths follow the scale);
+        None without an offset."""
+        static = marker_line.offsetAlongLine()
+        if not static and not self._active(marker_line, "OffsetAlongLine"):
+            return None
+        offset = self._ground_length(self._number(marker_line, "OffsetAlongLine", static),
+                                     marker_line.offsetAlongLineUnit(), layer)
+        ring = source_geom == 2
+        line = "@geometry" if source_geom == 1 else "boundary(@geometry)"
+        if ring:
+            # Around the ring: any offset, kept within its length.
+            along = (f"if(@q2vt_o >= 0, @q2vt_o % @q2vt_len, "
+                     f"@q2vt_len - ((-@q2vt_o) % @q2vt_len))")
+        else:
+            along = "if(@q2vt_o > 0, @q2vt_o, 0)"
+        distance = f"(@q2vt_len - ({along}))" if last else f"({along})"
+
+        def at(expression: str) -> str:
+            return (f"with_variable('q2vt_l', {line}, with_variable('q2vt_len', length(@q2vt_l), "
+                    f"with_variable('q2vt_o', {offset}, {expression})))")
+
+        inside = "(@q2vt_len - ({along}) > 0)" if last else f"(({along}) < @q2vt_len)"
+        inside = inside.replace("{along}", along)
+        point = at(f"if({inside}, line_interpolate_point(@q2vt_l, {distance}), NULL)")
+        generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": self._in_3857(point, layer)})
+        generator.setSymbolType(Qgis.SymbolType.Marker)
+        marker = marker_line.subSymbol().clone()
+        if marker_line.rotateSymbols():
+            # The segment's direction where the marker lands (the tiles'
+            # EPSG:3857, as the exported features), with the marker's angle;
+            # back from the last vertex, QGIS walks the line backwards.
+            turn = 90 if last else -90
+            for index in range(marker.symbolLayerCount()):
+                own = marker.symbolLayer(index).angle()
+                marker.symbolLayer(index).setDataDefinedProperty(
+                    QgsSymbolLayer.Property.PropertyAngle,
+                    QgsProperty.fromExpression(at(f"line_interpolate_angle(@q2vt_l, {distance}) + {turn} + {own!r}")))
+        generator.setSubSymbol(marker)
+        return QgsMarkerSymbol([generator])
 
     @staticmethod
     def _convert_fill_outline_to_line_symbol(fill_symbol: QgsFillSymbol) -> QgsFillSymbol | None:

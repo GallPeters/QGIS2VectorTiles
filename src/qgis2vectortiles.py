@@ -83,7 +83,6 @@ class QGIS2VectorTiles:
         included_fields: int = 0,
         cpu_percent: int = 100,
         feedback: QgsProcessingFeedback = None,
-        generalize: bool = False,
     ):
         # Zoom levels are MapLibre's (512 px tiles), in both web viewers:
         # the OpenLayers viewer converts them for its own numbering.
@@ -95,8 +94,6 @@ class QGIS2VectorTiles:
         self.included_fields = included_fields
         self.cpu_percent = min(cpu_percent, 90)
         self.feedback = feedback or QgsProcessingFeedback()
-        # Generalize the tiles below the highest zoom (GDALTilesGenerator).
-        self.generalize = generalize
         # The export folder, set when a run completes.
         self.temp_dir: Optional[str] = None
 
@@ -146,7 +143,6 @@ class QGIS2VectorTiles:
             if self._has_features(layers):
                 generator = GDALTilesGenerator(
                     layers, deepcopy(style), temp_dir, self.extent, self.cpu_percent, self.feedback,
-                    generalize=self.generalize,
                 )
                 tiles = _Background(generator.generate)
 

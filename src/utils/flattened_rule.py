@@ -45,14 +45,16 @@ HEATMAP_PROPERTY = QgsSymbolLayer.Property.PropertyName
 CLUSTER_PROPERTY = QgsSymbolLayer.Property.PropertyLayerEnabled
 # The number of points in a cluster, in the tiles.
 CLUSTER_SIZE_FIELD = f"{_FIELD_PREFIX}_cluster_size"
+# The radius (screen pixels) of a displaced group's circle, in the tiles.
+DISPLACEMENT_RADIUS_FIELD = f"{_FIELD_PREFIX}_displacement_radius"
 
 # The style's metadata key holding, by dataset, the tile layer of another
 # dataset it is written into (the style converter draws both as one layer).
 TILE_LAYERS_KEY = "q2vt:tile-layers"
 
 
-def cluster_settings(symbol) -> "dict | None":
-    """The clustering settings a symbol carries (see CLUSTER_PROPERTY)."""
+def _grouping_settings(symbol) -> "dict | None":
+    """The point grouping settings a symbol carries (see CLUSTER_PROPERTY)."""
     import json  # pylint: disable=import-outside-toplevel
     try:
         prop = symbol.symbolLayer(0).dataDefinedProperties().property(CLUSTER_PROPERTY)
@@ -62,6 +64,21 @@ def cluster_settings(symbol) -> "dict | None":
         return data if isinstance(data, dict) and "tolerance" in data else None
     except (AttributeError, RuntimeError, ValueError, TypeError):
         return None
+
+
+def cluster_settings(symbol) -> "dict | None":
+    """The clustering settings a symbol carries (see CLUSTER_PROPERTY)."""
+    data = _grouping_settings(symbol)
+    return data if data is not None and "role" not in data else None
+
+
+def displacement_settings(symbol) -> "dict | None":
+    """The point displacement settings a symbol carries: a point
+    displacement renderer's centre symbol (role "center") or its circle
+    (role "circle") carries them as a cluster symbol carries its own (see
+    CLUSTER_PROPERTY)."""
+    data = _grouping_settings(symbol)
+    return data if data is not None and "role" in data else None
 
 
 def pinned_field(label_field: str) -> str:
