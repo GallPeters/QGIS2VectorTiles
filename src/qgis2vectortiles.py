@@ -144,7 +144,6 @@ class QGIS2VectorTiles:
             tiles, generator = None, None
             tiles_time = perf_counter()
             if self._has_features(layers):
-                self._log(". Generating tiles...")
                 generator = GDALTilesGenerator(
                     layers, deepcopy(style), temp_dir, self.extent, self.cpu_percent, self.feedback,
                     generalize=self.generalize,
@@ -170,6 +169,9 @@ class QGIS2VectorTiles:
                 raise
 
             if tiles is not None:
+                # Logged here, after the steps logged meanwhile: the tiles
+                # are made from the start of the style package's export.
+                self._log(". Generating tiles...")
                 _, self.min_zoom = tiles.result()
                 self._log(f". Successfully generated tiles "
                           f"({self._elapsed_minutes(tiles_time)} minutes).")

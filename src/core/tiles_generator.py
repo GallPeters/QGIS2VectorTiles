@@ -41,7 +41,7 @@ from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
-from ..utils.flattened_rule import CLUSTER_SIZE_FIELD
+from ..utils.flattened_rule import CLUSTER_SIZE_FIELD, TILE_LAYERS_KEY
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -361,13 +361,22 @@ class GDALTilesGenerator:
         Without it every layer is written to every zoom level of the
         dataset, although each style only shows it within its own range.
         """
+        shared = self._shared_tile_layers()
         conf = {
             name: {"minzoom": minzoom, "maxzoom": maxzoom}
             for name, (_, minzoom, maxzoom) in run_layers.items()
         }
+        for name, entry in conf.items():
+            if name in shared:
+                entry["target_name"] = shared[name]
         conf.update(extra or {})
         with open(conf_path, "w", encoding="utf-8") as f:
             json.dump(conf, f)
+
+    def _shared_tile_layers(self) -> Dict[str, str]:
+        """By dataset, the tile layer of another dataset it is written into
+        (the style draws both as one layer: share_tile_layers)."""
+        return (self.style.get("metadata") or {}).get(TILE_LAYERS_KEY, {})
 
     # --- VRT construction ---
 
@@ -565,6 +574,8 @@ class GDALTilesGenerator:
         chosen by rule, or else (several labels of a feature) the lowest of
         their keys, its best placed label."""
         keyed = []
+        # A dataset sharing another's tile layer is drawn by that one's layers.
+        source_layer = self._shared_tile_layers().get(source_layer, source_layer)
         for layer_def in self.style.get("layers", []):
             layout = layer_def.get("layout", {})
             if (layer_def.get("source-layer") != source_layer or "text-field" not in layout

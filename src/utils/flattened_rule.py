@@ -46,6 +46,10 @@ CLUSTER_PROPERTY = QgsSymbolLayer.Property.PropertyLayerEnabled
 # The number of points in a cluster, in the tiles.
 CLUSTER_SIZE_FIELD = f"{_FIELD_PREFIX}_cluster_size"
 
+# The style's metadata key holding, by dataset, the tile layer of another
+# dataset it is written into (the style converter draws both as one layer).
+TILE_LAYERS_KEY = "q2vt:tile-layers"
+
 
 def cluster_settings(symbol) -> "dict | None":
     """The clustering settings a symbol carries (see CLUSTER_PROPERTY)."""
@@ -58,6 +62,12 @@ def cluster_settings(symbol) -> "dict | None":
         return data if isinstance(data, dict) and "tolerance" in data else None
     except (AttributeError, RuntimeError, ValueError, TypeError):
         return None
+
+
+def pinned_field(label_field: str) -> str:
+    """The dataset field flagging (1) the labels of a label text field
+    placed at their data-defined position (X, Y)."""
+    return label_field.replace(f"{_FIELD_PREFIX}_label", f"{_FIELD_PREFIX}_pinned", 1)
 
 
 def marker_angle_field(symbol_layer_index: int) -> str:
@@ -87,6 +97,9 @@ class FlattenedRule:
     # the zoom whose scale its @map_scale expressions stand for; None when
     # that is its first zoom level ("o").
     scale_zoom: Optional[int] = None
+    # A label placed at its data-defined position: the X and Y expressions
+    # (before the export rewrites the properties to read exported fields).
+    label_position: Optional[tuple] = None
 
     def map_scale(self) -> str:
         """The scale @map_scale stands for in this rule's expressions."""

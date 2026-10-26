@@ -32,10 +32,8 @@ from qgis.core import (
     QgsSimpleFillSymbolLayer,
     QgsProperty,
     QgsArrowSymbolLayer,
-    QgsEllipseSymbolLayer,
     QgsGeometryGeneratorSymbolLayer,
     QgsLineSymbol,
-    QgsMarkerLineSymbolLayer,
     QgsMarkerSymbol,
     QgsSimpleMarkerSymbolLayer,
     QgsGradientColorRamp,
@@ -50,6 +48,13 @@ from ..utils.flattened_rule import (
     HEATMAP_PROPERTY, CLUSTER_PROPERTY,
 )
 from ..utils.zoom_levels import ZoomLevels
+# Registers the q2vt_* expression functions the rules' geometry generators call.
+from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
+
+
+# EPSG:3857 metres a screen millimetre covers at web zoom 0 (MapLibre's
+# 512-pixel tiles of the world, 96 pixels an inch, as the style sizes them).
+_METRES_PER_MM_AT_ZOOM_0 = 96 / 25.4 * 40075016.68557849 / 512
 
 
 class RulesFlattener:
@@ -362,11 +367,89 @@ class RulesFlattener:
         if not self._is_within_zoom_range(flat_rule):
             return inheritance_source
 
+        callout = self._callout_rule(flat_rule) if rule_type == 1 else None
         split_rules = self._split_rule(flat_rule, rule_type)
+        if callout is not None:
+            split_rules.append(callout)
         self._clip_rules_to_zoom_range(split_rules)
         for split_rule in split_rules:
             self.flattened_rules.extend(self._split_by_scale_expressions(split_rule))
         return inheritance_source
+
+    # The "s" attribute of a label's callout rule (a renderer rule of the
+    # label's own numbers, no symbol layer has).
+    CALLOUT_SYMBOL_LAYER = 99
+
+    def _callout_rule(self, label_rule: FlattenedRule) -> Optional[FlattenedRule]:
+        """A label's callout, for labels at a data-defined position (X, Y),
+        as a renderer rule drawing the callout's line symbol along the
+        line QGIS draws (q2vt_callout): from the feature to the label's box
+        as the web map lays it out, which only a fixed position makes known.
+        Simple and Manhattan callouts; a curved one is drawn straight."""
+        # pylint: disable=import-outside-toplevel
+        from .maplibre_converter import TextPropertyExtractor
+        settings = label_rule.rule.settings()
+        callout = settings.callout() if settings else None
+        if (callout is None or not callout.enabled() or callout.type() not in ("simple", "manhattan", "curved")
+                or callout.lineSymbol() is None):
+            return None
+        props = settings.dataDefinedProperties()
+        x = props.property(QgsPalLayerSettings.Property.PositionX)
+        y = props.property(QgsPalLayerSettings.Property.PositionY)
+        if not (x and y and x.isActive() and y.isActive()):
+            return None
+        layer = label_rule.layer
+        label_exp = settings.getLabelExpression().expression()
+        if not label_exp:
+            return None
+        text = label_exp if settings.isExpression else QgsExpression.quotedColumnRef(label_exp)
+        if settings.wrapChar:
+            text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
+        case = TextPropertyExtractor.get_text_transform(settings)
+        if case != "none":
+            text = f"{'upper' if case == 'uppercase' else 'lower'}({text})"
+        text_format = settings.format()
+        # The label's box as the web map lays it out at the position.
+        anchor, offset = TextPropertyExtractor.get_pinned_anchor(settings), [0, 0]
+        variable = TextPropertyExtractor.get_text_variable_anchor(settings)
+        if variable:
+            # The web map's first position (as the style's text-anchor).
+            anchor = variable[0]
+            offset = TextPropertyExtractor.radial_to_offset(
+                anchor, TextPropertyExtractor.get_text_radial_offset(settings))
+        crs = layer.crs().authid()
+        point = (f"transform(make_point(to_real({x.asExpression()}), to_real({y.asExpression()})), "
+                 f"'{crs}', 'EPSG:3857')")
+        ground = lambda value, unit: self._ground_length(value, unit, layer)  # noqa: E731
+        arguments = [
+            "@geometry", point, f"to_string({text})",
+            QgsExpression.quotedString(text_format.font().family()),
+            repr(TextPropertyExtractor.get_text_size_px(text_format)),
+            repr(TextPropertyExtractor.get_text_line_height(text_format)),
+            QgsExpression.quotedString(anchor), repr(offset[0]), repr(offset[1]),
+            str(int(callout.anchorPoint())), str(int(callout.labelAnchorPoint())),
+            "1" if callout.type() == "manhattan" else "0",
+            ground(callout.minimumLength(), callout.minimumLengthUnit()),
+            ground(callout.offsetFromAnchor(), callout.offsetFromAnchorUnit()),
+            ground(callout.offsetFromLabel(), callout.offsetFromLabelUnit()),
+            ground(1, Qgis.RenderUnit.Pixels),
+        ]
+        generator = QgsGeometryGeneratorSymbolLayer.create(
+            {"geometryModifier": self._in_3857(f"q2vt_callout({', '.join(arguments)})", layer)})
+        generator.setSymbolType(Qgis.SymbolType.Line)
+        generator.setSubSymbol(callout.lineSymbol().clone())
+        symbol = QgsLineSymbol([generator])
+        rule = QgsRuleBasedRenderer.Rule(symbol)
+        rule.setFilterExpression(label_rule.rule.filterExpression())
+        rule.setMinimumScale(label_rule.rule.minimumScale())
+        rule.setMaximumScale(label_rule.rule.maximumScale())
+        # The label's numbers, as a renderer rule's ("f": the label's).
+        rule.setDescription(label_rule.rule.description().replace("f00", ""))
+        callout_rule = FlattenedRule(rule, layer)
+        callout_rule.set_attr("t", 0)
+        callout_rule.set_attr("c", 1)
+        callout_rule.set_attr("s", self.CALLOUT_SYMBOL_LAYER)
+        return callout_rule
 
     def _sync_labeling_scale_range(self, rule):
         """Copy label settings scale visibility to the rule if the rule has no range set."""
@@ -523,6 +606,18 @@ class RulesFlattener:
 
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]
+            if layer_type == "GeometryGenerator" and int(symbol_type) == 2:
+                # A generated fill's outline, as a fill's (below): a rule of
+                # its own, drawing the generated polygons' rings.
+                fill = clone_symbol_layer.subSymbol()
+                outline_symbol = self._convert_fill_outline_to_line_symbol(fill)
+                if outline_symbol and fill.symbolLayer(0).strokeStyle() != Qt.PenStyle.NoPen:
+                    outline_rule = FlattenedRule(rule_clone.rule.clone(), flat_rule.layer)
+                    outline_rule.rule.symbol().symbolLayer(0).setSubSymbol(outline_symbol)
+                    split_rules.append(outline_rule)
+                    fill.symbolLayer(0).setStrokeStyle(Qt.PenStyle.NoPen)
+                    if fill.symbolLayer(0).brushStyle() == Qt.BrushStyle.NoBrush:
+                        continue
             if layer_type == "MarkerLine":
                 split_rules.extend(self._split_marker_line(rule_clone, flat_rule.layer))
                 continue
@@ -559,79 +654,118 @@ class RulesFlattener:
 
     def _expand_symbol_layers(self, symbol, layer: QgsVectorLayer) -> None:
         """Replace, in place, symbol layers the web map can't draw by ones
-        it can, drawing the same: an arrow by its body (a line) and its
-        head(s) (markers at its end(s), turned with it); a trimmed line of a
-        line layer by a geometry generator cutting the line, then drawing it
-        untrimmed."""
+        it can, drawing the same: an arrow by a geometry generator making
+        the arrows' polygons, filled with its fill symbol; a trimmed line of
+        a line layer by one cutting the line, then drawing it untrimmed; a
+        fill with a data-defined offset by one moving the polygons, then
+        drawing them unmoved."""
         for index in reversed(range(symbol.symbolLayerCount())):
             symbol_layer = symbol.symbolLayer(index)
             if not symbol_layer.enabled():
                 continue
             if isinstance(symbol_layer, QgsArrowSymbolLayer):
-                replacements = self._arrow_layers(symbol_layer)
+                replacement = self._arrow_generator(symbol_layer, layer)
             elif (isinstance(symbol_layer, QgsSimpleLineSymbolLayer)
                   and layer.geometryType() == Qgis.GeometryType.Line
-                  and (symbol_layer.trimDistanceStart() or symbol_layer.trimDistanceEnd())):
-                replacements = [self._trimmed_line(symbol_layer, layer)]
+                  and (symbol_layer.trimDistanceStart() or symbol_layer.trimDistanceEnd()
+                       or self._active(symbol_layer, "TrimStart")
+                       or self._active(symbol_layer, "TrimEnd"))):
+                replacement = self._trimmed_line(symbol_layer, layer)
+            elif (type(symbol_layer).__name__ in self._OFFSET_FILLS
+                  and self._active(symbol_layer, "Offset")):
+                replacement = self._offset_fill(symbol_layer, layer)
             else:
                 continue
             symbol.deleteSymbolLayer(index)
-            for offset, replacement in enumerate(replacements):
-                symbol.insertSymbolLayer(index + offset, replacement)
+            symbol.insertSymbolLayer(index, replacement)
 
-    def _arrow_layers(self, arrow: QgsArrowSymbolLayer) -> list:
-        """An arrow as a line (its body, at its mean width) and marker lines
-        drawing its head at its end, start or both: a triangle of the head's
-        length and width (the body's plus its thickness on each side), its
-        tip at the line's end, pointing along it. Curved and half arrows
-        are drawn straight and whole."""
+    # Fill symbol layers whose offset() is an x/y offset of the whole fill.
+    _OFFSET_FILLS = frozenset({"QgsSimpleFillSymbolLayer", "QgsGradientFillSymbolLayer",
+                               "QgsShapeburstFillSymbolLayer"})
+
+    @staticmethod
+    def _property_key(name: str):
+        """A data-defined property key by its name ("Offset", "TrimStart"...)."""
+        key = getattr(QgsSymbolLayer.Property, name, None)
+        return key if key is not None else getattr(QgsSymbolLayer.Property, f"Property{name}", None)
+
+    @classmethod
+    def _property(cls, symbol_layer, name: str):
+        """A symbol layer's data-defined property, by its key's name."""
+        key = cls._property_key(name)
+        return None if key is None else symbol_layer.dataDefinedProperties().property(key)
+
+    @classmethod
+    def _active(cls, symbol_layer, name: str) -> bool:
+        prop = cls._property(symbol_layer, name)
+        return bool(prop and prop.isActive())
+
+    @classmethod
+    def _deactivate(cls, symbol_layer, name: str) -> None:
+        """Turn a symbol layer's data-defined property off (its value is
+        then drawn into the geometry)."""
+        prop = cls._property(symbol_layer, name)
+        if prop is not None and prop.isActive():
+            prop.setActive(False)
+            symbol_layer.setDataDefinedProperty(cls._property_key(name), prop)
+
+    @classmethod
+    def _number(cls, symbol_layer, name: str, static: float):
+        """A length as QGIS reads it: its data-defined value (an expression
+        string) where a feature has a number, else ``static``."""
+        prop = cls._property(symbol_layer, name)
+        if not (prop and prop.isActive()):
+            return static
+        return f"coalesce(to_real({prop.asExpression()}), {static!r})"
+
+    @staticmethod
+    def _in_3857(expression: str, layer: QgsVectorLayer) -> str:
+        """A geometry expression written for EPSG:3857 (its @geometry and
+        its result transformed): generators are evaluated in the layer's
+        CRS (RulesExporter)."""
+        crs = layer.crs().authid()
+        geometry = f"transform(@geometry, '{crs}', 'EPSG:3857')"
+        return f"transform({expression.replace('@geometry', geometry)}, 'EPSG:3857', '{crs}')"
+
+    def _arrow_generator(self, arrow: QgsArrowSymbolLayer, layer: QgsVectorLayer):
+        """An arrow as a geometry generator making the polygons QGIS draws
+        (q2vt_arrow: straight or curved, repeated or not, head(s), half
+        arrows, offset), filled with the arrow's own fill symbol."""
+        lengths = [
+            self._ground_length(self._number(arrow, "ArrowStartWidth", arrow.arrowStartWidth()),
+                                arrow.arrowStartWidthUnit(), layer),
+            self._ground_length(self._number(arrow, "ArrowWidth", arrow.arrowWidth()),
+                                arrow.arrowWidthUnit(), layer),
+            self._ground_length(self._number(arrow, "ArrowHeadLength", arrow.headLength()),
+                                arrow.headLengthUnit(), layer),
+            self._ground_length(self._number(arrow, "ArrowHeadThickness", arrow.headThickness()),
+                                arrow.headThicknessUnit(), layer),
+            self._ground_length(self._number(arrow, "Offset", arrow.offset()),
+                                arrow.offsetUnit(), layer),
+        ]
+        # A screen pixel, in which QGIS flattens curves; lengths all on the
+        # ground draw the same at every zoom (in 1 m pixels then).
+        on_screen = any("@map_scale" in length for length in lengths)
+        pixel = self._ground_length(1, Qgis.RenderUnit.Pixels, layer) if on_screen else "1"
+        expression = self._in_3857(
+            f"q2vt_arrow(@geometry, {', '.join(lengths)}, {int(arrow.headType())}, "
+            f"{int(arrow.arrowType())}, {int(arrow.isCurved())}, {int(arrow.isRepeated())}, {pixel})",
+            layer)
+        generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
+        generator.setSymbolType(Qgis.SymbolType.Fill)
         fill = arrow.subSymbol()
-        color = fill.color() if fill is not None else arrow.color()
-        width = arrow.arrowWidth()
-        if arrow.arrowStartWidth() > 0:
-            width = (width + arrow.arrowStartWidth()) / 2
-        body = QgsSimpleLineSymbolLayer(color, width)
-        body.setWidthUnit(arrow.arrowWidthUnit())
-        body.setWidthMapUnitScale(arrow.arrowWidthUnitScale())
-        body.setPenCapStyle(Qt.PenCapStyle.FlatCap)
-        layers = [body]
-        head_type = arrow.headType()
-        ends = {
-            QgsArrowSymbolLayer.HeadType.HeadSingle: [(Qgis.MarkerLinePlacement.LastVertex, 90)],
-            QgsArrowSymbolLayer.HeadType.HeadReversed: [(Qgis.MarkerLinePlacement.FirstVertex, 270)],
-            QgsArrowSymbolLayer.HeadType.HeadDouble: [(Qgis.MarkerLinePlacement.FirstVertex, 270),
-                                                      (Qgis.MarkerLinePlacement.LastVertex, 90)],
-        }.get(head_type, [])
-        if arrow.headLength() <= 0:
-            return layers
-        same_unit = arrow.headThicknessUnit() == arrow.arrowWidthUnit()
-        head_width = (arrow.arrowWidth() if same_unit else 0) + 2 * arrow.headThickness()
-        for placement, angle in ends:
-            head = QgsEllipseSymbolLayer()
-            head.setShape(QgsEllipseSymbolLayer.Shape.Triangle)
-            head.setSymbolWidth(head_width)
-            head.setSymbolWidthUnit(arrow.headThicknessUnit())
-            head.setSymbolHeight(arrow.headLength())
-            head.setSymbolHeightUnit(arrow.headLengthUnit())
-            head.setColor(color)
-            head.setStrokeStyle(Qt.PenStyle.NoPen)
-            # The tip (the triangle's top) at the line's end: the marker is
-            # drawn turned so that its top points along the line.
-            head.setOffset(QPointF(0, arrow.headLength() / 2))
-            head.setOffsetUnit(arrow.headLengthUnit())
-            head.setAngle(angle)
-            marker_line = QgsMarkerLineSymbolLayer(True)
-            marker_line.setPlacements(placement)
-            marker_line.setSubSymbol(QgsMarkerSymbol([head]))
-            layers.append(marker_line)
-        return layers
+        generator.setSubSymbol(fill.clone() if fill is not None else QgsFillSymbol.createSimple({}))
+        return generator
 
     def _trimmed_line(self, line: QgsSimpleLineSymbolLayer, layer: QgsVectorLayer):
-        """A line trimmed at its start and end, as a geometry generator
-        cutting the line (lengths in screen units follow the scale:
-        @map_scale gives each zoom its own cut) and drawing it untrimmed."""
-        start = self._ground_length(line.trimDistanceStart(), line.trimDistanceStartUnit(), layer)
-        end = self._ground_length(line.trimDistanceEnd(), line.trimDistanceEndUnit(), layer)
+        """A line trimmed at its start and end (static or data-defined
+        lengths), as a geometry generator cutting the line (lengths in
+        screen units follow the scale: @map_scale gives each zoom its own
+        cut) and drawing it untrimmed."""
+        start = self._ground_length(self._number(line, "TrimStart", line.trimDistanceStart()),
+                                    line.trimDistanceStartUnit(), layer)
+        end = self._ground_length(self._number(line, "TrimEnd", line.trimDistanceEnd()),
+                                  line.trimDistanceEndUnit(), layer)
         # Generators are evaluated in the layer's CRS (RulesExporter): the
         # line is cut in EPSG:3857, the lengths' unit, and given back.
         crs = layer.crs().authid()
@@ -644,35 +778,57 @@ class RulesFlattener:
         untrimmed = line.clone()
         untrimmed.setTrimDistanceStart(0)
         untrimmed.setTrimDistanceEnd(0)
+        self._deactivate(untrimmed, "TrimStart")
+        self._deactivate(untrimmed, "TrimEnd")
         generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
         generator.setSymbolType(Qgis.SymbolType.Line)
         generator.setSubSymbol(QgsLineSymbol([untrimmed]))
         return generator
 
+    def _offset_fill(self, fill, layer: QgsVectorLayer):
+        """A fill with a data-defined x/y offset, as a geometry generator
+        moving each polygon by its feature's offset (q2vt_offset; offsets
+        on screen follow the scale), drawing it unmoved: the fill and its
+        outline move together, as in QGIS."""
+        offset = fill.offset()
+        expression = self._in_3857(
+            f"q2vt_offset(@geometry, {self._property(fill, 'Offset').asExpression()}, "
+            f"{offset.x()!r}, {offset.y()!r}, {self._ground_length(1, fill.offsetUnit(), layer)})",
+            layer)
+        unmoved = fill.clone()
+        unmoved.setOffset(QPointF(0, 0))
+        self._deactivate(unmoved, "Offset")
+        generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
+        generator.setSymbolType(Qgis.SymbolType.Fill)
+        generator.setSubSymbol(QgsFillSymbol([unmoved]))
+        return generator
+
     @staticmethod
-    def _ground_length(value: float, unit, layer: QgsVectorLayer) -> str:
-        """A QGIS length as an expression of EPSG:3857 metres (the unit of
-        the exported base layers), with @map_scale for screen units and
-        @q2vt_len (the line's length) for percentages."""
+    def _ground_length(value, unit, layer: QgsVectorLayer) -> str:
+        """A QGIS length (a number or an expression) as an expression of
+        EPSG:3857 metres (the unit of the exported base layers), with
+        @map_scale for screen units and @q2vt_len (the line's length) for
+        percentages."""
         if not value:
             return "0"
         unit = int(getattr(unit, "value", unit))
         stretch = ZoomLevels.GROUND_STRETCH
+        static = not isinstance(value, str)
         if unit == int(Qgis.RenderUnit.Percentage.value):
-            return f"(@q2vt_len * {value / 100!r})"
-        if unit == int(Qgis.RenderUnit.MapUnits.value):
-            metres = 111319.49079327357 if layer.crs().isGeographic() else stretch
-            return repr(value * metres)
-        if unit == int(Qgis.RenderUnit.MetersInMapUnits.value):
-            return repr(value * stretch)
-        mm = value * {
+            return f"(@q2vt_len * {value / 100!r})" if static else f"(@q2vt_len * ({value}) / 100)"
+        if unit in (int(Qgis.RenderUnit.MapUnits.value), int(Qgis.RenderUnit.MetersInMapUnits.value)):
+            metres = (111319.49079327357 if unit == int(Qgis.RenderUnit.MapUnits.value)
+                      and layer.crs().isGeographic() else stretch)
+            return repr(value * metres) if static else f"(({value}) * {metres!r})"
+        per_mm = {
             int(Qgis.RenderUnit.Points.value): 25.4 / 72,
             int(Qgis.RenderUnit.Pixels.value): 25.4 / 96,
             int(Qgis.RenderUnit.Inches.value): 25.4,
         }.get(unit, 1.0)
-        # On screen: as long on the ground as the scale makes it, in
-        # EPSG:3857 metres (see ZoomLevels.map_scale_factor).
-        return f"({mm!r} * @map_scale / {1000 * ZoomLevels.map_scale_factor()!r})"
+        mm = repr(value * per_mm) if static else f"({value}) * {per_mm!r}"
+        # On screen: as long as the web map draws it at the rule's zoom, whose
+        # scale @map_scale stands for (ZoomLevels.SCALES), in EPSG:3857 metres.
+        return f"({mm} * @map_scale * {_METRES_PER_MM_AT_ZOOM_0 / ZoomLevels.SCALES[0]!r})"
 
     def _split_marker_line(self, rule_clone: FlattenedRule, layer) -> List[FlattenedRule]:
         """A marker line rule as one point rule per vertex-like placement

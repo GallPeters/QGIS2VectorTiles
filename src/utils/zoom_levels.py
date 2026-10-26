@@ -78,12 +78,6 @@ class ZoomLevels:
         except (AttributeError, RuntimeError):
             cls.GROUND_STRETCH = 1.0
 
-    @classmethod
-    def map_scale_factor(cls) -> float:
-        """The factor configure() applied: the map scale QGIS measures a
-        web zoom at, relative to Web Mercator's."""
-        return cls.SCALES[0] / _TOP_SCALE
-
     @staticmethod
     def latitude_scale_factor(project_crs, extent_3857) -> float:
         """configure()'s factor for a project CRS and the export extent (EPSG:3857)."""

@@ -6,7 +6,7 @@ import math
 import os
 import re
 from os.path import join
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from qgis.PyQt.QtGui import QColor
 from ..utils.config import Qt
@@ -41,7 +41,8 @@ from .sprite_generator import (
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.flattened_rule import (
-    CLUSTER_SIZE_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, cluster_settings,
+    CLUSTER_SIZE_FIELD, HEATMAP_PROPERTY, OFFSET_PROPERTY, TILE_LAYERS_KEY, cluster_settings,
+    pinned_field,
 )
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
@@ -398,6 +399,138 @@ def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
         if high is not None and high <= archive_max_zoom and float(high).is_integer():
             layer_def["maxzoom"] = high + 1
     return layers
+
+
+# MapLibre's default values (style specification) of the properties the
+# converter writes: a property at its default is left out of style.json.
+_SPEC_DEFAULTS = {
+    "visibility": "visible",
+    "fill-antialias": True, "fill-opacity": 1, "fill-translate": [0, 0],
+    "fill-translate-anchor": "map",
+    "line-blur": 0, "line-gap-width": 0, "line-offset": 0, "line-opacity": 1,
+    "line-translate": [0, 0], "line-translate-anchor": "map", "line-width": 1,
+    "line-cap": "butt", "line-join": "miter", "line-miter-limit": 2, "line-round-limit": 1.05,
+    "icon-opacity": 1, "icon-halo-width": 0, "icon-halo-blur": 0, "icon-translate": [0, 0],
+    "icon-translate-anchor": "map",
+    "text-opacity": 1, "text-halo-width": 0, "text-halo-blur": 0, "text-translate": [0, 0],
+    "text-translate-anchor": "map",
+    "symbol-placement": "point", "symbol-spacing": 250, "symbol-avoid-edges": False,
+    "symbol-z-order": "auto",
+    "icon-allow-overlap": False, "icon-ignore-placement": False, "icon-optional": False,
+    "icon-size": 1, "icon-rotate": 0, "icon-padding": 2, "icon-keep-upright": False,
+    "icon-offset": [0, 0], "icon-anchor": "center", "icon-text-fit": "none",
+    "icon-rotation-alignment": "auto", "icon-pitch-alignment": "auto",
+    "text-allow-overlap": False, "text-ignore-placement": False, "text-optional": False,
+    "text-size": 16, "text-max-width": 10, "text-line-height": 1.2, "text-letter-spacing": 0,
+    "text-justify": "center", "text-radial-offset": 0, "text-anchor": "center",
+    "text-max-angle": 45, "text-rotate": 0, "text-padding": 2, "text-keep-upright": True,
+    "text-transform": "none", "text-offset": [0, 0],
+    "text-rotation-alignment": "auto", "text-pitch-alignment": "auto",
+}
+
+# Expression operators reading the feature: a sort key without them is the
+# same for every feature of its layer.
+_FEATURE_OPERATORS = frozenset({"get", "has", "properties", "feature-state", "geometry-type", "id"})
+
+
+def _reads_feature(value) -> bool:
+    """Whether a style value is an expression reading the feature."""
+    if not isinstance(value, list) or not value:
+        return False
+    if isinstance(value[0], str) and value[0] in _FEATURE_OPERATORS:
+        return True
+    return any(_reads_feature(item) for item in value)
+
+
+def strip_defaults(layers: List[dict]) -> List[dict]:
+    """Leave out of each layer the properties at MapLibre's default value
+    (a smaller style, parsed faster; drawn the same).
+
+    A sort key equal for all of a layer's features orders nothing, but
+    MapLibre still sorts each tile's features by it: it is left out too, a
+    symbol layer then drawing its symbols in their own order, as the key
+    did ("source"; MapLibre would otherwise sort them by their position on
+    screen). A halo of no width draws nothing, whatever its colour.
+    """
+    for layer_def in layers:
+        layout = layer_def.get("layout", {})
+        for key in ("line-sort-key", "fill-sort-key", "symbol-sort-key"):
+            if key in layout and not _reads_feature(layout[key]):
+                del layout[key]
+                if key == "symbol-sort-key" and layout.get("symbol-z-order", "auto") == "auto":
+                    layout["symbol-z-order"] = "source"
+        for section in ("paint", "layout"):
+            props = layer_def.get(section)
+            if not props:
+                continue
+            for key in [k for k, v in props.items() if k in _SPEC_DEFAULTS
+                        and v == _SPEC_DEFAULTS[k]
+                        and isinstance(v, bool) == isinstance(_SPEC_DEFAULTS[k], bool)]:
+                del props[key]
+            for kind in ("icon", "text"):
+                if section == "paint" and f"{kind}-halo-width" not in props:
+                    props.pop(f"{kind}-halo-color", None)
+                    props.pop(f"{kind}-halo-blur", None)
+            if not props:
+                del layer_def[section]
+    return layers
+
+
+# A label callout's dataset (RulesFlattener._callout_rule: symbol layer 99).
+_CALLOUT_DATASET = re.compile(r"t00d\d\dr\d\dg\d\dc01o\d\di\d\ds99$")
+
+
+def raise_callouts(layers: List[dict]) -> List[dict]:
+    """Put the labels' callouts above every other layer but the labels:
+    QGIS draws them with the labels, over the map."""
+    callouts = [l for l in layers if _CALLOUT_DATASET.search(l.get("source-layer") or "")]
+    if not callouts:
+        return layers
+    rest = [l for l in layers if not _CALLOUT_DATASET.search(l.get("source-layer") or "")]
+    first_label = next((i for i, l in enumerate(rest)
+                        if "text-field" in l.get("layout", {})), len(rest))
+    return rest[:first_label] + callouts + rest[first_label:]
+
+
+# The zoom range part of a dataset name (the tiles' zooms it is written to).
+_DATASET_ZOOMS = re.compile(r"o\d\di\d\d")
+
+
+def share_tile_layers(layers: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
+    """Draw consecutive layers that are alike in all but their dataset as
+    one layer: their datasets are written into one tile layer (the first's,
+    see GDALTilesGenerator), which the layer draws. Fewer layers draw faster.
+
+    Only datasets each drawn by that one layer alone, for the same zooms,
+    are shared: the tile layer then holds no feature another layer would
+    draw. Returns the layers and, by dataset, the tile layer it is written to.
+    """
+    refs: Dict[str, int] = {}
+    for layer_def in layers:
+        if layer_def.get("source-layer"):
+            refs[layer_def["source-layer"]] = refs.get(layer_def["source-layer"], 0) + 1
+
+    def alike(first: dict, other: dict) -> bool:
+        a, b = first.get("source-layer"), other.get("source-layer")
+        if (not a or not b or a == b or refs[a] != 1 or refs[b] != 1
+                or first.get("type") not in ("fill", "line", "symbol")
+                or (first.get("metadata") or {}).get("q2vt:cluster")):
+            return False
+        zooms_a, zooms_b = _DATASET_ZOOMS.search(a), _DATASET_ZOOMS.search(b)
+        if not zooms_a or not zooms_b or zooms_a.group() != zooms_b.group():
+            return False
+        skip = ("id", "source-layer")
+        return ({k: v for k, v in first.items() if k not in skip}
+                == {k: v for k, v in other.items() if k not in skip})
+
+    result: List[dict] = []
+    shared: Dict[str, str] = {}
+    for layer_def in layers:
+        if result and alike(result[-1], layer_def):
+            shared[layer_def["source-layer"]] = result[-1]["source-layer"]
+            continue
+        result.append(layer_def)
+    return result, shared
 
 
 class PropertyExtractor:
@@ -1707,6 +1840,34 @@ class TextPropertyExtractor:
         }
         return anchor_map.get(PropertyExtractor.enum_int(label_settings.quadOffset), "center")
 
+    # QGIS's label alignment at a data-defined position (horizontal: Left,
+    # Center, Right; vertical: Bottom, Base, Half, Cap, Top) as MapLibre
+    # anchor parts.
+    _HALI = {"left": "left", "center": "", "right": "right"}
+    _VALI = {"bottom": "bottom", "base": "bottom", "half": "", "cap": "top", "top": "top"}
+
+    @staticmethod
+    def get_pinned_anchor(label_settings: QgsPalLayerSettings) -> Optional[str]:
+        """``text-anchor`` of labels at a data-defined position (X, Y): the
+        label's corner QGIS puts there, from its (static) data-defined
+        alignment, by default its bottom left; None without a position."""
+        props = label_settings.dataDefinedProperties()
+        x = props.property(QgsPalLayerSettings.Property.PositionX)
+        y = props.property(QgsPalLayerSettings.Property.PositionY)
+        if not (x and y and x.isActive() and y.isActive()):
+            return None
+        parts = []
+        for key, names, default in ((QgsPalLayerSettings.Property.Vali, TextPropertyExtractor._VALI, "bottom"),
+                                    (QgsPalLayerSettings.Property.Hali, TextPropertyExtractor._HALI, "left")):
+            value = default
+            prop = props.property(key)
+            if prop and prop.isActive():
+                static = QgsExpression(prop.asExpression()).evaluate()
+                value = names.get(str(static).lower(), default) if static is not None else default
+            if value:
+                parts.append(value)
+        return "-".join(parts) or "center"
+
     @staticmethod
     def get_text_justify(label_settings: QgsPalLayerSettings) -> Union[str, List]:
         """Return ``text-justify`` mapped from the multi-line alignment setting.
@@ -2194,6 +2355,11 @@ class QgisMapLibreStyleExporter:
         # After merging, which compares the layers' zoom ranges.
         archive_max_zoom = self.style["sources"][self.source_name]["maxzoom"]
         self.style["layers"] = bridge_zoom_bands(self.style["layers"], archive_max_zoom)
+        self.style["layers"] = raise_callouts(self.style["layers"])
+        self.style["layers"], shared = share_tile_layers(self.style["layers"])
+        if shared:
+            # For GDALTilesGenerator; not written to style.json.
+            self.style["metadata"] = {TILE_LAYERS_KEY: shared}
         return self.style
 
     def _set_map_units(self) -> None:
@@ -3170,6 +3336,18 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["text-offset"] = TextPropertyExtractor.radial_to_offset(
                 variable_anchor[0], radial
             )
+        # Labels at their data-defined position: anchored there as QGIS
+        # aligns them (variable anchors can't vary by feature: those
+        # labels then keep them).
+        pinned_anchor = TextPropertyExtractor.get_pinned_anchor(label_settings)
+        if pinned_anchor and text_field and not variable_anchor:
+            layout = layer_def["layout"]
+            pinned = ["==", ["get", pinned_field(text_field[1])], 1]
+            offset = layout["text-offset"]
+            if not (offset and isinstance(offset[0], str)):
+                offset = ["literal", offset]
+            layout["text-anchor"] = ["case", pinned, pinned_anchor, layout["text-anchor"]]
+            layout["text-offset"] = ["case", pinned, ["literal", [0, 0]], offset]
 
 
         #         "text-halo-blur": TextPropertyExtractor.get_text_halo_blur(
@@ -3352,6 +3530,8 @@ class QgisMapLibreStyleExporter:
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
+        rounded_style.pop("metadata", None)
+        strip_defaults(rounded_style["layers"])
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
             json.dump(rounded_style, f, indent=indent,

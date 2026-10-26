@@ -20,7 +20,9 @@ Directory layout assumed:
 """
 
 import argparse
+import gzip
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -60,6 +62,14 @@ _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 # Files read at once; bigger ones (the tiles) are streamed in pieces.
 _CHUNK = 1 << 20
+
+# Text files sent gzip-compressed to browsers accepting it (the style, the
+# search index, the viewers' scripts: several times smaller), compressed
+# once per version of the file.
+_COMPRESSIBLE = frozenset({".json", ".html", ".js", ".mjs", ".css", ".svg", ".map", ".md"})
+_MIN_COMPRESSED_SIZE = 1024
+_compressed = {}
+_compressed_lock = threading.Lock()
 
 
 # ----------------------------------------------------------------------
@@ -121,13 +131,22 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        length = end - start + 1 if size else 0
+        body = None
+        if (not partial and size >= _MIN_COMPRESSED_SIZE
+                and target.suffix.lower() in _COMPRESSIBLE
+                and "gzip" in self.headers.get("Accept-Encoding", "")):
+            body = self._gzipped(target, etag)
+        length = len(body) if body is not None else (end - start + 1 if size else 0)
         self.send_response(206 if partial else 200)
         self.send_header("Content-Type", mime)
         # Glyphs may be stored gzip-compressed; tiles in the PMTiles file
         # are decompressed by the viewer itself.
         if mime == "application/x-protobuf" and not partial and self._is_gzip(target):
             self.send_header("Content-Encoding", "gzip")
+        if body is not None:
+            self.send_header("Content-Encoding", "gzip")
+        if target.suffix.lower() in _COMPRESSIBLE:
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(length))
         if partial:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
@@ -137,6 +156,9 @@ class Handler(BaseHTTPRequestHandler):
         self._common_headers()
         self.end_headers()
         if not send_body or not length:
+            return
+        if body is not None:
+            self.wfile.write(body)
             return
         with open(target, "rb") as f:
             f.seek(start)
@@ -158,6 +180,19 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return None  # path-traversal guard
         return target
+
+    @staticmethod
+    def _gzipped(target: Path, etag: str) -> bytes:
+        """The file gzip-compressed, from memory after its first request."""
+        key = str(target)
+        with _compressed_lock:
+            cached = _compressed.get(key)
+        if cached is not None and cached[0] == etag:
+            return cached[1]
+        body = gzip.compress(target.read_bytes(), compresslevel=6)
+        with _compressed_lock:
+            _compressed[key] = (etag, body)
+        return body
 
     @staticmethod
     def _is_gzip(target: Path) -> bool:

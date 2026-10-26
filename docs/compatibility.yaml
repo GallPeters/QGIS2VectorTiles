@@ -1,4 +1,4 @@
-# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.2).
+# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.1).
 #
 # Rendered by assets/guide.js on compatibility.html. Each property:
 #   qgis_prop      the QGIS setting, as named in the QGIS interface
@@ -177,8 +177,8 @@ categories:
       - qgis_prop: "Simple fill: offset"
         maplibre_prop: "fill-translate / line-translate"
         supported: "Yes"
-        data_driven: "No"
-        notes: "The fill and its outline move by the offset (x, y), on screen as in QGIS; offsets in map units follow the zoom. Also for gradient and shapeburst fills. A data-defined offset uses the static value."
+        data_driven: "Yes"
+        notes: "The fill and its outline move by the offset (x, y), on screen as in QGIS; offsets in map units follow the zoom. Also for gradient and shapeburst fills. A data-defined offset moves each feature by its own offset (drawn into the tiles, exact at each zoom level)."
       - qgis_prop: "Symbol opacity"
         maplibre_prop: "fill-opacity"
         supported: "Yes"
@@ -270,8 +270,8 @@ categories:
       - qgis_prop: "Simple line: trim lines / draw line only inside polygon"
         maplibre_prop: "line geometry / line-offset"
         supported: "Yes"
-        data_driven: "No"
-        notes: "Lines are cut at their start and end by the trim lengths (screen lengths follow the zoom level, percentages the line's length). An outline drawn only inside its polygon is half as wide, moved inwards. A data-defined trim uses the static value."
+        data_driven: "Yes"
+        notes: "Lines are cut at their start and end by the trim lengths, static or data-defined (screen lengths follow the zoom level, percentages the line's length). An outline drawn only inside its polygon is half as wide, moved inwards."
       - qgis_prop: "Symbol opacity"
         maplibre_prop: "line-opacity"
         supported: "Yes"
@@ -318,10 +318,10 @@ categories:
         data_driven: "No"
         notes: "Drawn as a plain line in the mean of its two colors (line gradients need GeoJSON sources in MapLibre)."
       - qgis_prop: "Arrow"
-        maplibre_prop: "line + icon-image"
-        supported: "Partial"
-        data_driven: "No"
-        notes: "Drawn as its body (a line at its mean width) and its head(s) (a triangle of the head's length and width at the end, start or both ends, turned with the line). Curved and half arrows are drawn straight and whole."
+        maplibre_prop: "fill (arrow polygons)"
+        supported: "Yes"
+        data_driven: "Yes"
+        notes: "Drawn as the polygons QGIS draws, with the arrow's fill symbol and its outline: straight or curved, repeated on every segment or not, single, reversed or double heads, half arrows, tapered width and offset. Data-defined widths, head length and thickness and offset too (head and arrow types: the static value)."
       - qgis_prop: "Interpolated line / filled line"
         maplibre_prop: "line-color, line-width"
         supported: "Partial"
@@ -435,7 +435,7 @@ categories:
         maplibre_prop: "N/A"
         supported: "No"
         data_driven: "No"
-        notes: "E.g. data-defined dash pattern or label alignment: the static value is used. A data-defined label position (X, Y) places point and polygon labels there."
+        notes: "E.g. data-defined dash pattern: the static value is used. A data-defined label position (X, Y) places point and polygon labels there, aligned by their bottom-left corner as in QGIS (or the static data-defined alignment)."
 
   - name: "Label text and font"
     properties:
@@ -553,10 +553,10 @@ categories:
         data_driven: "No"
         notes: "Label drop shadows are not drawn."
       - qgis_prop: "Callouts"
-        maplibre_prop: "N/A"
-        supported: "No"
+        maplibre_prop: "line (callout lines)"
+        supported: "Partial"
         data_driven: "No"
-        notes: "Leader lines from labels to features are not drawn."
+        notes: "Simple and Manhattan callouts of labels at a data-defined position (X, Y) are drawn with their line symbol, from the feature's anchor point to the label's box, with the minimum length and the offsets from the feature and the label; curved ones are drawn straight. Labels placed by the map itself (no position) and balloon callouts have none."
 
   - name: "Label placement"
     properties:

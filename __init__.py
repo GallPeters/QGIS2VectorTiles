@@ -1,6 +1,6 @@
 """QGIS2VectorTiles plugin for QGIS"""
 
-from qgis.core import QgsApplication
+from qgis.core import QgsApplication, QgsExpression
 from .src.processing.provider import QGIS2VectorTilesPorvider
 
 
@@ -24,6 +24,10 @@ class QGIS2VectorTiles:
     def unload(self):
         """Unload plugin"""
         QgsApplication.processingRegistry().removeProvider(self.provider)
+        # The expression functions of the rules export (src/core/symbol_geometry),
+        # registered if it ran in this process.
+        for name in ("q2vt_arrow", "q2vt_offset", "q2vt_callout"):
+            QgsExpression.unregisterFunction(name)
 
 
 def classFactory(iface):

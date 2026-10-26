@@ -154,11 +154,13 @@ from ..utils.config import (
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, cluster_settings,
-    marker_angle_field,
+    marker_angle_field, pinned_field,
 )
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
+# Registers the q2vt_* expression functions the rules' geometry generators call.
+from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 
 
 # ============================================================================
@@ -4195,6 +4197,15 @@ class RulesExporter:
             # web map breaks lines at line breaks.
             text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
             settings.wrapChar = ""
+        position = flat_rule.label_position
+        if position is not None:
+            # The labels placed at their position (see
+            # _get_labeling_transformation), which QGIS aligns there by
+            # their own corner (the style converter's text-anchor).
+            pinned = f"({position[0]}) IS NOT NULL AND ({position[1]}) IS NOT NULL"
+            if condition:
+                pinned = f"({condition}) AND {pinned}"
+            fields.append((2, f"CASE WHEN {pinned} THEN 1 END", pinned_field(field_name)))
         if condition:
             text = f"CASE WHEN {condition} THEN ({text}) END"
         fields.append((10, text, field_name))
@@ -4259,6 +4270,7 @@ class RulesExporter:
         if position is not None and target_geom == 0:
             # A data-defined position (X, Y in the layer's CRS) where the
             # feature has one, as QGIS places it; else the label's own point.
+            flat_rule.label_position = position
             x, y = position
             layer_crs = flat_rule.layer.crs().authid()
             transform_expr = (

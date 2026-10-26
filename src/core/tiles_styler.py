@@ -172,7 +172,10 @@ class TilesStyler:
         source_geom = int(flat_rule.get_attr("g"))
         target_geom = int(flat_rule.get_attr("c"))
 
-        if source_geom != target_geom:
+        # A geometry generator's geometry is drawn by its sub-symbol,
+        # whatever the layer's own geometry.
+        generator = sub_symbol is not None and symbol_layer.layerType() == "GeometryGenerator"
+        if source_geom != target_geom or generator:
             if sub_symbol and symbol_layer.layerType() in (
                     "GeometryGenerator", "CentroidFill", "MarkerLine"):
                 self._copy_data_driven_properties(symbol, sub_symbol)
@@ -180,6 +183,10 @@ class TilesStyler:
                 new_symbol = sub_symbol
                 if symbol_layer.layerType() == "MarkerLine":
                     new_symbol = self._marker_line_points_symbol(flat_rule, symbol_layer, sub_symbol)
+                elif (target_geom == 2 and sub_symbol.type() == Qgis.SymbolType.Fill
+                      and sub_symbol_layer.type() == Qgis.SymbolType.Line):
+                    # A generated fill's outline (RulesFlattener), along the polygons.
+                    new_symbol = self._create_transformed_symbol(1, sub_symbol_layer, sub_symbol)
             else:
                 new_symbol = self._create_transformed_symbol(target_geom, symbol_layer, symbol)
         elif target_geom == 2 and symbol_layer.type() == Qgis.SymbolType.Line:

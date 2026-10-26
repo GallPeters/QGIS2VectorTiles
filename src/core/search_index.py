@@ -99,11 +99,8 @@ class SearchIndexBuilder:
                 return None
         if not count:
             return None
-        truncated = self._write(list(layers.values()), truncated)
-        if truncated:
-            self.feedback.pushWarning(
-                f"The search index holds the first {_MAX_FEATURES} features only."
-            )
+        # The viewers tell a search when the index was cut short ("truncated").
+        self._write(list(layers.values()), truncated)
         return self.output_path
 
     def _read_dataset(self, dataset: QgsVectorLayer, indexed: _IndexedLayer, count: int) -> Tuple[int, bool]:
