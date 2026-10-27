@@ -120,7 +120,26 @@ class LabelShape:
     svg: str = ""         # An SVG file, stretched whole (in the colours given).
 
 
-SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape]
+@dataclass
+class BalloonShape:
+    """A label's balloon callout as its icon, stretched around the text by
+    MapLibre (icon-text-fit): drawn by its fill symbol (with its geometry
+    generators, such as a marker in a corner) around a text box, with the
+    wedge pointing at the label's point (``origin``, pixels from the box's
+    ``anchor``, y down). Only bands that are the same all along are
+    stretched: corners, wedge and markers keep their size. Lengths in
+    pixels."""
+
+    symbol: QgsFillSymbol
+    anchor: str                                   # text-anchor
+    origin: tuple[float, float]
+    margins: tuple[float, float, float, float]    # Left, top, right, bottom.
+    wedge_width: float
+    corner_radius: float
+    from_anchor: float = 0.0
+
+
+SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape, BalloonShape]
 
 
 class _RenderCache:
@@ -191,6 +210,10 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
             definition = f"brush{source.color}|{source.style}|{source.size}"
         elif isinstance(source, LabelShape):
             definition = f"shape{source!r}"
+        elif isinstance(source, BalloonShape):
+            definition = "balloon" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(
+                (source.anchor, source.origin, source.margins, source.wedge_width,
+                 source.corner_radius, source.from_anchor))
         else:
             definition = "symbol" + QgsSymbolLayerUtils.symbolProperties(source)
     except (OSError, RuntimeError, AttributeError, TypeError):
@@ -219,9 +242,12 @@ class SymbolImage:
     meta: dict = field(init=False, default_factory=dict)
 
     def __post_init__(self):
-        if isinstance(self.symbol, LabelShape):
-            # Cheap to draw, and its metadata comes with the drawing.
-            self._render_shape()
+        if isinstance(self.symbol, (LabelShape, BalloonShape)):
+            # Its metadata comes with the drawing.
+            if isinstance(self.symbol, BalloonShape):
+                self._render_balloon()
+            else:
+                self._render_shape()
             self.width = self.img.width
             self.height = self.img.height
             return
@@ -463,6 +489,109 @@ class SymbolImage:
         if not (shape.width and shape.height):
             margin_x, margin_y = round(width / 8), round(height / 8)
             self.meta = {"content": [margin_x, margin_y, width - margin_x, height - margin_y]}
+
+    def _render_balloon(self):
+        """A balloon callout around a text box (see BalloonShape), drawn by
+        its fill symbol as QGIS draws it (in screen pixels, y down), then
+        its uniform bands narrowed to its stretchable parts."""
+        # pylint: disable=import-outside-toplevel
+        from .symbol_geometry import _ANCHOR_FRACTIONS, _balloon
+        balloon = self.symbol
+        scale = self.scale_factor
+        try:
+            # A text box big enough for what is drawn in its corners.
+            width, height = 160 * scale, 120 * scale
+            left, top, right, bottom = (m * scale for m in balloon.margins)
+            fx, fy = _ANCHOR_FRACTIONS.get(balloon.anchor, (0.5, 0.5))
+            origin = QPointF(fx * width + balloon.origin[0] * scale, fy * height + balloon.origin[1] * scale)
+            rect = QRectF(-left, -top, width + left + right, height + top + bottom)
+            if balloon.from_anchor > 0 and not rect.contains(origin):
+                # Short of the point by the offset from it, towards the box.
+                nearest = QPointF(min(max(origin.x(), 0), width), min(max(origin.y(), 0), height))
+                gap = nearest - origin
+                distance = sqrt(gap.x() ** 2 + gap.y() ** 2)
+                if distance > 0:
+                    origin += gap * min(1.0, balloon.from_anchor * scale / distance)
+            points = _balloon(origin, rect, balloon.wedge_width * scale, balloon.corner_radius * scale)
+            # Room around it for what the symbol draws outside it.
+            bounds = QPolygonF(points).boundingRect().united(rect)
+            extra = 64 * scale
+            shift_x, shift_y = extra - bounds.left(), extra - bounds.top()
+            qt_img = QImage(int(ceil(bounds.width() + 2 * extra)), int(ceil(bounds.height() + 2 * extra)),
+                            QImage.Format.Format_ARGB32_Premultiplied)
+            qt_img.fill(0)
+            painter = QPainter(qt_img)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            context = QgsRenderContext.fromQPainter(painter)
+            context.setScaleFactor(_PX_PER_MM * scale)
+            context.setFlag(Qgis.RenderContextFlag.Antialiasing, True)
+            symbol = balloon.symbol.clone()
+            symbol.startRender(context)
+            symbol.renderPolygon(QPolygonF([QPointF(p.x() + shift_x, p.y() + shift_y) for p in points]),
+                                 None, None, context)
+            symbol.stopRender(context)
+            painter.end()
+            img = self._qt_to_pil(qt_img).convert("RGBA")
+            crop = img.getbbox()
+            if not crop:
+                raise ValueError("nothing drawn")
+            img = img.crop(crop)
+            content = [shift_x - crop[0], shift_y - crop[1],
+                       shift_x + width - crop[0], shift_y + height - crop[1]]
+            # Bands across the text box the same all along, each narrowed to
+            # 2 pixels that MapLibre stretches.
+            img, stretch_x, content[0], content[2] = self._narrow(img, content[0], content[2], scale)
+            img = img.transpose(Image.Transpose.TRANSPOSE)
+            img, stretch_y, content[1], content[3] = self._narrow(img, content[1], content[3], scale)
+            self.img = img.transpose(Image.Transpose.TRANSPOSE)
+            self.meta = {"content": [round(v) for v in content]}
+            if stretch_x:
+                self.meta["stretchX"] = stretch_x
+            if stretch_y:
+                self.meta["stretchY"] = stretch_y
+        except (RuntimeError, AttributeError, TypeError, ValueError):
+            self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
+            self.meta = {}
+
+    @staticmethod
+    def _narrow(img: Img, start: float, end: float, scale: float) -> tuple:
+        """``img`` with each long run of identical columns between ``start``
+        and ``end`` narrowed to 2 pixels: (the image, those columns' ranges
+        (stretchX), start and end in it). Long: at least half the longest
+        (the balloon's background, not a plain part of a marker on it)."""
+        columns = [img.crop((x, 0, x + 1, img.height)).tobytes() for x in range(img.width)]
+        first, last = int(ceil(start)) + 1, min(int(end) - 1, img.width - 1)
+        runs = {}
+        x = first
+        while x < last:
+            run_end = x
+            while run_end + 1 < last and columns[run_end + 1] == columns[x]:
+                run_end += 1
+            runs[x] = run_end
+            x = run_end + 1
+        longest = max((b - a + 1 for a, b in runs.items()), default=0)
+        least = max(4, round(6 * scale), longest / 2)
+        kept, stretch = [], []
+        x, removed = 0, 0
+        while x < img.width:
+            run_end = runs.get(x, x)
+            if run_end - x + 1 >= least:
+                stretch.append([x - removed, x - removed + 2])
+                kept.append((x, x + 2))
+                removed += run_end - x - 1
+                x = run_end + 1
+            else:
+                kept.append((x, x + 1))
+                x += 1
+        if not stretch:
+            return img, [], start, end
+        narrowed = Image.new("RGBA", (sum(b - a for a, b in kept), img.height))
+        at = 0
+        for a, b in kept:
+            narrowed.paste(img.crop((a, 0, b, img.height)), (at, 0))
+            at += b - a
+        # The runs are inside the box: only its end moves.
+        return narrowed, stretch, start, end - removed
 
     @staticmethod
     def _resize_tile(tile: Img, width: int, height: int) -> Img:

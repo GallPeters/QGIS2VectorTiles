@@ -488,8 +488,8 @@ class RulesFlattener:
 
     def _callout_rules(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
         """A label's callout, for labels at a fixed place: at a data-defined
-        position (X, Y), or a point's label at its offset from the point
-        (not placed around it, where the web map chooses the side). As
+        position (X, Y), or a point's label at its point (a balloon there is
+        the label's icon instead: TextPropertyExtractor.balloon_icon). As
         renderer rules drawing what QGIS draws (q2vt_callout): the simple,
         Manhattan or curved line from the label's box (as the web map lays
         it out there) to the feature, with the callout's line symbol, or the
@@ -515,6 +515,8 @@ class RulesFlattener:
         fixed = layer.geometryType() == Qgis.GeometryType.Point
         if not positioned and not fixed:
             return []
+        if TextPropertyExtractor.balloon_icon(settings, layer.geometryType()):
+            return []  # The label's icon (see BalloonShape).
         label_exp = settings.getLabelExpression().expression()
         if not label_exp:
             return []
@@ -536,13 +538,7 @@ class RulesFlattener:
             # At the point, with the anchor and offset the style gives it
             # (a label with a callout placed around its point keeps the first
             # side: TextPropertyExtractor.keeps_callout_side).
-            anchor_name = TextPropertyExtractor.get_text_anchor(settings)
-            offset = TextPropertyExtractor.get_text_offset(settings)
-            variable = TextPropertyExtractor.get_text_variable_anchor(settings)
-            if variable:
-                anchor_name = variable[0]
-                offset = TextPropertyExtractor.radial_to_offset(
-                    anchor_name, TextPropertyExtractor.get_text_radial_offset(settings))
+            anchor_name, offset = TextPropertyExtractor.fixed_anchor(settings)
             if not all(isinstance(v, (int, float)) for v in offset):
                 return []  # A data-defined offset: the box isn't known.
             anchor, point = QgsExpression.quotedString(anchor_name), "@geometry"

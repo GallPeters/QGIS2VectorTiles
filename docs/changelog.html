@@ -136,8 +136,10 @@
       <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li><strong>Balloon callouts</strong> of labels placed at their point (around it or at an offset), not only at a data-defined position: label signs keep their background.</li>
-      <li>Every layer of a balloon's <strong>fill symbol</strong>, with its outline, and its <strong>geometry generators</strong> drawn from the balloon as QGIS draws them (an icon in its corner).</li>
+      <li><strong>Balloon callouts</strong> of point labels, as the label's own background: drawn by QGIS with every layer of its fill symbol (outlines, and <strong>geometry generators</strong> such as an icon in its corner) and stretched around the text, so it fits at every zoom and is hidden with its label as in QGIS. Label signs keep their background.</li>
+      <li>The other callouts of labels placed at their point (around it or at an offset), not only at a data-defined position; a balloon's fill symbol drawn layer by layer there too.</li>
+      <li>Fixed: multi-line labels were always centred: their QGIS alignment (left, right, following the placement) is kept.</li>
+      <li>Fixed: spaces at the start or end of a label's lines (an indent, padding) were dropped by the web map.</li>
       <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
     </ul>
   </article>

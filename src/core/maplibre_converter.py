@@ -37,7 +37,7 @@ from qgis.core import (
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
 from .sprite_generator import (
-    BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
+    BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.flattened_rule import (
@@ -2011,14 +2011,10 @@ class TextPropertyExtractor:
         ``"right"`` or ``"auto"``); QGIS-specific integer/string codes are
         not translated server-side.
         """
-        try:
-            justification = label_settings.multiLineAlignment
-        except AttributeError:
-            try:
-                justification = label_settings.alignment
-            except AttributeError:
-                justification = 1
-        justify_map = {0: "left", 1: "center", 2: "right", 3: "center"}
+        justification = getattr(label_settings, "multilineAlign", 1)
+        # Qgis.LabelMultiLineAlignment: left, center, right, follow the
+        # placement (MapLibre's auto: the anchor's side), justify.
+        justify_map = {0: "left", 1: "center", 2: "right", 3: "auto", 4: "left"}
         base_justify = justify_map.get(PropertyExtractor.enum_int(justification), "left")
         try:
             justify_prop = label_settings.dataDefinedProperties().property(
@@ -2145,18 +2141,59 @@ class TextPropertyExtractor:
         return anchors or list(TextPropertyExtractor._AROUND_POINT_ANCHORS)
 
     @staticmethod
-    def has_drawn_callout(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
-        """Whether the label's callout is drawn in the tiles (RulesFlattener):
-        a point's label, or one at a data-defined position."""
-        callout = label_settings.callout()
-        if callout is None or not callout.enabled():
-            return False
+    def _positioned(label_settings: QgsPalLayerSettings) -> bool:
+        """Whether the label is at a data-defined position (X and Y)."""
         props = label_settings.dataDefinedProperties()
         x = props.property(QgsPalLayerSettings.Property.PositionX)
         y = props.property(QgsPalLayerSettings.Property.PositionY)
-        return (bool(x and y and x.isActive() and y.isActive())
-                or (geometry_type is not None and PropertyExtractor.enum_int(geometry_type)
-                    == PropertyExtractor.enum_int(Qgis.GeometryType.Point)))
+        return bool(x and y and x.isActive() and y.isActive())
+
+    @staticmethod
+    def fixed_anchor(label_settings: QgsPalLayerSettings) -> tuple:
+        """(text-anchor, text-offset in ems) of a point's label at its point:
+        the style's, or the first side of one placed around it (a label
+        with a callout keeps it: keeps_callout_side). The offset may be
+        data-defined (not numbers)."""
+        anchor = TextPropertyExtractor.get_text_anchor(label_settings)
+        offset = TextPropertyExtractor.get_text_offset(label_settings)
+        variable = TextPropertyExtractor.get_text_variable_anchor(label_settings)
+        if variable:
+            anchor = variable[0]
+            offset = TextPropertyExtractor.radial_to_offset(
+                anchor, TextPropertyExtractor.get_text_radial_offset(label_settings))
+        return anchor, offset
+
+    @staticmethod
+    def balloon_icon(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
+        """Whether the label's balloon callout is its icon, stretched around
+        the text (see BalloonShape): a point's label at its point, at a
+        fixed offset, without a background shape. MapLibre then fits it to
+        the text at every zoom, and hides it with its label as QGIS does."""
+        callout = label_settings.callout()
+        if (callout is None or not callout.enabled() or callout.type() != "balloon"
+                or callout.fillSymbol() is None or label_settings.format().background().enabled()):
+            return False
+        if geometry_type is None or PropertyExtractor.enum_int(geometry_type) != PropertyExtractor.enum_int(
+                Qgis.GeometryType.Point):
+            return False
+        if TextPropertyExtractor._positioned(label_settings):
+            return False
+        _, offset = TextPropertyExtractor.fixed_anchor(label_settings)
+        return all(isinstance(v, (int, float)) for v in offset)
+
+    @staticmethod
+    def has_drawn_callout(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
+        """Whether the label's callout is drawn in the tiles (RulesFlattener):
+        a point's label (but a balloon that is its icon), or one at a
+        data-defined position."""
+        callout = label_settings.callout()
+        if callout is None or not callout.enabled():
+            return False
+        if TextPropertyExtractor._positioned(label_settings):
+            return True
+        return (geometry_type is not None and PropertyExtractor.enum_int(geometry_type)
+                == PropertyExtractor.enum_int(Qgis.GeometryType.Point)
+                and not TextPropertyExtractor.balloon_icon(label_settings, geometry_type))
 
     @staticmethod
     def keeps_callout_side(label_settings: QgsPalLayerSettings) -> bool:
@@ -3621,6 +3658,9 @@ class QgisMapLibreStyleExporter:
             self._apply_icon_from_background(layer_def, background, style_name)
         elif shape_type in _BACKGROUND_SHAPES and (shape := self._label_shape(background, shape_type))[0]:
             self._apply_icon_from_background(layer_def, background, style_name, shape)
+        elif TextPropertyExtractor.balloon_icon(label_settings, geometry_type):
+            self._apply_icon_from_background(layer_def, background, style_name,
+                                             self._balloon_shape(label_settings))
         else:
             self._apply_default_icon_props(layer_def)
 
@@ -3731,6 +3771,46 @@ class QgisMapLibreStyleExporter:
             "stroke-width": stroke_px, "padding": padding,
         }
         return name, "both", padding, box
+
+    def _balloon_shape(self, label_settings: QgsPalLayerSettings) -> tuple:
+        """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
+        the OpenLayers viewer) of a label's balloon callout drawn as its
+        icon (see BalloonShape): its wedge pointing at the label's point,
+        from where the style places the text."""
+        def px(value, unit) -> float:
+            length = PropertyExtractor.length_to_style_value(value, unit)
+            return length if isinstance(length, (int, float)) else 0.0  # Ground: none.
+
+        callout = label_settings.callout()
+        anchor, offset = TextPropertyExtractor.fixed_anchor(label_settings)
+        size = TextPropertyExtractor.get_text_size_px(label_settings.format())
+        margins = callout.margins()
+        unit = callout.marginsUnit()
+        shape = BalloonShape(
+            symbol=callout.fillSymbol().clone(), anchor=anchor,
+            origin=(-offset[0] * size, -offset[1] * size),
+            margins=tuple(px(m, unit) for m in (margins.left(), margins.top(), margins.right(), margins.bottom())),
+            wedge_width=px(callout.wedgeWidth(), callout.wedgeWidthUnit()),
+            corner_radius=px(callout.cornerRadius(), callout.cornerRadiusUnit()),
+            from_anchor=(px(callout.offsetFromAnchor(), callout.offsetFromAnchorUnit())
+                         if hasattr(callout, "offsetFromAnchor") else 0.0),
+        )
+        name = self._register_sprite(shape, "balloon")
+        # The OpenLayers viewer draws its first simple fill as the text's background.
+        box = None
+        for symbol_layer in callout.fillSymbol().symbolLayers():
+            if isinstance(symbol_layer, QgsSimpleFillSymbolLayer) and symbol_layer.enabled():
+                no_stroke = symbol_layer.strokeStyle() == Qt.PenStyle.NoPen
+                box = {
+                    "fill": PropertyExtractor.convert_qcolor_to_maplibre(symbol_layer.fillColor()),
+                    "stroke": PropertyExtractor.convert_qcolor_to_maplibre(
+                        QColor(0, 0, 0, 0) if no_stroke else symbol_layer.strokeColor()),
+                    "stroke-width": 0.0 if no_stroke else px(symbol_layer.strokeWidth(),
+                                                             symbol_layer.strokeWidthUnit()),
+                    "padding": [shape.margins[1], shape.margins[2], shape.margins[3], shape.margins[0]],
+                }
+                break
+        return name, "both", None, box
 
     def _apply_default_icon_props(self, layer_def: dict):
         """Apply default icon layout/paint when no background marker is present."""

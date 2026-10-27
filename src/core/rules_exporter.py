@@ -4205,6 +4205,9 @@ class RulesExporter:
             # web map breaks lines at line breaks.
             text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
             settings.wrapChar = ""
+        # Spaces starting or ending a line, which QGIS draws and the web map
+        # trims (any space): kept behind a word joiner (no width, no break).
+        text = f"regexp_replace(to_string({text}), '(?m)^(?= )|(?<= )$', char(8288))"
         position = flat_rule.label_position
         if position is not None:
             # The labels placed at their position (see
