@@ -21,8 +21,8 @@ from typing import List, Optional
 from qgis.PyQt.QtCore import QLineF, QPointF, QRectF
 from qgis.PyQt.QtGui import QFont, QFontMetricsF, QPainterPath, QTransform
 from qgis.core import (
-    Qgis, QgsCircularString, QgsExpression, QgsGeometry, QgsLineString, QgsPoint, QgsPointXY,
-    QgsRectangle, QgsSymbolLayerUtils, qgsfunction,
+    Qgis, QgsCircularString, QgsExpression, QgsExpressionContext, QgsExpressionContextScope, QgsGeometry,
+    QgsLineString, QgsPoint, QgsPointXY, QgsRectangle, QgsSymbolLayerUtils, qgsfunction,
 )
 
 _GROUP = "QGIS2VectorTiles"
@@ -608,18 +608,47 @@ def _part_anchor(part: QgsGeometry, kind: int, box: QgsGeometry) -> Optional[Qgs
     return pole[0] if isinstance(pole, tuple) else pole
 
 
+# The variable a balloon's geometry generator reads its geometry from (its
+# @geometry, renamed by RulesFlattener).
+BALLOON_VARIABLE = "q2vt_balloon"
+
+
+# Callout shapes in screen pixels by what makes them (see q2vt_callout).
+_callout_cache: dict = {}
+_CALLOUT_CACHE_SIZE = 200000
+_MISSING = object()
+
+
+def _generated(expression: str, geometry: QgsGeometry, feature) -> Optional[QgsGeometry]:
+    """A geometry generator's expression evaluated on ``geometry`` (its
+    BALLOON_VARIABLE) for the feature (its fields read as QGIS reads them)."""
+    expr = QgsExpression(expression)
+    context = QgsExpressionContext()
+    if feature is not None:
+        context.setFeature(feature)
+        context.setFields(feature.fields())
+    scope = QgsExpressionContextScope()
+    scope.setVariable(BALLOON_VARIABLE, geometry)
+    context.appendScope(scope)
+    context.setGeometry(geometry)
+    value = expr.evaluate(context)
+    return QgsGeometry(value) if isinstance(value, QgsGeometry) and not value.isNull() else None
+
+
 @qgsfunction(group=_GROUP, referenced_columns=[], handlesnull=True)
 def q2vt_callout(geometry, label_point, text, family, text_px, line_height, anchor,
                  offset_x, offset_y, feature_anchor, label_anchor, kind,
                  min_length, from_anchor, from_label, pixel, curvature, orientation,
                  wedge_width, corner_radius, margin_left, margin_top, margin_right,
-                 margin_bottom, feature, parent):
+                 margin_bottom, generator, feature, parent):
     """A label's callout as QGIS draws it, on the ground (EPSG:3857): the
     line (simple, Manhattan or curved) from its label's box drawn at
     ``label_point`` (laid out as MapLibre lays it: ``anchor`` and
     ``offset_x``/``offset_y`` ems) to the feature's anchor point, or the
-    balloon around the box pointing at it (a polygon). Lengths in metres;
-    ``pixel`` the length of a screen pixel, in which QGIS draws."""
+    balloon around the box pointing at it (a polygon), or what one of the
+    balloon fill symbol's geometry generators (``generator``) makes of it.
+    Lengths in metres; ``pixel`` the length of a screen pixel, in which QGIS
+    draws."""
     if geometry is None or label_point is None or text in (None, "") or not pixel or pixel <= 0:
         return None
     centre = label_point.asPoint()
@@ -631,52 +660,79 @@ def q2vt_callout(geometry, label_point, text, family, text_px, line_height, anch
     box = QgsGeometry.fromRect(QgsRectangle(rect.left(), rect.top(), rect.right(), rect.bottom()))
     part = QgsGeometry(geometry)
     part.transform(to_screen)
-    end = _part_anchor(part, int(feature_anchor), box)
-    if end is None or end.isEmpty():
+
+    def _screen_shape():
+        nonlocal kind, rect
+        end = _part_anchor(part, int(feature_anchor), box)
+        if end is None or end.isEmpty():
+            return None
+        fractions = _LABEL_ANCHORS.get(int(label_anchor))
+        if fractions is None:
+            start = box.convertToType(Qgis.GeometryType.Line, False).nearestPoint(end)
+        else:
+            start = QgsGeometry.fromPointXY(QgsPointXY(rect.left() + fractions[0] * width,
+                                                       rect.top() + fractions[1] * height))
+            if int(getattr(part.type(), "value", part.type())) == 1:
+                end = QgsGeometry(start.shortestLine(part).vertexAt(1))
+        s, e = start.asPoint(), end.asPoint()
+        s, e = QPointF(s.x(), s.y()), QPointF(e.x(), e.y())
+        if math.hypot(e.x() - s.x(), e.y() - s.y()) < min_length / pixel:
+            return None
+        kind = int(kind)
+        if kind == CALLOUT_CURVED:
+            line = _curved_line(rect, s, e, curvature, int(orientation))
+        elif kind == CALLOUT_MANHATTAN:
+            line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(s.x(), e.y()), QgsPoint(e.x(), e.y())])
+        else:
+            line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(e.x(), e.y())])
+        length = line.length()
+        if kind == CALLOUT_BALLOON:
+            origin = e
+            if from_anchor > 0 and length > 0:
+                tip = line.interpolatePoint(max(0.0, length - from_anchor / pixel))
+                origin = QPointF(tip.x(), tip.y()) if tip else e
+            rect = QRectF(rect.left() - margin_left / pixel, rect.top() - margin_top / pixel,
+                          width + (margin_left + margin_right) / pixel,
+                          height + (margin_top + margin_bottom) / pixel)
+            if rect.width() <= 0 or rect.height() <= 0:
+                return None
+            ring = [QgsPointXY(p.x(), p.y()) for p in _balloon(origin, rect, wedge_width / pixel,
+                                                               corner_radius / pixel)]
+            if len(ring) < 4:
+                return None
+            result = QgsGeometry.fromPolygonXY([ring]).makeValid(Qgis.MakeValidMethod.Structure)
+            if generator:
+                # A geometry generator of the balloon's fill symbol: QGIS gives it
+                # the balloon in screen pixels, y down (its "top" is its y_min).
+                result = _generated(generator, result, feature)
+                if result is None:
+                    return None
+        else:
+            # Shortened by the offsets from the label and from the feature.
+            start_at, end_at = from_label / pixel, length - from_anchor / pixel
+            if end_at <= start_at:
+                return None
+            trimmed = line.curveSubstring(start_at, end_at)
+            result = QgsGeometry(trimmed.curveToLine() if hasattr(trimmed, "curveToLine") else trimmed)
+        return result
+
+    # The shape in screen pixels, the same at every zoom for a label at its
+    # point (and for each of a balloon's rules): computed once.
+    pixels = tuple(round(v / pixel, 6) for v in (min_length, from_anchor, from_label, wedge_width,
+                                                 corner_radius, margin_left, margin_top,
+                                                 margin_right, margin_bottom))
+    key = (part.asWkt(3), text, family, text_px, line_height, anchor, offset_x, offset_y,
+           int(feature_anchor), int(label_anchor), int(kind), curvature, int(orientation), pixels,
+           generator, feature.id() if generator and feature is not None else None)
+    shape = _callout_cache.get(key, _MISSING)
+    if shape is _MISSING:
+        shape = _callout_cache[key] = _screen_shape()
+        if len(_callout_cache) > _CALLOUT_CACHE_SIZE:
+            _callout_cache.clear()
+    if shape is None:
         return None
-    fractions = _LABEL_ANCHORS.get(int(label_anchor))
-    if fractions is None:
-        start = box.convertToType(Qgis.GeometryType.Line, False).nearestPoint(end)
-    else:
-        start = QgsGeometry.fromPointXY(QgsPointXY(rect.left() + fractions[0] * width,
-                                                   rect.top() + fractions[1] * height))
-        if int(getattr(part.type(), "value", part.type())) == 1:
-            end = QgsGeometry(start.shortestLine(part).vertexAt(1))
-    s, e = start.asPoint(), end.asPoint()
-    s, e = QPointF(s.x(), s.y()), QPointF(e.x(), e.y())
-    if math.hypot(e.x() - s.x(), e.y() - s.y()) < min_length / pixel:
-        return None
-    kind = int(kind)
-    if kind == CALLOUT_CURVED:
-        line = _curved_line(rect, s, e, curvature, int(orientation))
-    elif kind == CALLOUT_MANHATTAN:
-        line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(s.x(), e.y()), QgsPoint(e.x(), e.y())])
-    else:
-        line = QgsLineString([QgsPoint(s.x(), s.y()), QgsPoint(e.x(), e.y())])
-    length = line.length()
+    result = QgsGeometry(shape)
     to_ground, _ = to_screen.inverted()
-    if kind == CALLOUT_BALLOON:
-        origin = e
-        if from_anchor > 0 and length > 0:
-            tip = line.interpolatePoint(max(0.0, length - from_anchor / pixel))
-            origin = QPointF(tip.x(), tip.y()) if tip else e
-        rect = QRectF(rect.left() - margin_left / pixel, rect.top() - margin_top / pixel,
-                      width + (margin_left + margin_right) / pixel,
-                      height + (margin_top + margin_bottom) / pixel)
-        if rect.width() <= 0 or rect.height() <= 0:
-            return None
-        ring = [QgsPointXY(p.x(), p.y()) for p in _balloon(origin, rect, wedge_width / pixel,
-                                                           corner_radius / pixel)]
-        if len(ring) < 4:
-            return None
-        result = QgsGeometry.fromPolygonXY([ring]).makeValid(Qgis.MakeValidMethod.Structure)
-    else:
-        # Shortened by the offsets from the label and from the feature.
-        start_at, end_at = from_label / pixel, length - from_anchor / pixel
-        if end_at <= start_at:
-            return None
-        trimmed = line.curveSubstring(start_at, end_at)
-        result = QgsGeometry(trimmed.curveToLine() if hasattr(trimmed, "curveToLine") else trimmed)
     result.transform(to_ground)
     return result
 

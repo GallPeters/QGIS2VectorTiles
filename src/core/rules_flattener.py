@@ -52,6 +52,7 @@ from ..utils.flattened_rule import (
 from ..utils.zoom_levels import ZoomLevels
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
+from .symbol_geometry import BALLOON_VARIABLE
 
 
 # EPSG:3857 metres a screen millimetre covers at web zoom 0 (MapLibre's
@@ -486,12 +487,15 @@ class RulesFlattener:
     _CALLOUT_KINDS = {"simple": 0, "manhattan": 1, "curved": 2, "balloon": 3}
 
     def _callout_rules(self, label_rule: FlattenedRule) -> List[FlattenedRule]:
-        """A label's callout, for labels at a data-defined position (X, Y),
-        as renderer rules drawing what QGIS draws (q2vt_callout): the
-        simple, Manhattan or curved line from the label's box (as the web
-        map lays it out, which only a fixed position makes known) to the
-        feature, with the callout's line symbol, or the balloon around the
-        label pointing at the feature, with its fill symbol (and outline)."""
+        """A label's callout, for labels at a fixed place: at a data-defined
+        position (X, Y), or a point's label at its offset from the point
+        (not placed around it, where the web map chooses the side). As
+        renderer rules drawing what QGIS draws (q2vt_callout): the simple,
+        Manhattan or curved line from the label's box (as the web map lays
+        it out there) to the feature, with the callout's line symbol, or the
+        balloon around the label pointing at the feature, with each layer of
+        its fill symbol (fills and their outlines, geometry generators drawn
+        from the balloon's shape, such as a marker in its corner)."""
         # pylint: disable=import-outside-toplevel
         from .maplibre_converter import TextPropertyExtractor
         settings = label_rule.rule.settings()
@@ -506,9 +510,11 @@ class RulesFlattener:
         props = settings.dataDefinedProperties()
         x = props.property(QgsPalLayerSettings.Property.PositionX)
         y = props.property(QgsPalLayerSettings.Property.PositionY)
-        if not (x and y and x.isActive() and y.isActive()):
-            return []
+        positioned = bool(x and y and x.isActive() and y.isActive())
         layer = label_rule.layer
+        fixed = layer.geometryType() == Qgis.GeometryType.Point
+        if not positioned and not fixed:
+            return []
         label_exp = settings.getLabelExpression().expression()
         if not label_exp:
             return []
@@ -519,12 +525,27 @@ class RulesFlattener:
         if case != "none":
             text = f"{'upper' if case == 'uppercase' else 'lower'}({text})"
         text_format = settings.format()
-        # The label's box as the web map lays it out at the position
-        # (aligned there as QGIS aligns it: the style converter's anchor).
-        anchor, offset = TextPropertyExtractor.pinned_anchor_expression(settings), [0, 0]
         crs = layer.crs().authid()
-        point = (f"transform(make_point(to_real({x.asExpression()}), to_real({y.asExpression()})), "
-                 f"'{crs}', 'EPSG:3857')")
+        if positioned:
+            # The label's box as the web map lays it out at the position
+            # (aligned there as QGIS aligns it: the style converter's anchor).
+            anchor, offset = TextPropertyExtractor.pinned_anchor_expression(settings), [0, 0]
+            point = (f"transform(make_point(to_real({x.asExpression()}), to_real({y.asExpression()})), "
+                     f"'{crs}', 'EPSG:3857')")
+        else:
+            # At the point, with the anchor and offset the style gives it
+            # (a label with a callout placed around its point keeps the first
+            # side: TextPropertyExtractor.keeps_callout_side).
+            anchor_name = TextPropertyExtractor.get_text_anchor(settings)
+            offset = TextPropertyExtractor.get_text_offset(settings)
+            variable = TextPropertyExtractor.get_text_variable_anchor(settings)
+            if variable:
+                anchor_name = variable[0]
+                offset = TextPropertyExtractor.radial_to_offset(
+                    anchor_name, TextPropertyExtractor.get_text_radial_offset(settings))
+            if not all(isinstance(v, (int, float)) for v in offset):
+                return []  # A data-defined offset: the box isn't known.
+            anchor, point = QgsExpression.quotedString(anchor_name), "@geometry"
         ground = lambda value, unit: self._ground_length(value, unit, layer)  # noqa: E731
 
         def length(name: str) -> str:
@@ -552,10 +573,14 @@ class RulesFlattener:
             ground(1, Qgis.RenderUnit.Pixels),
             repr(float(curvature)), str(orientation), wedge, corner, *margin_values,
         ]
-        expression = self._in_3857(f"q2vt_callout({', '.join(arguments)})", layer)
 
-        def rule_drawing(sub_symbol) -> FlattenedRule:
-            generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": expression})
+        def callout_expression(generator: str = "") -> str:
+            return self._in_3857(
+                f"q2vt_callout({', '.join(arguments + [QgsExpression.quotedString(generator)])})", layer)
+        expression = callout_expression()
+
+        def rule_drawing(sub_symbol, geometry: str = expression, index: int = 0) -> FlattenedRule:
+            generator = QgsGeometryGeneratorSymbolLayer.create({"geometryModifier": geometry})
             generator.setSymbolType(sub_symbol.type())
             generator.setSubSymbol(sub_symbol)
             rule_symbol = (QgsFillSymbol if balloon else QgsLineSymbol)([generator])
@@ -567,22 +592,44 @@ class RulesFlattener:
             rule.setDescription(label_rule.rule.description().replace("f00", ""))
             callout_rule = FlattenedRule(rule, layer)
             callout_rule.set_attr("t", 0)
-            callout_rule.set_attr("c", 2 if balloon else 1)
-            callout_rule.set_attr("s", self.CALLOUT_SYMBOL_LAYER)
+            callout_rule.set_attr("c", {Qgis.SymbolType.Marker: 0, Qgis.SymbolType.Line: 1}.get(
+                sub_symbol.type(), 2))
+            # A callout symbol layer's own number (its index below 99).
+            callout_rule.set_attr("s", self.CALLOUT_SYMBOL_LAYER - index)
             return callout_rule
 
-        fill = symbol.clone()
+        if not balloon:
+            return [rule_drawing(symbol.clone())]
+        # The balloon's fill symbol, layer by layer, the top one first (as
+        # _split_by_symbol_layers lists a symbol's layers).
         rules = []
-        if balloon:
-            # Its outline, as a fill's: a rule of its own, along the rings.
-            outline = self._convert_fill_outline_to_line_symbol(fill)
-            if outline and fill.symbolLayer(0).strokeStyle() != Qt.PenStyle.NoPen:
-                rules.append(rule_drawing(outline))
-                fill.symbolLayer(0).setStrokeStyle(Qt.PenStyle.NoPen)
-                if fill.symbolLayer(0).brushStyle() == Qt.BrushStyle.NoBrush:
-                    return rules
-        # The outline first, as a fill's (_split_by_symbol_layers): drawn above it.
-        return rules + [rule_drawing(fill)]
+        for index in reversed(range(symbol.symbolLayerCount())):
+            symbol_layer = symbol.symbolLayer(index)
+            if not symbol_layer.enabled():
+                continue
+            if symbol_layer.layerType() == "GeometryGenerator" and symbol_layer.subSymbol() is not None:
+                # Drawn from the balloon (as QGIS evaluates it: q2vt_callout).
+                sub_symbol = symbol_layer.subSymbol().clone()
+                sub_symbol.setOpacity(sub_symbol.opacity() * symbol.opacity())
+                # Its geometry as a variable (the export rewrites @geometry).
+                generator = symbol_layer.geometryExpression()
+                for name in ("@geometry", "$geometry"):
+                    generator = generator.replace(name, f"@{BALLOON_VARIABLE}")
+                rules.append(rule_drawing(sub_symbol, callout_expression(generator), index))
+                continue
+            fill = QgsFillSymbol([symbol_layer.clone()])
+            fill.setOpacity(symbol.opacity())
+            if isinstance(symbol_layer, QgsSimpleFillSymbolLayer):
+                # Its outline, as a fill's: a rule of its own, along the
+                # rings, listed first (drawn above it).
+                outline = self._convert_fill_outline_to_line_symbol(fill)
+                if outline and symbol_layer.strokeStyle() != Qt.PenStyle.NoPen:
+                    rules.append(rule_drawing(outline, expression, index))
+                    fill.symbolLayer(0).setStrokeStyle(Qt.PenStyle.NoPen)
+                    if fill.symbolLayer(0).brushStyle() == Qt.BrushStyle.NoBrush:
+                        continue
+            rules.append(rule_drawing(fill, expression, index))
+        return rules
 
     def _sync_labeling_scale_range(self, rule):
         """Copy label settings scale visibility to the rule if the rule has no range set."""

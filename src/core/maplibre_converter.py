@@ -420,11 +420,12 @@ def _dataset_zooms(layer_def: dict) -> Tuple[int, int]:
 def _mergeable_bands(run: List[dict]) -> bool:
     """Whether a rule's zoom band layers (in zoom order) can be one layer:
     they follow each other, their datasets in tiles of their own zooms (a
-    band switching within a zoom shares its tiles), with steppable values."""
+    band switching within a zoom shares its tiles, and bands beyond the
+    tiles' last zoom are all written into its tiles), with steppable values."""
     return all(
         a.get("maxzoom") is not None and b.get("minzoom") is not None
         and abs(a["maxzoom"] - b["minzoom"]) < 1e-6
-        and _dataset_zooms(a)[1] < _dataset_zooms(b)[0]
+        and min(_dataset_zooms(a)[1], _TILES_MAX_ZOOM) < min(_dataset_zooms(b)[0], _TILES_MAX_ZOOM)
         for a, b in zip(run, run[1:])) and _steppable(run)
 
 
@@ -571,8 +572,8 @@ def strip_defaults(layers: List[dict]) -> List[dict]:
     return layers
 
 
-# A label callout's dataset (RulesFlattener._callout_rule: symbol layer 99).
-_CALLOUT_DATASET = re.compile(r"t00d\d\dr\d\dg\d\dc0[12]o\d\di\d\ds99$")
+# A label callout's dataset (RulesFlattener._callout_rules: symbol layer 9N).
+_CALLOUT_DATASET = re.compile(r"t00d\d\dr\d\dg\d\dc0[012]o\d\di\d\ds9\d$")
 
 
 def raise_callouts(layers: List[dict]) -> List[dict]:
@@ -2144,6 +2145,34 @@ class TextPropertyExtractor:
         return anchors or list(TextPropertyExtractor._AROUND_POINT_ANCHORS)
 
     @staticmethod
+    def has_drawn_callout(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
+        """Whether the label's callout is drawn in the tiles (RulesFlattener):
+        a point's label, or one at a data-defined position."""
+        callout = label_settings.callout()
+        if callout is None or not callout.enabled():
+            return False
+        props = label_settings.dataDefinedProperties()
+        x = props.property(QgsPalLayerSettings.Property.PositionX)
+        y = props.property(QgsPalLayerSettings.Property.PositionY)
+        return (bool(x and y and x.isActive() and y.isActive())
+                or (geometry_type is not None and PropertyExtractor.enum_int(geometry_type)
+                    == PropertyExtractor.enum_int(Qgis.GeometryType.Point)))
+
+    @staticmethod
+    def keeps_callout_side(label_settings: QgsPalLayerSettings) -> bool:
+        """Whether a point's label placed around it keeps its first side:
+        it has a callout (drawn in the tiles, see RulesFlattener) and no
+        data-defined position, so the label stays where its callout is."""
+        callout = label_settings.callout()
+        if callout is None or not callout.enabled():
+            return False
+        props = label_settings.dataDefinedProperties()
+        x = props.property(QgsPalLayerSettings.Property.PositionX)
+        y = props.property(QgsPalLayerSettings.Property.PositionY)
+        return (not (x and y and x.isActive() and y.isActive())
+                and PropertyExtractor.enum_int(label_settings.placement) == TextPropertyExtractor._AROUND_POINT)
+
+    @staticmethod
     def radial_to_offset(anchor: str, radial: float) -> List[float]:
         """``text-offset`` [x, y] (ems, y down) placing a label with this
         anchor ``radial`` ems from its point, as MapLibre's radial offset
@@ -2555,7 +2584,7 @@ class QgisMapLibreStyleExporter:
         first = len(self.style["layers"])
         self._convert_label(
             style.labelSettings(), style.styleName(), style.layerName(),
-            self.source_name, min_zoom, max_zoom,
+            self.source_name, min_zoom, max_zoom, style.geometryType(),
         )
         self._apply_rule_filter(style, first)
         settings = style.labelSettings()  # A copy: kept while its properties are read.
@@ -3460,6 +3489,7 @@ class QgisMapLibreStyleExporter:
         source_name: str,
         min_zoom: int = -1,
         max_zoom: int = -1,
+        geometry_type=None,
     ):
         """Convert a ``QgsPalLayerSettings`` into a MapLibre ``symbol`` layer."""
         layer_def = self._base_layer_def(
@@ -3510,8 +3540,9 @@ class QgisMapLibreStyleExporter:
         variable_anchor = TextPropertyExtractor.get_text_variable_anchor(label_settings)
         if variable_anchor:
             radial = TextPropertyExtractor.get_text_radial_offset(label_settings)
-            layer_def["layout"]["text-variable-anchor"] = variable_anchor
-            layer_def["layout"]["text-radial-offset"] = radial
+            if not TextPropertyExtractor.keeps_callout_side(label_settings):
+                layer_def["layout"]["text-variable-anchor"] = variable_anchor
+                layer_def["layout"]["text-radial-offset"] = radial
             # Renderers without variable anchors (OpenLayers' ol-mapbox-style,
             # QGIS's style converter) read text-anchor and text-offset
             # instead: the first position, at the same distance. MapLibre
@@ -3522,6 +3553,10 @@ class QgisMapLibreStyleExporter:
             )
         # A point displacement renderer's own labels: placed by the tiles,
         # beside each point, all drawn, as QGIS draws them.
+        # A callout drawn in the tiles is drawn whatever the labels collide
+        # with: its label is shown on it (and still keeps others away).
+        if TextPropertyExtractor.has_drawn_callout(label_settings, geometry_type):
+            layer_def["layout"]["text-allow-overlap"] = True
         displacement = displacement_label_settings(label_settings)
         if displacement is not None:
             layer_def["metadata"] = {"q2vt:displacement": self._displacement_meta(displacement)}
