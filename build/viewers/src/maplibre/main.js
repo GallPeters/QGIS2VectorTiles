@@ -30,6 +30,10 @@ maplibregl.addProtocol('pmtiles', protocol.tile);
 const map = new maplibregl.Map({
     container: 'map',
     style,
+    // Labels shown at once, as QGIS draws them: MapLibre's fade (300 ms by
+    // default, sometimes twice after a move) was most of the wait after
+    // each pan or zoom.
+    fadeDuration: 0,
     center: config.center,
     zoom: config.startZoom ?? config.minZoom,
 });

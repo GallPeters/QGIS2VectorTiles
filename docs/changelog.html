@@ -140,6 +140,10 @@
       <li>The other callouts of labels placed at their point (around it or at an offset), not only at a data-defined position; a balloon's fill symbol drawn layer by layer there too.</li>
       <li>Fixed: multi-line labels were always centred: their QGIS alignment (left, right, following the placement) is kept.</li>
       <li>Fixed: spaces at the start or end of a label's lines (an indent, padding) were dropped by the web map.</li>
+      <li><strong>Faster web map</strong>: labels appear at once, as in QGIS, without MapLibre's fade, which was most of the wait after each pan or zoom (about 9.6 s down to 1.6 s over 16 moves on a 2,800-sign layer); the local server also answers on IPv6, so a new connection to localhost no longer stalls.</li>
+      <li>Labels around a point placed as QGIS places them: their side or corner on the point, then the label distance (no extra gap), so a balloon's wedge and what its generators draw land where QGIS draws them.</li>
+      <li>Line spacing of multi-line labels as QGIS spaces them (the font's own line spacing, or an absolute height).</li>
+      <li>Fixed: a stretched balloon showed shading from its outline and icon while zooming.</li>
       <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
     </ul>
   </article>

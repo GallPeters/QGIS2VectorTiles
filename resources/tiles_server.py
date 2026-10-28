@@ -22,6 +22,7 @@ Directory layout assumed:
 import argparse
 import gzip
 import re
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -224,9 +225,23 @@ class Handler(BaseHTTPRequestHandler):
 # ----------------------------------------------------------------------
 # Entry point
 # ----------------------------------------------------------------------
+class _IPv6Server(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def run(port: int = 18111991):
     server                = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
+    # The web map opens at localhost, which browsers try as IPv6 (::1)
+    # first: answered there too, a new connection doesn't wait for that
+    # attempt to fail (up to a second or more on Windows).
+    server6 = None
+    try:
+        server6 = _IPv6Server(("::1", port), Handler)
+        server6.daemon_threads = True
+        threading.Thread(target=server6.serve_forever, daemon=True).start()
+    except OSError:
+        server6 = None  # No IPv6, or the port is taken there.
 
     print(f"\nServing {ROOT_DIR}")
     print(f"  Web map: http://localhost:{port}/\n")
@@ -237,6 +252,8 @@ def run(port: int = 18111991):
         print("\nShutting down...")
     finally:
         server.server_close()
+        if server6 is not None:
+            server6.server_close()
 
 
 if __name__ == "__main__":

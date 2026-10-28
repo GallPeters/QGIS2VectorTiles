@@ -556,9 +556,13 @@ class SymbolImage:
     @staticmethod
     def _narrow(img: Img, start: float, end: float, scale: float) -> tuple:
         """``img`` with each long run of identical columns between ``start``
-        and ``end`` narrowed to 2 pixels: (the image, those columns' ranges
-        (stretchX), start and end in it). Long: at least half the longest
-        (the balloon's background, not a plain part of a marker on it)."""
+        and ``end`` narrowed to 2 stretched pixels between a few kept ones:
+        (the image, the stretched columns' ranges (stretchX), start and end
+        in it). Long: at least half the longest (the balloon's background,
+        not a plain part of a marker on it). The kept columns, the same as
+        the stretched ones, are what MapLibre's linear filtering blends them
+        with: a neighbouring outline or marker would bleed across the
+        stretched width."""
         columns = [img.crop((x, 0, x + 1, img.height)).tobytes() for x in range(img.width)]
         first, last = int(ceil(start)) + 1, min(int(end) - 1, img.width - 1)
         runs = {}
@@ -570,15 +574,17 @@ class SymbolImage:
             runs[x] = run_end
             x = run_end + 1
         longest = max((b - a + 1 for a, b in runs.items()), default=0)
-        least = max(4, round(6 * scale), longest / 2)
+        pad = max(2, int(ceil(2 * scale)))
+        keep = 2 * pad + 2
+        least = max(keep + 1, round(6 * scale), longest / 2)
         kept, stretch = [], []
         x, removed = 0, 0
         while x < img.width:
             run_end = runs.get(x, x)
             if run_end - x + 1 >= least:
-                stretch.append([x - removed, x - removed + 2])
-                kept.append((x, x + 2))
-                removed += run_end - x - 1
+                stretch.append([x - removed + pad, x - removed + pad + 2])
+                kept.append((x, x + keep))
+                removed += run_end - x + 1 - keep
                 x = run_end + 1
             else:
                 kept.append((x, x + 1))

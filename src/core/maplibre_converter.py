@@ -8,7 +8,7 @@ import re
 from os.path import join
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from qgis.PyQt.QtGui import QColor
+from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF
 from ..utils.config import Qt
 from qgis.core import (
     Qgis,
@@ -2081,18 +2081,13 @@ class TextPropertyExtractor:
         unit = PropertyExtractor.get_attribute(label_settings, "distUnits", "distUnit")
         return PropertyExtractor.convert_length_to_pixels(distance, unit) / em
 
-    # Gap MapLibre leaves between a point and a label placed around it, in
-    # ems: about the radius of a typical point marker, which QGIS keeps
-    # labels clear of.
-    _AROUND_POINT_EM = 0.7
-
     @staticmethod
     def get_text_radial_offset(label_settings: QgsPalLayerSettings) -> float:
-        """Return ``text-radial-offset`` in ems: the gap around the point
-        plus the label's distance setting."""
+        """Return ``text-radial-offset`` in ems: the label's distance
+        setting (QGIS puts a label around a point with its side or corner
+        on the point, whatever the marker, then that far from it)."""
         em = TextPropertyExtractor.get_text_size_px(label_settings.format())
-        return TextPropertyExtractor._AROUND_POINT_EM + TextPropertyExtractor._distance_em(
-            label_settings, em)
+        return TextPropertyExtractor._distance_em(label_settings, em)
 
     # QGIS's "around point", "cartographic" (ordered positions) and
     # "outside polygons" placements; the last is drawn around the polygon's
@@ -2300,19 +2295,24 @@ class TextPropertyExtractor:
 
     @staticmethod
     def get_text_line_height(text_format: QgsTextFormat = None) -> float:
-        """Return ``text-line-height`` in ems.
-
-        QGIS's line height is a multiple of the font's own line spacing,
-        about 1.2 em: MapLibre's default.
-        """
+        """Return ``text-line-height`` in ems, as QGIS spaces lines: a
+        multiple of the font's own line spacing (Open Sans: 1.36 em), or a
+        length."""
         try:
+            font = QFont(text_format.font())
+            font.setPixelSize(100)
+            spacing = QFontMetricsF(font).lineSpacing() / 100
             if PropertyExtractor.enum_int(text_format.lineHeightUnit()) == PropertyExtractor.enum_int(
                 Qgis.RenderUnit.Percentage
             ):
-                return 1.2 * text_format.lineHeight()
-        except (AttributeError, RuntimeError, TypeError):
-            pass
-        return 1.2
+                return round(spacing * text_format.lineHeight(), 3)
+            length = PropertyExtractor.length_to_style_value(text_format.lineHeight(), text_format.lineHeightUnit())
+            size = TextPropertyExtractor.get_text_size_px(text_format)
+            if isinstance(length, (int, float)) and size:
+                return round(length / size, 3)
+            return round(spacing, 3)
+        except (AttributeError, RuntimeError, TypeError, ZeroDivisionError):
+            return 1.2
 
     @staticmethod
     def get_text_letter_spacing(text_format: QgsTextFormat = None) -> float:
