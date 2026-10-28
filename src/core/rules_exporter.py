@@ -197,6 +197,10 @@ _LIVE_PROVIDERS = frozenset({"memory"})
 _TEMP_LAYER_FORMAT = 'fgb'
 _TEMP_RULE_FORMAT = 'fgb'
 
+# Unicode direction marks, embeddings and isolates (in a regex character
+# class): LRM, RLM, LRE..RLO, LRI..PDI.
+_BIDI_MARKS = "‎‏‪-‮⁦-⁩"
+
 # Features buffered per writer.addFeatures() call, features per base-layer
 # batch handed to a worker, and how often streaming loops poll for
 # cancellation.
@@ -4206,8 +4210,13 @@ class RulesExporter:
             text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
             settings.wrapChar = ""
         # Spaces starting or ending a line, which QGIS draws and the web map
-        # trims (any space): kept behind a word joiner (no width, no break).
-        text = f"regexp_replace(to_string({text}), '(?m)^(?= )|(?<= )$', char(8288))"
+        # trims (any space): kept behind a word joiner (no width, no break),
+        # past any direction marks there (the web map's right-to-left plugin
+        # removes those before trimming).
+        lead = QgsExpression.quotedString(f"(?m)^([{_BIDI_MARKS}]*)(?= )")
+        trail = QgsExpression.quotedString(f"(?m)(?<= )([{_BIDI_MARKS}]*)$")
+        text = (f"regexp_replace(regexp_replace(to_string({text}), {lead}, '\\\\1' || char(8288)), "
+                f"{trail}, char(8288) || '\\\\1')")
         position = flat_rule.label_position
         if position is not None:
             # The labels placed at their position (see
