@@ -8,7 +8,7 @@ import re
 from os.path import join
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF
+from qgis.PyQt.QtGui import QColor, QFont, QFontMetrics, QFontMetricsF
 from ..utils.config import Qt
 from qgis.core import (
     Qgis,
@@ -29,6 +29,9 @@ from qgis.core import (
     QgsSymbolLayer,
     QgsSymbolLayerUtils,
     QgsTextFormat,
+    QgsTextDocument,
+    QgsTextDocumentMetrics,
+    QgsRenderContext,
     QgsProject,
     QgsTextBackgroundSettings,
     QgsMapUnitScale,
@@ -2294,10 +2297,37 @@ class TextPropertyExtractor:
         return 2
 
     @staticmethod
+    def label_box_metrics(text_format: QgsTextFormat) -> Optional[Tuple[float, float, float]]:
+        """How QGIS lays out a label's lines (QgsTextDocumentMetrics), in
+        ems: (its box's top to the first baseline, the step between
+        baselines, the last baseline to the box's bottom); None for a size
+        in map units."""
+        if text_format is None or PropertyExtractor.is_map_unit(text_format.sizeUnit()):
+            return None
+        try:
+            context = QgsRenderContext()
+            context.setScaleFactor(96 / 25.4)
+            document = QgsTextDocument.fromTextAndFormat(["H", "H"], text_format)
+            metrics = QgsTextDocumentMetrics.calculateMetrics(document, text_format, context)
+            mode = Qgis.TextLayoutMode.Labeling
+            height = metrics.documentSize(mode, Qgis.TextOrientation.Horizontal).height()
+            first, second = metrics.baselineOffset(0, mode), metrics.baselineOffset(1, mode)
+            size = TextPropertyExtractor.get_text_size_px(text_format)
+            if not size or second <= first:
+                return None
+            # Baselines are measured from the box's bottom (negative: above it).
+            return (height + first) / size, (second - first) / size, -second / size
+        except (AttributeError, RuntimeError, TypeError):
+            return None
+
+    @staticmethod
     def get_text_line_height(text_format: QgsTextFormat = None) -> float:
-        """Return ``text-line-height`` in ems, as QGIS spaces lines: a
-        multiple of the font's own line spacing (Open Sans: 1.36 em), or a
-        length."""
+        """Return ``text-line-height`` in ems, as QGIS spaces lines: its
+        own step between baselines (a multiple of the font's line spacing,
+        Open Sans: 1.36 em, or a length)."""
+        metrics = TextPropertyExtractor.label_box_metrics(text_format)
+        if metrics is not None:
+            return round(metrics[1], 4)
         try:
             font = QFont(text_format.font())
             font.setPixelSize(100)
@@ -3796,6 +3826,23 @@ class QgisMapLibreStyleExporter:
                          if hasattr(callout, "offsetFromAnchor") else 0.0),
         )
         name = self._register_sprite(shape, "balloon")
+        # The text box as QGIS has it (the balloon's inside): MapLibre's is
+        # a line height a line, its baselines (as the glyphs are made, see
+        # GlyphGenerator) the font's ascent and descent centred on each line;
+        # QGIS's starts the first line's ascent above the first baseline and
+        # ends below the last by the descent.
+        padding = None
+        text_format = label_settings.format()
+        metrics = TextPropertyExtractor.label_box_metrics(text_format)
+        if metrics is not None:
+            first, _, last = metrics
+            font = QFont(text_format.font())
+            font.setPixelSize(24)
+            glyph_metrics = QFontMetrics(font)
+            centre = (glyph_metrics.ascent() - glyph_metrics.descent()) / 2 / 24
+            half_line = TextPropertyExtractor.get_text_line_height(text_format) / 2
+            padding = [round((first - half_line - centre) * size, 2), 0,
+                       round((last - half_line + centre) * size, 2), 0]
         # The OpenLayers viewer draws its first simple fill as the text's background.
         box = None
         for symbol_layer in callout.fillSymbol().symbolLayers():
@@ -3807,10 +3854,11 @@ class QgisMapLibreStyleExporter:
                         QColor(0, 0, 0, 0) if no_stroke else symbol_layer.strokeColor()),
                     "stroke-width": 0.0 if no_stroke else px(symbol_layer.strokeWidth(),
                                                              symbol_layer.strokeWidthUnit()),
-                    "padding": [shape.margins[1], shape.margins[2], shape.margins[3], shape.margins[0]],
+                    "padding": [shape.margins[1] + (padding[0] if padding else 0), shape.margins[2],
+                                shape.margins[3] + (padding[2] if padding else 0), shape.margins[0]],
                 }
                 break
-        return name, "both", None, box
+        return name, "both", padding, box
 
     def _apply_default_icon_props(self, layer_def: dict):
         """Apply default icon layout/paint when no background marker is present."""
