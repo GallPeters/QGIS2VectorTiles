@@ -146,6 +146,7 @@
       <li>Fixed: a stretched balloon showed shading from its outline and icon while zooming.</li>
       <li>Fixed: a balloon sign placed "cartographic" moved to other positions on the web map, its pointer left floating; with one position it keeps it, where QGIS puts it (the distance from the symbol's bounds, the text's descent), its pointer on the point; with several (around point, or a cartographic order) it moves through them as in QGIS, drawn without its pointer (which can't turn with it).</li>
       <li>Fixed: beyond the highest tile zoom (15), clustered and displaced points kept zoom 15's groups, so points QGIS draws alone there still showed as clusters; the tiles now hold their groups for every zoom level shown, the style drawing the right one.</li>
+      <li>Fixed: a symbol's buffer (halo) was drawn around each of its symbol layers, filling an SVG marker's holes on the web map; it is drawn once, with the bottom layer, as QGIS draws it around the whole symbol.</li>
       <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
     </ul>
   </article>

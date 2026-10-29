@@ -39,6 +39,7 @@ from qgis.core import (
     QgsMarkerSymbol,
     QgsSimpleMarkerSymbolLayer,
     QgsGradientColorRamp,
+    QgsSymbolBufferSettings,
     )
 from qgis.PyQt.QtCore import QPointF
 
@@ -773,6 +774,19 @@ class RulesFlattener:
             if flat_rule.get_attr("i") > self.max_zoom:
                 flat_rule.set_attr("i", self.max_zoom)
 
+    @staticmethod
+    def _without_buffer(symbol) -> None:
+        """The symbol with its buffer (QgsSymbolBufferSettings) turned off."""
+        try:
+            buffer = symbol.bufferSettings()
+            if buffer is None or not buffer.enabled():
+                return
+            settings = QgsSymbolBufferSettings(buffer)
+            settings.setEnabled(False)
+            symbol.setBufferSettings(settings)
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
     def _split_by_symbol_layers(self, flat_rule: FlattenedRule) -> List[FlattenedRule]:
         """Split a renderer rule into one rule per enabled symbol layer."""
         symbol = flat_rule.rule.symbol()
@@ -782,6 +796,7 @@ class RulesFlattener:
 
         layer_count = symbol.symbolLayerCount()
         split_rules = []
+        bottom_idx = next((i for i in range(layer_count) if symbol.symbolLayer(i).enabled()), 0)
 
         for layer_idx in reversed(range(layer_count)):
             symbol_layer = symbol.symbolLayer(layer_idx)
@@ -811,7 +826,11 @@ class RulesFlattener:
             for remove_idx in reversed(range(layer_count)):
                 if remove_idx != layer_idx:
                     clone_symbol.deleteSymbolLayer(remove_idx)
-
+            if layer_idx != bottom_idx:
+                # The symbol's buffer, which QGIS draws once around the whole
+                # symbol: kept by its bottom layer alone (most often holding
+                # the others), not around each (a halo filling an SVG's holes).
+                self._without_buffer(clone_symbol)
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]
             if layer_type == "GeometryGenerator" and int(symbol_type) == 2:
