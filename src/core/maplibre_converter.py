@@ -2205,7 +2205,33 @@ class TextPropertyExtractor:
         x = props.property(QgsPalLayerSettings.Property.PositionX)
         y = props.property(QgsPalLayerSettings.Property.PositionY)
         return (not (x and y and x.isActive() and y.isActive())
-                and PropertyExtractor.enum_int(label_settings.placement) == TextPropertyExtractor._AROUND_POINT)
+                and PropertyExtractor.enum_int(label_settings.placement) in (
+                    TextPropertyExtractor._AROUND_POINT, TextPropertyExtractor._ORDERED_POSITIONS))
+
+    @staticmethod
+    def qgis_box_corner(label_settings: QgsPalLayerSettings) -> Optional[Tuple[str, float, float]]:
+        """(anchor, x, y): where QGIS puts a point's label box at its point,
+        in pixels from the point (y down) to the box's anchor corner, for a
+        label at a fixed place (fixed_anchor's first position); None if the
+        offset is data-defined. "Cartographic" lowers a label above the point
+        by its descent plus a pixel, and raises one below by a quarter of its
+        ascent, so its text (not its box) is the distance away (QGIS's visual
+        margin); the symbol's bounds are in its distance (RulesFlattener)."""
+        anchor, offset = TextPropertyExtractor.fixed_anchor(label_settings)
+        if not all(isinstance(v, (int, float)) for v in offset):
+            return None
+        text_format = label_settings.format()
+        size = TextPropertyExtractor.get_text_size_px(text_format)
+        x, y = offset[0] * size, offset[1] * size
+        if PropertyExtractor.enum_int(label_settings.placement) == TextPropertyExtractor._ORDERED_POSITIONS:
+            font = QFont(text_format.font())
+            font.setPixelSize(100)
+            metrics = QFontMetricsF(font)
+            if anchor.startswith("bottom"):
+                y += 1 + metrics.descent() / 100 * size
+            elif anchor.startswith("top"):
+                y -= 0.25 * metrics.ascent() / 100 * size
+        return anchor, x, y
 
     @staticmethod
     def radial_to_offset(anchor: str, radial: float) -> List[float]:
@@ -3690,7 +3716,7 @@ class QgisMapLibreStyleExporter:
             self._apply_icon_from_background(layer_def, background, style_name, shape)
         elif TextPropertyExtractor.balloon_icon(label_settings, geometry_type):
             self._apply_icon_from_background(layer_def, background, style_name,
-                                             self._balloon_shape(label_settings))
+                                             self._balloon_shape(label_settings, layer_def))
         else:
             self._apply_default_icon_props(layer_def)
 
@@ -3802,23 +3828,24 @@ class QgisMapLibreStyleExporter:
         }
         return name, "both", padding, box
 
-    def _balloon_shape(self, label_settings: QgsPalLayerSettings) -> tuple:
+    def _balloon_shape(self, label_settings: QgsPalLayerSettings, layer_def: dict) -> tuple:
         """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
         the OpenLayers viewer) of a label's balloon callout drawn as its
-        icon (see BalloonShape): its wedge pointing at the label's point,
-        from where the style places the text."""
+        icon (see BalloonShape): around QGIS's label box where QGIS puts it
+        (qgis_box_corner), its wedge pointing at the label's point. The
+        label's text-anchor and text-offset put MapLibre's text there."""
         def px(value, unit) -> float:
             length = PropertyExtractor.length_to_style_value(value, unit)
             return length if isinstance(length, (int, float)) else 0.0  # Ground: none.
 
         callout = label_settings.callout()
-        anchor, offset = TextPropertyExtractor.fixed_anchor(label_settings)
+        anchor, corner_x, corner_y = TextPropertyExtractor.qgis_box_corner(label_settings)
         size = TextPropertyExtractor.get_text_size_px(label_settings.format())
         margins = callout.margins()
         unit = callout.marginsUnit()
         shape = BalloonShape(
             symbol=callout.fillSymbol().clone(), anchor=anchor,
-            origin=(-offset[0] * size, -offset[1] * size),
+            origin=(-corner_x, -corner_y),
             margins=tuple(px(m, unit) for m in (margins.left(), margins.top(), margins.right(), margins.bottom())),
             wedge_width=px(callout.wedgeWidth(), callout.wedgeWidthUnit()),
             corner_radius=px(callout.cornerRadius(), callout.cornerRadiusUnit()),
@@ -3843,6 +3870,12 @@ class QgisMapLibreStyleExporter:
             half_line = TextPropertyExtractor.get_text_line_height(text_format) / 2
             padding = [round((first - half_line - centre) * size, 2), 0,
                        round((last - half_line + centre) * size, 2), 0]
+        # MapLibre's text box inside QGIS's (the padding): its anchor where
+        # QGIS's box puts it.
+        top, bottom = (padding[0], padding[2]) if padding else (0.0, 0.0)
+        shift = -bottom if anchor.startswith("bottom") else top if anchor.startswith("top") else (top - bottom) / 2
+        layer_def["layout"]["text-anchor"] = anchor
+        layer_def["layout"]["text-offset"] = [round(corner_x / size, 4), round((corner_y + shift) / size, 4)]
         # The OpenLayers viewer draws its first simple fill as the text's background.
         box = None
         for symbol_layer in callout.fillSymbol().symbolLayers():

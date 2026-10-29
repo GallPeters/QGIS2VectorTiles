@@ -128,9 +128,41 @@ class RulesFlattener:
                     new_bg.setMarkerSymbol(new_bg.markerSymbol().clone())
                 new_format.setBackground(new_bg)
                 new_settings.setFormat(new_format)
+                self._distance_from_symbol_point(new_settings, flat_rule.layer)
                 clone.setSettings(new_settings)
 
             flat_rule.rule = clone
+
+    @staticmethod
+    def _distance_from_symbol_point(settings: QgsPalLayerSettings, layer) -> None:
+        """A "cartographic" label's distance from its symbol's bounds, as
+        one from its point (the web map knows no symbol): QGIS adds half the
+        symbol's width and height (the layer's largest marker, in pixels)
+        along each axis of the label's first position, so a corner adds
+        half a size times the square root of two."""
+        # pylint: disable=import-outside-toplevel
+        from .maplibre_converter import PropertyExtractor, TextPropertyExtractor
+        if (PropertyExtractor.enum_int(settings.placement) != TextPropertyExtractor._ORDERED_POSITIONS
+                or PropertyExtractor.enum_int(settings.offsetType)
+                != PropertyExtractor.enum_int(Qgis.LabelOffsetType.FromSymbolBounds)):
+            return
+        try:
+            context = QgsRenderContext()
+            context.setScaleFactor(96 / 25.4)
+            sizes = [max(bounds.width(), bounds.height())
+                     for symbol in layer.renderer().symbols(context)
+                     if symbol.type() == Qgis.SymbolType.Marker
+                     for bounds in [symbol.bounds(QPointF(0, 0), context)]]
+        except (AttributeError, RuntimeError):
+            return
+        anchors = TextPropertyExtractor.get_text_variable_anchor(settings) or ["center"]
+        half = max(sizes, default=0.0) / 2
+        extra = half * (math.sqrt(2) if "-" in anchors[0] else 1)
+        distance = PropertyExtractor.convert_length_to_pixels(
+            settings.dist, PropertyExtractor.get_attribute(settings, "distUnits", "distUnit")) or 0.0
+        settings.dist = distance + extra
+        settings.distUnits = Qgis.RenderUnit.Pixels
+        settings.offsetType = Qgis.LabelOffsetType.FromPoint
 
     def _is_valid_layer(self, layer) -> bool:
         """Return True if the layer is a visible non-geometry-collection vector layer."""
