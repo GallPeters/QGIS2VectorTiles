@@ -2180,6 +2180,16 @@ class TextPropertyExtractor:
         return all(isinstance(v, (int, float)) for v in offset)
 
     @staticmethod
+    def moving_balloon(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
+        """Whether a balloon icon (balloon_icon) moves around its point, as
+        QGIS moves it, through more than one position (around point, or a
+        cartographic order of several): then drawn without its pointer,
+        which the web map can't turn with it. With one position it keeps
+        its side, pointer and all."""
+        return (TextPropertyExtractor.balloon_icon(label_settings, geometry_type)
+                and len(TextPropertyExtractor.get_text_variable_anchor(label_settings) or []) > 1)
+
+    @staticmethod
     def has_drawn_callout(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
         """Whether the label's callout is drawn in the tiles (RulesFlattener):
         a point's label (but a balloon that is its icon), or one at a
@@ -3633,7 +3643,8 @@ class QgisMapLibreStyleExporter:
         variable_anchor = TextPropertyExtractor.get_text_variable_anchor(label_settings)
         if variable_anchor:
             radial = TextPropertyExtractor.get_text_radial_offset(label_settings)
-            if not TextPropertyExtractor.keeps_callout_side(label_settings):
+            if (not TextPropertyExtractor.keeps_callout_side(label_settings)
+                    or TextPropertyExtractor.moving_balloon(label_settings, geometry_type)):
                 layer_def["layout"]["text-variable-anchor"] = variable_anchor
                 layer_def["layout"]["text-radial-offset"] = radial
             # Renderers without variable anchors (OpenLayers' ol-mapbox-style,
@@ -3715,8 +3726,9 @@ class QgisMapLibreStyleExporter:
         elif shape_type in _BACKGROUND_SHAPES and (shape := self._label_shape(background, shape_type))[0]:
             self._apply_icon_from_background(layer_def, background, style_name, shape)
         elif TextPropertyExtractor.balloon_icon(label_settings, geometry_type):
+            moving = TextPropertyExtractor.moving_balloon(label_settings, geometry_type)
             self._apply_icon_from_background(layer_def, background, style_name,
-                                             self._balloon_shape(label_settings, layer_def))
+                                             self._balloon_shape(label_settings, layer_def, moving))
         else:
             self._apply_default_icon_props(layer_def)
 
@@ -3828,12 +3840,15 @@ class QgisMapLibreStyleExporter:
         }
         return name, "both", padding, box
 
-    def _balloon_shape(self, label_settings: QgsPalLayerSettings, layer_def: dict) -> tuple:
+    def _balloon_shape(self, label_settings: QgsPalLayerSettings, layer_def: dict,
+                       moving: bool = False) -> tuple:
         """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
         the OpenLayers viewer) of a label's balloon callout drawn as its
         icon (see BalloonShape): around QGIS's label box where QGIS puts it
         (qgis_box_corner), its wedge pointing at the label's point. The
-        label's text-anchor and text-offset put MapLibre's text there."""
+        label's text-anchor and text-offset put MapLibre's text there. A
+        ``moving`` balloon (moving_balloon) has no wedge, its text the
+        variable anchors."""
         def px(value, unit) -> float:
             length = PropertyExtractor.length_to_style_value(value, unit)
             return length if isinstance(length, (int, float)) else 0.0  # Ground: none.
@@ -3844,8 +3859,9 @@ class QgisMapLibreStyleExporter:
         margins = callout.margins()
         unit = callout.marginsUnit()
         shape = BalloonShape(
-            symbol=callout.fillSymbol().clone(), anchor=anchor,
-            origin=(-corner_x, -corner_y),
+            # A moving balloon's point inside it: no wedge.
+            symbol=callout.fillSymbol().clone(), anchor="center" if moving else anchor,
+            origin=(0.0, 0.0) if moving else (-corner_x, -corner_y),
             margins=tuple(px(m, unit) for m in (margins.left(), margins.top(), margins.right(), margins.bottom())),
             wedge_width=px(callout.wedgeWidth(), callout.wedgeWidthUnit()),
             corner_radius=px(callout.cornerRadius(), callout.cornerRadiusUnit()),
@@ -3874,8 +3890,9 @@ class QgisMapLibreStyleExporter:
         # QGIS's box puts it.
         top, bottom = (padding[0], padding[2]) if padding else (0.0, 0.0)
         shift = -bottom if anchor.startswith("bottom") else top if anchor.startswith("top") else (top - bottom) / 2
-        layer_def["layout"]["text-anchor"] = anchor
-        layer_def["layout"]["text-offset"] = [round(corner_x / size, 4), round((corner_y + shift) / size, 4)]
+        if not moving:
+            layer_def["layout"]["text-anchor"] = anchor
+            layer_def["layout"]["text-offset"] = [round(corner_x / size, 4), round((corner_y + shift) / size, 4)]
         # The OpenLayers viewer draws its first simple fill as the text's background.
         box = None
         for symbol_layer in callout.fillSymbol().symbolLayers():

@@ -144,7 +144,7 @@
       <li>Labels around a point placed as QGIS places them: their side or corner on the point, then the label distance (no extra gap), so a balloon's wedge and what its generators draw land where QGIS draws them.</li>
       <li>Line spacing of multi-line labels exactly as QGIS lays them out, and a balloon around them as tall as QGIS's label box (room above the first line and below the last, whatever the line height).</li>
       <li>Fixed: a stretched balloon showed shading from its outline and icon while zooming.</li>
-      <li>Fixed: a balloon sign placed "cartographic" moved to other positions on the web map, its pointer left floating; it keeps its first position, where QGIS puts it (the distance from the symbol's bounds, the text's descent), its pointer on the point.</li>
+      <li>Fixed: a balloon sign placed "cartographic" moved to other positions on the web map, its pointer left floating; with one position it keeps it, where QGIS puts it (the distance from the symbol's bounds, the text's descent), its pointer on the point; with several (around point, or a cartographic order) it moves through them as in QGIS, drawn without its pointer (which can't turn with it).</li>
       <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
     </ul>
   </article>
