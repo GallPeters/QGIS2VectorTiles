@@ -42,7 +42,8 @@ from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
 from ..utils.flattened_rule import (
-    CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, TILE_LAYERS_KEY,
+    CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, GROUP_ZOOM_FIELD, TILE_LAYERS_KEY,
+    group_of, group_sources,
 )
 from ..utils.config import (
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
@@ -375,52 +376,16 @@ class GDALTilesGenerator:
             f.write(extra)
             f.write("</OGRVRTDataSource>\n")
 
-    @staticmethod
-    def _layer_prefix(name: str) -> str:
-        """A dataset name's source layer and rule type ("l12t00")."""
-        match = re.match(r"(l\d+t\d\d)", name)
-        return match.group(1) if match else name
-
     # --- Point clusters and point displacement ---
 
     def _group_sources(self) -> Dict[str, dict]:
-        """The datasets of point grouping renderers, by name, from their
-        style layers' metadata: a point cluster renderer's cluster symbol
-        ("q2vt:cluster", the distance: role "cluster"), a point displacement
-        renderer's circle, centre symbol and labels ("q2vt:displacement":
-        roles "circle", "center" and "label")."""
-        sources = {}
-        for layer_def in self.style.get("layers", []):
-            meta = layer_def.get("metadata") or {}
-            name = layer_def.get("source-layer")
-            if not name:
-                continue
-            if meta.get("q2vt:cluster"):
-                sources[name] = {"role": "cluster", "distance": meta["q2vt:cluster"]}
-            elif meta.get("q2vt:displacement"):
-                sources[name] = meta["q2vt:displacement"]
-        return sources
+        """The datasets of point grouping renderers, by name (group_sources)."""
+        return group_sources(self.style.get("layers", []))
 
     @staticmethod
-    def _layer_number(name: str) -> str:
-        """A dataset name's source layer ("l12")."""
-        match = re.match(r"(l\d+)t", name)
-        return match.group(1) if match else name
-
-    def _group_of(self, name: str, sources: Dict[str, dict]) -> Optional[str]:
-        """The dataset whose points (every point of the layer) group a
-        dataset's: a cluster's or a displacement's circle or centre symbol
-        dataset, for itself, its layer's labels of the displacement
-        renderer and its layer's other point datasets (its points, alone
-        or moved); else None."""
-        groups = [g for g, meta in sources.items() if meta.get("role") != "label"]
-        if name in groups:
-            return name
-        if name in sources:  # A displacement renderer's labels.
-            return next((g for g in groups if self._layer_number(g) == self._layer_number(name)), None)
-        if re.search(r"t00\w*c00", name):  # The layer's points.
-            return next((g for g in groups if self._layer_prefix(g) == self._layer_prefix(name)), None)
-        return None
+    def _group_of(name: str, sources: Dict[str, dict]) -> Optional[str]:
+        """The dataset whose points group a dataset's (group_of)."""
+        return group_of(name, sources)
 
     @staticmethod
     def _displacement_groups(points: List[tuple], search: float) -> List[List[int]]:
@@ -533,7 +498,12 @@ class GDALTilesGenerator:
             fields = src_layer.GetLayerDefn()
             orig_index = fields.GetFieldIndex(f"{_FIELD_PREFIX}_orig_id")
             features = [(f.GetFID(), f.Clone()) for f in src_layer]
-            for zoom in range(minzoom, maxzoom + 1):
+            # Shown beyond the highest zoom's tiles, which viewers enlarge:
+            # those tiles also hold the points grouped for each zoom level
+            # beyond, each copy marked with its own (GROUP_ZOOM_FIELD; the
+            # style draws the one of the zoom level it is drawn at).
+            last = self._parse_layer_zoom(layer, "i") if maxzoom == _TILES_MAX_ZOOM else maxzoom
+            for zoom in range(minzoom, max(maxzoom, last) + 1):
                 key = (group_source, zoom)
                 if key not in cache:
                     cache[key] = self._grouped_points(all_source, meta, zoom)
@@ -551,6 +521,9 @@ class GDALTilesGenerator:
                     out_layer.CreateField(ogr.FieldDefn(CLUSTER_SIZE_FIELD, ogr.OFTInteger))
                 if role == "label":
                     out_layer.CreateField(ogr.FieldDefn(DISPLACEMENT_ANCHOR_FIELD, ogr.OFTString))
+                copies = last > _TILES_MAX_ZOOM and zoom >= _TILES_MAX_ZOOM
+                if copies:
+                    out_layer.CreateField(ogr.FieldDefn(GROUP_ZOOM_FIELD, ogr.OFTInteger))
                 defn = out_layer.GetLayerDefn()
                 out_layer.StartTransaction()
                 if role in (None, "label"):
@@ -570,6 +543,8 @@ class GDALTilesGenerator:
                             copy.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({position[0]!r} {position[1]!r})"))
                             if role == "label":
                                 copy.SetField(DISPLACEMENT_ANCHOR_FIELD, position[2])
+                        if copies:
+                            copy.SetField(GROUP_ZOOM_FIELD, zoom)
                         out_layer.CreateFeature(copy)
                 else:
                     by_key = {}
@@ -591,15 +566,20 @@ class GDALTilesGenerator:
                             copy.SetField(DISPLACEMENT_RADIUS_FIELD, radius)
                         if role == "cluster":
                             copy.SetField(CLUSTER_SIZE_FIELD, size)
+                        if copies:
+                            copy.SetField(GROUP_ZOOM_FIELD, zoom)
                         out_layer.CreateFeature(copy)
                 out_layer.CommitTransaction()
                 entry = f"{name}__z{zoom:02d}"
-                conf[entry] = {"target_name": name, "minzoom": zoom, "maxzoom": zoom}
+                tile_zoom = min(zoom, _TILES_MAX_ZOOM)
+                conf[entry] = {"target_name": name, "minzoom": tile_zoom, "maxzoom": tile_zoom}
                 extra_field = {
                     "circle": f'        <Field name="{DISPLACEMENT_RADIUS_FIELD}" type="Real"/>\n',
                     "cluster": f'        <Field name="{CLUSTER_SIZE_FIELD}" type="Integer"/>\n',
                     "label": f'        <Field name="{DISPLACEMENT_ANCHOR_FIELD}" type="String"/>\n',
                 }.get(role, "")
+                if copies:
+                    extra_field += f'        <Field name="{GROUP_ZOOM_FIELD}" type="Integer"/>\n'
                 blocks.append(
                     f'    <OGRVRTLayer name={quoteattr(entry)}>\n'
                     f'        <SrcDataSource>{escape(out_path)}</SrcDataSource>\n'

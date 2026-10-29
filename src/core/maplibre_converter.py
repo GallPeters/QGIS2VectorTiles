@@ -46,7 +46,8 @@ from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
 from ..utils.flattened_rule import (
     CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, HEATMAP_PROPERTY,
     OFFSET_PROPERTY, TILE_LAYERS_KEY,
-    cluster_settings, displacement_label_settings, displacement_settings, pinned_field,
+    cluster_settings, displacement_label_settings, displacement_settings, group_of, group_sources,
+    group_zoom_filter, pinned_field,
 )
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
@@ -2633,7 +2634,26 @@ class QgisMapLibreStyleExporter:
         if shared:
             # For GDALTilesGenerator; not written to style.json.
             self.style["metadata"] = {TILE_LAYERS_KEY: shared}
+        self._filter_group_zooms(self.style["layers"])
         return self.style
+
+    @staticmethod
+    def _filter_group_zooms(layers: List[dict]) -> None:
+        """A grouping renderer's layers shown beyond the highest zoom's tiles
+        draw, from those tiles' copies of their points (one grouped for each
+        zoom level beyond, GDALTilesGenerator), the one of the zoom level
+        they are drawn at, as QGIS groups them at each scale."""
+        sources = group_sources(layers)
+        if not sources:
+            return
+        for layer_def in layers:
+            name = layer_def.get("source-layer") or ""
+            match = re.search(r"i(\d\d)", name)
+            if not match or group_of(name, sources) is None or int(match.group(1)) <= _TILES_MAX_ZOOM:
+                continue
+            condition = group_zoom_filter(_TILES_MAX_ZOOM, int(match.group(1)))
+            existing = layer_def.get("filter")
+            layer_def["filter"] = ["all", existing, condition] if existing else condition
 
     def _set_map_units(self) -> None:
         """Size map-unit lengths for the project's CRS at the tiles' latitude."""

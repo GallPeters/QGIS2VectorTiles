@@ -61,6 +61,60 @@ DISPLACEMENT_ANCHOR_FIELD = f"{_FIELD_PREFIX}_displacement_anchor"
 # dataset it is written into (the style converter draws both as one layer).
 TILE_LAYERS_KEY = "q2vt:tile-layers"
 
+# The zoom level a grouping renderer's points were grouped for, in the
+# highest zoom's tiles, which hold one copy per zoom level shown beyond them
+# (QGIS groups them again at each scale); the style draws the copy of the
+# zoom level it is drawn at (group_zoom_filter).
+GROUP_ZOOM_FIELD = f"{_FIELD_PREFIX}_group_zoom"
+
+
+def group_sources(style_layers) -> dict:
+    """The datasets of point grouping renderers, by name, from their style
+    layers' metadata: a point cluster renderer's cluster symbol
+    ("q2vt:cluster", the distance: role "cluster"), a point displacement
+    renderer's circle, centre symbol and labels ("q2vt:displacement":
+    roles "circle", "center" and "label")."""
+    sources = {}
+    for layer_def in style_layers:
+        meta = layer_def.get("metadata") or {}
+        name = layer_def.get("source-layer")
+        if not name:
+            continue
+        if meta.get("q2vt:cluster"):
+            sources[name] = {"role": "cluster", "distance": meta["q2vt:cluster"]}
+        elif meta.get("q2vt:displacement"):
+            sources[name] = meta["q2vt:displacement"]
+    return sources
+
+
+def group_of(name: str, sources: dict) -> "str | None":
+    """The dataset whose points (every point of the layer) group a
+    dataset's: a cluster's or a displacement's circle or centre symbol
+    dataset, for itself, its layer's labels of the displacement renderer
+    and its layer's other point datasets (its points, alone or moved);
+    else None."""
+    import re  # pylint: disable=import-outside-toplevel
+
+    def part(pattern: str, dataset: str) -> str:
+        match = re.match(pattern, dataset)
+        return match.group(1) if match else dataset
+    groups = [g for g, meta in sources.items() if meta.get("role") != "label"]
+    if name in groups:
+        return name
+    if name in sources:  # A displacement renderer's labels.
+        return next((g for g in groups if part(r"(l\d+)t", g) == part(r"(l\d+)t", name)), None)
+    if re.search(r"t00\w*c00", name):  # The layer's points.
+        return next((g for g in groups if part(r"(l\d+t\d\d)", g) == part(r"(l\d+t\d\d)", name)), None)
+    return None
+
+
+def group_zoom_filter(top_zoom: int, last_zoom: int) -> list:
+    """A grouped layer's filter: in the tiles of ``top_zoom`` (the highest),
+    the copy of its points grouped for the zoom level drawn (up to
+    ``last_zoom``, the dataset's); lower tiles' points have no copies."""
+    return ["any", ["!", ["has", GROUP_ZOOM_FIELD]],
+            ["==", ["get", GROUP_ZOOM_FIELD], ["max", top_zoom, ["min", last_zoom, ["floor", ["zoom"]]]]]]
+
 
 def _grouping_settings(symbol) -> "dict | None":
     """The point grouping settings a symbol carries (see CLUSTER_PROPERTY)."""
