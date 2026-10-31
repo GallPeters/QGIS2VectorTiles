@@ -6,6 +6,7 @@ import * as maplibregl from './maplibre-gl.mjs';
 import { Protocol } from 'pmtiles';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import { startViewer } from '../shared/app.js';
+import { CREDIT_HTML } from '../shared/credit.js';
 import { archives, loadStyle, tileUrls, withDescription } from '../shared/style.js';
 import '../shared/ui.css';
 
@@ -34,6 +35,11 @@ const map = new maplibregl.Map({
     // default, sometimes twice after a move) was most of the wait after
     // each pan or zoom.
     fadeDuration: 0,
+    // The map's credits: the background's (each basemap source's), MapLibre's
+    // and the plugin's.
+    attributionControl: {
+        customAttribution: ['<a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre</a>', CREDIT_HTML],
+    },
     center: config.center,
     zoom: config.startZoom ?? config.minZoom,
 });

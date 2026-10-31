@@ -83,6 +83,11 @@ body { font-family: var(--q2vt-font); }
     background: #ffffff; color: var(--q2vt-accent); cursor: default;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
 }
+/* "Recommended", under an option's name */
+.q2vt-badge {
+    display: block; margin-top: 1px;
+    font: 600 9px var(--q2vt-font); letter-spacing: 0.02em; color: #15803d;
+}
 .q2vt-toggle:focus-visible, .q2vt-segment:focus-visible, .q2vt-panel-head:focus-visible {
     outline: 2px solid var(--q2vt-accent); outline-offset: 1px;
 }
@@ -192,6 +197,30 @@ body { font-family: var(--q2vt-font); }
 /* ---- Embedded (?embed=1): only the map, its zoom buttons and scale ---- */
 .q2vt-embed .q2vt-top-left,
 .q2vt-embed .q2vt-draw { display: none !important; }
+
+/* ---- Map only: every control hidden but the credits and scale -------- */
+.q2vt-map-only .q2vt-top-left,
+.q2vt-map-only .q2vt-coords,
+.q2vt-map-only .maplibregl-ctrl-top-right,
+.q2vt-map-only .q2vt-ol-right { display: none !important; }
+.q2vt-exit-map-only {
+    display: none; position: absolute; top: 10px; right: 10px; z-index: 6;
+    align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0;
+    border: 1px solid var(--q2vt-border); border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85); color: #374151; box-shadow: var(--q2vt-shadow); cursor: pointer;
+}
+.q2vt-map-only .q2vt-exit-map-only { display: inline-flex; }
+.q2vt-exit-map-only:hover { background: var(--q2vt-bg); color: var(--q2vt-text); }
+.q2vt-exit-map-only:focus-visible { outline: 2px solid var(--q2vt-accent); outline-offset: 1px; }
+.q2vt-embed .q2vt-exit-map-only { display: none !important; }
+
+/* ---- Credits: the plugin's, with the map's ---------------------------- */
+.q2vt-credit { white-space: nowrap; }
+/* The plugin's icon, 32 px shown at 14 px. */
+.q2vt-credit::before {
+    content: ''; display: inline-block; width: 14px; height: 14px; margin-right: 3px; vertical-align: -3px;
+    background: url("data:image/png;base64,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") center / contain no-repeat;
+}
 
 /* ---- Bottom: pointer coordinates ------------------------------------- */
 .q2vt-coords {

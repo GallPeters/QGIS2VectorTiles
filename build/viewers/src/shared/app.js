@@ -32,7 +32,9 @@ import { popupContent } from './popup.js';
 import { createSearch } from './search.js';
 import { load, save } from './storage.js';
 
-const VIEWERS = [['ml', 'MapLibre'], ['ol', 'OpenLayers']];
+// MapLibre draws everything the export makes (balloon signs, stretched
+// label backgrounds, labels moving around their point): recommended.
+const VIEWERS = [['ml', 'MapLibre', true], ['ol', 'OpenLayers', false]];
 
 /** Reopen the page in another map library at the same place and zoom. */
 function switchViewer(map, viewer) {
@@ -66,6 +68,37 @@ function createSettingsPanel(rows) {
     return panel;
 }
 
+/** "Map only": every control hidden but the map's credits, full screen where
+ * the browser allows it (phones: no browser bars either); a small button,
+ * or leaving full screen, brings them back. */
+function createMapOnly() {
+    let fullScreened = false;
+    const root = document.documentElement;
+    const toggle = createToggle({ label: 'Map only', onChange: (on) => set(on) });
+    toggle.element.title = 'Hide the controls: only the map (the button in the corner brings them back)';
+    const exit = el('button', {
+        type: 'button', class: 'q2vt-exit-map-only', title: 'Show the controls',
+        'aria-label': 'Show the controls', onclick: () => set(false),
+    }, icon('menu'));
+    function set(on) {
+        root.classList.toggle('q2vt-map-only', on);
+        toggle.set(on);
+        if (on && !document.fullscreenElement && root.requestFullscreen) {
+            root.requestFullscreen().then(() => { fullScreened = true; }).catch(() => {});
+        } else if (!on && fullScreened && document.fullscreenElement) {
+            fullScreened = false;
+            document.exitFullscreen().catch(() => {});
+        }
+    }
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && fullScreened) {
+            fullScreened = false;
+            set(false);
+        }
+    });
+    return { toggle: toggle.element, exit };
+}
+
 export async function startViewer(map, config) {
     let popupsEnabled = false;
     let overPopup = false;
@@ -84,15 +117,21 @@ export async function startViewer(map, config) {
     // The other map library reopens the page at the same place and zoom.
     const viewerControl = createSegmented({
         label: 'Viewer',
-        options: VIEWERS.map(([id, name]) => ({ id, label: name, title: `Show this map with ${name}` })),
+        options: VIEWERS.map(([id, name, recommended]) => ({
+            id,
+            label: recommended ? [name, el('span', { class: 'q2vt-badge' }, 'Recommended')] : name,
+            title: `Show this map with ${name}${recommended ? ' (recommended: draws everything the export makes)' : ''}`,
+        })),
         current: config.viewer,
         onChoose: (id) => switchViewer(map, id),
     });
     const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b) });
+    const mapOnly = createMapOnly();
     const settings = createSettingsPanel([
         settingsRow('Popups', popupToggle.element),
         settingsRow('Viewer', viewerControl.element),
         settingsRow('Background', basemaps.element),
+        settingsRow('Map only', mapOnly.toggle),
     ]);
 
     const search = createSearch({
@@ -116,6 +155,7 @@ export async function startViewer(map, config) {
             settings,
         ]),
         coords,
+        mapOnly.exit,
     );
     map.addRightControl(drawing.element);
 

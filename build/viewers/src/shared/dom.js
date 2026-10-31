@@ -42,6 +42,7 @@ const ICONS = {
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     layers: '<path d="m12 4 9 5-9 5-9-5z"/><path d="m3 14 9 5 9-5"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
 };
 
 export function icon(name) {

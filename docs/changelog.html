@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.0</strong>, 14 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.1</strong>, 26 Oct 2026.</p>
     </div>
   </section>
 
@@ -87,7 +87,7 @@
       <h2>Releases</h2>
       <ol>
         <li><a href="#v4-2">v4.2<small>Coming soon</small></a></li>
-        <li><a href="#v4-1">v4.1<small>Coming soon</small></a></li>
+        <li><a href="#v4-1">v4.1<small>Oct 2026</small></a></li>
         <li><a href="#v4-0">v4.0<small>Oct 2026</small></a></li>
         <li><a href="#v3-9">v3.9<small>Oct 2026</small></a></li>
         <li><a href="#v3-8">v3.8<small>Oct 2026</small></a></li>
@@ -140,6 +140,8 @@
       <li>The other callouts of labels placed at their point (around it or at an offset), not only at a data-defined position; a balloon's fill symbol drawn layer by layer there too.</li>
       <li>Fixed: multi-line labels were always centred: their QGIS alignment (left, right, following the placement) is kept.</li>
       <li>Fixed: spaces at the start or end of a label's lines (an indent, padding) were dropped by the web map, also after direction marks (as in mixed Hebrew lines).</li>
+      <li><strong>Map only</strong> in the web map: every control hidden but the map's credits, full screen where the browser allows it (phones: no browser bars either); a button in the corner brings them back.</li>
+      <li>The web map's credits include the plugin's (<em>Made with QGIS2VectorTiles</em>, linking here) and the viewer's own (OpenLayers too), with the background's as it changes; MapLibre marked <strong>recommended</strong> in the viewer switch.</li>
       <li><strong>Faster web map</strong>: labels appear at once, as in QGIS, without MapLibre's fade, which was most of the wait after each pan or zoom (about 9.6 s down to 1.6 s over 16 moves on a 2,800-sign layer); the local server also answers on IPv6, so a new connection to localhost no longer stalls.</li>
       <li>Labels around a point placed as QGIS places them: their side or corner on the point, then the label distance (no extra gap), so a balloon's wedge and what its generators draw land where QGIS draws them.</li>
       <li>Line spacing of multi-line labels exactly as QGIS lays them out, and a balloon around them as tall as QGIS's label box (room above the first line and below the last, whatever the line height).</li>
@@ -150,10 +152,11 @@
       <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
     </ul>
   </article>
-  <article class="release" id="v4-1">
+  <article class="release latest" id="v4-1">
     <div class="release-meta">
       <h2>v4.1</h2>
-      <span class="tag muted">Coming soon</span>
+      <time datetime="2026-10-26">26 Oct 2026</time>
+      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
@@ -187,11 +190,10 @@
       <li>Fixed: scale ranges beyond zoom 15 wrote their features twice.</li>
     </ul>
   </article>
-  <article class="release latest" id="v4-0">
+  <article class="release" id="v4-0">
     <div class="release-meta">
       <h2>v4.0</h2>
       <time datetime="2026-10-14">14 Oct 2026</time>
-      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Publish anywhere</strong>: a static web map with one <strong>PMTiles</strong> file.</li>

@@ -22,6 +22,7 @@ import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
 import { TerraDrawOpenLayersAdapter } from 'terra-draw-openlayers-adapter';
 import { startViewer } from '../shared/app.js';
+import { CREDIT_HTML } from '../shared/credit.js';
 import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
 import { applySortKeys } from './sortkey.js';
 import { applyTextBackgrounds } from './textbackground.js';
@@ -56,7 +57,11 @@ rightColumn.className = 'q2vt-ol-right';
 const map = new Map({
     target: 'map',
     view: new View({ center: fromLonLat(config.center), zoom: startZoom }),
-    controls: defaultControls({ zoom: false, rotate: false, attributionOptions: { collapsible: true } })
+    // Credits open on wider screens, behind their button on phones (as MapLibre's).
+    controls: defaultControls({
+        zoom: false, rotate: false,
+        attributionOptions: { collapsible: true, collapsed: window.matchMedia('(max-width: 640px)').matches },
+    })
         .extend([
             new Control({ element: rightColumn }),
             new Zoom({ target: rightColumn }),
@@ -71,6 +76,15 @@ const popup = new Overlay({
     element: popupElement, positioning: 'bottom-center', stopEvent: true, offset: [0, -10],
 });
 map.addOverlay(popup);
+
+// The map's credits besides the background's (its source's): OpenLayers' and
+// the plugin's, on an empty layer that is always shown.
+map.addLayer(new VectorLayer({
+    source: new VectorSource({
+        attributions: ['<a href="https://openlayers.org/" target="_blank" rel="noopener">OpenLayers</a>', CREDIT_HTML],
+    }),
+    zIndex: -1,
+}));
 
 // Below Terra Draw's layer (zIndex 900), whose canvas takes the drawing clicks.
 const highlight = new VectorLayer({

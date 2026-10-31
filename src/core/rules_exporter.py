@@ -199,7 +199,7 @@ _TEMP_RULE_FORMAT = 'fgb'
 
 # Unicode direction marks, embeddings and isolates (in a regex character
 # class): LRM, RLM, LRE..RLO, LRI..PDI.
-_BIDI_MARKS = "‎‏‪-‮⁦-⁩"
+_BIDI_MARKS = "\u200e\u200f\u202a-\u202e\u2066-\u2069"
 
 # Features buffered per writer.addFeatures() call, features per base-layer
 # batch handed to a worker, and how often streaming loops poll for
