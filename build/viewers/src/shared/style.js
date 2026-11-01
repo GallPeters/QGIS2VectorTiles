@@ -34,8 +34,31 @@ function archiveAt(url) {
     if (!archive) {
         archive = new PMTiles(url);
         archives.set(url, archive);
+        prefetchLeaves(archive);
     }
     return archive;
+}
+
+// Leaf directories read up front when they are at most this many and this
+// large (the library caches 100 directories).
+const PREFETCH_LEAVES = { count: 64, bytes: 1 << 20 };
+
+/** Reads an archive's leaf directories at once, in parallel. A tile listed in
+ * a leaf otherwise waits for its leaf first: two requests one after the other
+ * for each new area, which on a slow connection is most of the wait. */
+async function prefetchLeaves(archive) {
+    try {
+        const header = await archive.getHeader();
+        if (!header.leafDirectoryLength || header.leafDirectoryLength > PREFETCH_LEAVES.bytes) return;
+        const { cache, source } = archive;
+        const root = await cache.getDirectory(source, header.rootDirectoryOffset, header.rootDirectoryLength, header);
+        const leaves = root.filter((entry) => entry.runLength === 0);
+        if (leaves.length > PREFETCH_LEAVES.count) return;
+        await Promise.all(leaves.map((entry) => cache.getDirectory(
+            source, header.leafDirectoryOffset + entry.offset, entry.length, header)));
+    } catch (error) {
+        // The tiles still load, each leaf when first needed.
+    }
 }
 
 /** Tile URL templates of an archive, per viewer. */

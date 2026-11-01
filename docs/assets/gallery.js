@@ -101,6 +101,17 @@
     return b;
   };
 
+  // The web map's address parameters: MapLibre, and the example's view and
+  // background, whatever the visitor used last on this site.
+  var viewParams = function (ex) {
+    var view = ex.view || {};
+    var params = 'viewer=ml';
+    if (view.basemap) params += '&basemap=' + view.basemap;
+    if (view.zoom !== undefined) params += '&z=' + view.zoom;
+    if (view.center) params += '&c=' + view.center.join(',');
+    return params;
+  };
+
   var card = function (ex) {
     var soon = !!ex.coming_soon;
     var extent = ex.extent || {};
@@ -125,11 +136,7 @@
       img.width = 1200;
       img.height = 750;
       map.appendChild(img);
-      var view = ex.view || {};
-      var params = '?embed=1&viewer=ml';
-      if (view.zoom !== undefined) params += '&z=' + view.zoom;
-      if (view.center) params += '&c=' + view.center.join(',');
-      map.dataset.src = ex.webmap + params;
+      map.dataset.src = ex.webmap + '?embed=1&' + viewParams(ex);
       var activate = el('button', 'live-activate');
       activate.type = 'button';
       activate.append(icon('pointer'), 'Explore live');
@@ -168,7 +175,7 @@
     var project = ex.project || {};
     var actions = el('div', 'webmap-actions');
     actions.append(
-      button('View full web map', 'arrow', 'btn-primary', soon ? null : ex.webmap, 'Coming soon'),
+      button('View full web map', 'arrow', 'btn-primary', soon ? null : ex.webmap + '?' + viewParams(ex), 'Coming soon'),
       button('Download project' + (project.url && project.size ? ' (' + size(project.size) + ')' : ''), 'download', 'btn-ghost',
         soon ? null : project.url, soon ? 'Coming soon' : 'The project download is coming soon')
     );

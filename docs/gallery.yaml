@@ -13,7 +13,9 @@
 # tags         A few words on what the example shows.
 # image        A still of the map (docs/gallery/), about 16:10.
 # webmap       The full web map: its folder in docs/examples/.
-# view         The live preview's start: zoom and centre [lon, lat].
+# view         Where the live preview and the full web map open: zoom,
+#              centre [lon, lat], and optionally the background
+#              (basemap: none, osm or bluemarble).
 # project      The QGIS project to download (address and size in MB).
 #              Leave the address empty until there is one.
 # coming_soon  true for a placeholder card (a title and a line of text);
@@ -40,7 +42,7 @@ examples:
     project: { url: "", size: null }
 
   - id: israel-bus-stops
-    title: Jerusalem bus stops
+    title: Jerusalem Bus Stops
     extent:
       name: Jerusalem
       bounds: [35.120, 31.702, 35.288, 31.869]
@@ -55,7 +57,7 @@ examples:
     tags: [Balloon callouts, Geometry generators, Hebrew labels]
     image: gallery/israel-bus-stops.webp
     webmap: examples/israel-bus-stops/
-    view: { zoom: 16, center: [35.2135, 31.7835] }
+    view: { zoom: 16, center: [35.2135, 31.7835], basemap: osm }
     project: { url: "", size: null }
 
   - id: coming-soon
