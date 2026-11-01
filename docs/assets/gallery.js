@@ -110,12 +110,12 @@
     // The preview, in a window frame like the hero's.
     var win = el('figure', 'window webmap-window');
     var bar = el('div', 'window-bar');
-    bar.append(el('i'), el('i'), el('i'), el('span', null, soon ? 'Coming soon' : extent.name ? ex.title + ' · ' + extent.name : ex.title));
+    bar.append(el('i'), el('i'), el('i'), el('span', null, soon ? 'New example' : extent.name ? ex.title + ' · ' + extent.name : ex.title));
     [].forEach.call(bar.querySelectorAll('i'), function (i) { i.setAttribute('aria-hidden', 'true'); });
     var map = el('div', 'live-map webmap-map');
     if (soon) {
       var placeholder = el('div', 'webmap-placeholder');
-      placeholder.append(icon('globe'), el('span', null, 'Coming soon'));
+      placeholder.appendChild(icon('globe'));
       map.appendChild(placeholder);
     } else {
       var img = el('img');
@@ -141,7 +141,6 @@
 
     var body = el('div', 'webmap-body');
     var head = el('h3', 'h3', ex.title);
-    if (soon) head.appendChild(el('span', 'webmap-badge', 'Coming soon'));
 
     var stats = el('ul', 'webmap-stats');
     var stat = function (iconName, text, hint) {
@@ -151,13 +150,15 @@
       stats.appendChild(li);
       return li;
     };
+    // One row: where, which zooms, how many layers, and how much smaller
+    // the web map is than the project's data (the sizes on hover).
     if (extent.name) stat('globe', extent.name, extent.bounds ? coords(extent.bounds) : null);
-    if (ex.zooms) stat('layers', 'Zoom ' + ex.zooms[0] + '–' + ex.zooms[1]);
+    if (ex.zooms) stat('search', 'Zoom ' + ex.zooms[0] + '–' + ex.zooms[1], 'Zoom levels');
+    if (ex.layers) stat('layers', ex.layers + (ex.layers === 1 ? ' layer' : ' layers'), 'Layers in the QGIS project');
     if (ex.size && ex.size.original && ex.size.output) {
       var saved = Math.round((1 - ex.size.output / ex.size.original) * 100);
-      var li = stat('database', size(ex.size.original) + ' → ' + size(ex.size.output),
-        'The QGIS project\'s data, and the exported web map');
-      li.appendChild(el('b', 'webmap-saving', '−' + saved + '%'));
+      stat('feather', '−' + saved + '%', 'Web map ' + size(ex.size.output) + ', from ' + size(ex.size.original) + ' of project data')
+        .classList.add('webmap-saving');
     }
 
     var desc = el('p', 'webmap-desc', ex.description || '');
@@ -172,7 +173,11 @@
         soon ? null : project.url, soon ? 'Coming soon' : 'The project download is coming soon')
     );
 
-    body.append(head, stats, desc, tags, actions);
+    body.append(head);
+    if (stats.children.length) body.appendChild(stats);
+    body.appendChild(desc);
+    if (tags.children.length) body.appendChild(tags);
+    body.appendChild(actions);
     article.append(win, body);
     return article;
   };

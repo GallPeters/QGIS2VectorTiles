@@ -6,8 +6,9 @@
 # extent       Where the map is: a place name, and its bounds
 #              [west, south, east, north] in degrees (shown on hover).
 # zooms        The web map's zoom levels [lowest, highest].
+# layers       How many layers the QGIS project has.
 # size         The QGIS project's data (original) and the exported web map
-#              (output), in MB; the card works out the saving.
+#              (output), in MB: the card shows the saving (sizes on hover).
 # description  One or two short sentences.
 # tags         A few words on what the example shows.
 # image        A still of the map (docs/gallery/), about 16:10.
@@ -15,7 +16,8 @@
 # view         The live preview's start: zoom and centre [lon, lat].
 # project      The QGIS project to download (address and size in MB).
 #              Leave the address empty until there is one.
-# coming_soon  true for an example still in the works: its buttons are off.
+# coming_soon  true for a placeholder card (a title and a line of text);
+#              its buttons are off.
 
 examples:
   - id: natural-earth
@@ -24,6 +26,7 @@ examples:
       name: World
       bounds: [-180, -85.85, 180, 84.05]
     zooms: [0, 8]
+    layers: 235
     size:
       original: 827
       output: 56
@@ -42,6 +45,7 @@ examples:
       name: Jerusalem
       bounds: [35.120, 31.702, 35.288, 31.869]
     zooms: [12, 21]
+    layers: 1
     size:
       original: 42
       output: 3.4
@@ -54,12 +58,7 @@ examples:
     view: { zoom: 16, center: [35.2135, 31.7835] }
     project: { url: "", size: null }
 
-  - id: qgreenland
-    title: QGreenLand
-    extent:
-      name: Greenland
-    description: >-
-      The QGreenLand research package: a large, many-layered project in
-      one web map.
-    tags: [Large project, Many layers, Polar]
+  - id: coming-soon
+    title: Coming soon
+    description: Another example web map is on its way.
     coming_soon: true

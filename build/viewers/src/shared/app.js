@@ -125,7 +125,7 @@ export async function startViewer(map, config) {
         current: config.viewer,
         onChoose: (id) => switchViewer(map, id),
     });
-    const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b) });
+    const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b), initial: config.basemap });
     const mapOnly = createMapOnly();
     const settings = createSettingsPanel([
         settingsRow('Popups', popupToggle.element),

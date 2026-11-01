@@ -26,9 +26,14 @@ export const BASEMAPS = [
 
 const STORAGE_KEY = 'q2vt:basemap';
 
-/** The basemap choice, as a segmented control; ``apply(basemap)`` shows it. */
-export function createBasemapControl({ apply }) {
-    let current = BASEMAPS.find((b) => b.id === load(STORAGE_KEY, 'none')) || BASEMAPS[0];
+/** The basemap choice, as a segmented control; ``apply(basemap)`` shows it.
+ * The first one shown: the address's ?basemap= (none, osm, bluemarble), else
+ * the visitor's last choice, else ``initial`` (the page's default), else the
+ * project's background. */
+export function createBasemapControl({ apply, initial }) {
+    const find = (id) => BASEMAPS.find((b) => b.id === id);
+    const fromUrl = new URLSearchParams(window.location.search).get('basemap');
+    let current = find(fromUrl) || find(load(STORAGE_KEY, initial)) || BASEMAPS[0];
     const control = createSegmented({
         label: 'Background',
         options: BASEMAPS.map((b) => ({ id: b.id, label: b.name, title: b.title })),

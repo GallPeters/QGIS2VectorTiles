@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=4.2.0">
+<link rel="stylesheet" href="assets/site.css?v=4.2.1">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -84,8 +84,8 @@
     </a>
     <nav class="nav" aria-label="Main">
       <a href="#features">Features</a>
-      <a href="#how-it-works">How it works</a>
       <a href="#demos">Gallery</a>
+      <a href="#how-it-works">How it works</a>
       <a href="#use-cases">Use cases</a>
       <a href="changelog.html">Changelog</a>
       <a href="compatibility.html">Styling guide</a>
@@ -99,8 +99,8 @@
   </div>
   <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile">
     <a href="#features">Features</a>
-    <a href="#how-it-works">How it works</a>
     <a href="#demos">Gallery</a>
+    <a href="#how-it-works">How it works</a>
     <a href="#use-cases">Use cases</a>
     <a href="changelog.html">Changelog</a>
     <a href="compatibility.html">Styling guide</a>
@@ -240,7 +240,28 @@
     </div>
   </section>
 
-  <!-- 3 · How it works ------------------------------------------------- -->
+  <!-- 3 · Gallery ------------------------------------------------------ -->
+  <!-- The example cards come from gallery.yaml (assets/gallery.js). -->
+  <section class="slide" id="demos" data-title="Gallery" aria-labelledby="demos-title">
+    <div class="container slide-inner gallery" id="gallery">
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Gallery</p>
+            <h2 class="h2" id="demos-title">See it in action.</h2>
+          </div>
+          <p class="lead">Real exports, straight from QGIS.</p>
+        </div>
+        <noscript>
+          <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
+            <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
+            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
+        </noscript>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · How it works ------------------------------------------------- -->
   <section class="slide" id="how-it-works" data-title="How it works" aria-labelledby="how-title">
     <div class="container slide-inner pipeline">
       <div class="screen">
@@ -313,27 +334,6 @@
           </div>
           <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it or publish it.</strong> The map opens in your browser after each run. Upload the folder to GitHub Pages or any web host as it is.</span></p>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4 · Gallery ------------------------------------------------------ -->
-  <!-- The example cards come from gallery.yaml (assets/gallery.js). -->
-  <section class="slide" id="demos" data-title="Gallery" aria-labelledby="demos-title">
-    <div class="container slide-inner gallery" id="gallery">
-      <div class="screen">
-        <div class="section-head split" data-reveal>
-          <div>
-            <p class="eyebrow">Gallery</p>
-            <h2 class="h2" id="demos-title">See it in action.</h2>
-          </div>
-          <p class="lead">Real exports, straight from QGIS.</p>
-        </div>
-        <noscript>
-          <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
-            <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
-            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
-        </noscript>
       </div>
     </div>
   </section>
@@ -416,8 +416,8 @@
         <nav class="footer-col" aria-label="Product">
           <h2>Product</h2>
           <a href="#features">Features</a>
-          <a href="#how-it-works">How it works</a>
           <a href="#demos">Gallery</a>
+          <a href="#how-it-works">How it works</a>
           <a href="#use-cases">Use cases</a>
         </nav>
         <nav class="footer-col" aria-label="Resources">
@@ -458,9 +458,9 @@
   <div class="dialog-inner"></div>
 </dialog>
 
-<script src="assets/site.js?v=4.2.0" defer></script>
-<script src="assets/home.js?v=4.2.0" defer></script>
+<script src="assets/site.js?v=4.2.1" defer></script>
+<script src="assets/home.js?v=4.2.1" defer></script>
 <script src="assets/vendor/js-yaml.min.js" defer></script>
-<script src="assets/gallery.js?v=4.2.0" defer></script>
+<script src="assets/gallery.js?v=4.2.1" defer></script>
 </body>
 </html>
