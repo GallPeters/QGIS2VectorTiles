@@ -14,9 +14,12 @@ permissions:
   pages: write
   id-token: write
 
+# One deployment at a time: a new push waits for the running one to finish
+# (cancelling the run would not stop a deployment it has already started,
+# and Pages refuses a second one meanwhile).
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
