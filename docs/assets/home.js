@@ -100,58 +100,6 @@
     });
   }
 
-  // --- Demo gallery ------------------------------------------------------
-  // Posters are set when the gallery approaches the viewport; a video loads
-  // only when its card is hovered (preview) or opened (full player).
-  var demos = document.querySelectorAll('.demo');
-  if (demos.length) {
-    var setPosters = function () {
-      demos.forEach(function (d) {
-        var v = d.querySelector('video');
-        if (v && v.dataset.poster) { v.poster = v.dataset.poster; v.removeAttribute('data-poster'); }
-      });
-    };
-    if ('IntersectionObserver' in window) {
-      var near = new IntersectionObserver(function (entries) {
-        if (entries.some(function (e) { return e.isIntersecting; })) { near.disconnect(); setPosters(); }
-      }, { rootMargin: '600px 0px' });
-      demos.forEach(function (d) { near.observe(d); });
-    } else {
-      setPosters();
-    }
-
-    if (canHover && !reduceMotion) {
-      demos.forEach(function (d) {
-        var v = d.querySelector('video');
-        d.addEventListener('mouseenter', function () {
-          if (v.dataset.src) { v.src = v.dataset.src; v.removeAttribute('data-src'); }
-          v.play().catch(function () {});
-        });
-        d.addEventListener('mouseleave', function () { v.pause(); });
-      });
-    }
-
-    var videoDialog = document.getElementById('video-dialog');
-    var player = videoDialog && videoDialog.querySelector('video');
-    demos.forEach(function (d) {
-      d.addEventListener('click', function () {
-        var v = d.querySelector('video');
-        v.pause();
-        player.src = d.dataset.video;
-        player.setAttribute('aria-label', d.querySelector('.h3').textContent);
-        videoDialog.showModal();
-        player.play().catch(function () {});
-      });
-    });
-    if (videoDialog) {
-      videoDialog.addEventListener('close', function () {
-        player.pause();
-        player.removeAttribute('src');
-        player.load();
-      });
-    }
-  }
-
   // --- Section dots ------------------------------------------------------
   // One link per full-screen section; the browser's scroll snapping does the
   // moving, the dots show where you are and jump on click.

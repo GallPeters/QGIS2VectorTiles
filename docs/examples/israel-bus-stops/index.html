@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web map</title>
+    <link rel="icon" href="data:,">
+    <style>
+        /* MapLibre viewer */
+        .q2vt-ml .maplibregl-popup-content { padding: 8px; border-radius: 6px; }
+
+        /* OpenLayers viewer */
+        .q2vt-ol #map { background: #ffffff; }
+        /* Pointer events go to the viewport, not to the layer canvases
+           (which OpenLayers replaces as layers change): the drawing tools
+           listen there and need it to be the event target. */
+        .q2vt-ol .ol-layers, .q2vt-ol .ol-layers * { pointer-events: none; }
+        .q2vt-ol-popup {
+            position: relative; background: #ffffff; border-radius: 6px; padding: 6px;
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18); min-width: 60px;
+        }
+        .q2vt-ol-popup:empty { display: none; }
+        .q2vt-ol-popup::after {
+            content: ''; position: absolute; bottom: -8px; left: 50%; margin-left: -8px;
+            border-left: 8px solid transparent; border-right: 8px solid transparent;
+            border-top: 8px solid #ffffff;
+        }
+    </style>
+    <script>
+        // Filled in by the plugin when it serves the map. Zoom levels are
+        // MapLibre's in both viewers (OpenLayers converts them).
+        window.Q2VT_CONFIG = {
+            minZoom: 12,
+            center: [35.20431849999999, 31.7850886907397],
+            // The export extent [west, south, east, north]: the map opens
+            // fitted to it (unless ?z= gives a zoom).
+            bounds: [35.12015831272868, 31.701559722144285, 35.28847868727132, 31.86854226875979],
+            storageKey: "29_10_2026_13_01_37_575859",
+            // Relative to this page, so the folder works on any web server.
+            styleUrl: "style/style.json",
+            searchUrl: "style/search.json",
+        };
+
+        // The map library: ?viewer=ml|ol (set by the viewer switch), else the
+        // one used last, else MapLibre. ?z= and ?c=lon,lat keep the view when
+        // switching. Each library's files are in its own folder.
+        (function () {
+            var config = window.Q2VT_CONFIG;
+            var params = new URLSearchParams(window.location.search);
+            var viewer = params.get('viewer');
+            if (viewer !== 'ml' && viewer !== 'ol') {
+                try { viewer = window.localStorage.getItem('q2vt:viewer'); } catch (e) { viewer = null; }
+            }
+            if (viewer !== 'ol') viewer = 'ml';
+            config.viewer = viewer;
+            var zoom = parseFloat(params.get('z'));
+            if (isFinite(zoom)) config.startZoom = zoom;
+            var center = (params.get('c') || '').split(',').map(Number);
+            if (center.length === 2 && center.every(isFinite)) config.center = center;
+
+            document.documentElement.classList.add('q2vt-' + viewer);
+            // ?embed=1: a clean preview for embedding the map in another
+            // page (an iframe): no search, settings or drawing tools.
+            if (params.has('embed')) document.documentElement.classList.add('q2vt-embed');
+            document.title = (viewer === 'ol' ? 'OpenLayers' : 'MapLibre') + ' web map';
+            var styles = viewer === 'ol' ? ['ol/ol.css', 'ol/bundle.css'] : ['ml/maplibre-gl.css', 'ml/bundle.css'];
+            styles.forEach(function (href) {
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                document.head.appendChild(link);
+            });
+        })();
+    </script>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    (function () {
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = window.Q2VT_CONFIG.viewer + '/bundle.js';
+        document.body.appendChild(script);
+    })();
+</script>
+</body>
+</html>

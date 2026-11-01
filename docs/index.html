@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=4.0.4">
+<link rel="stylesheet" href="assets/site.css?v=4.2.0">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -85,7 +85,7 @@
     <nav class="nav" aria-label="Main">
       <a href="#features">Features</a>
       <a href="#how-it-works">How it works</a>
-      <a href="#demos">Demos</a>
+      <a href="#demos">Gallery</a>
       <a href="#use-cases">Use cases</a>
       <a href="changelog.html">Changelog</a>
       <a href="compatibility.html">Styling guide</a>
@@ -100,7 +100,7 @@
   <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile">
     <a href="#features">Features</a>
     <a href="#how-it-works">How it works</a>
-    <a href="#demos">Demos</a>
+    <a href="#demos">Gallery</a>
     <a href="#use-cases">Use cases</a>
     <a href="changelog.html">Changelog</a>
     <a href="compatibility.html">Styling guide</a>
@@ -131,7 +131,7 @@
             <p class="lead" data-reveal style="--d:2">Turns your styled project into vector tiles, a matching MapLibre style and a ready-to-use web viewer. No internet or extra server needed.</p>
             <div class="hero-actions" data-reveal style="--d:3">
               <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
-              <a class="btn btn-ghost" href="#demos">Watch the demos <svg><use href="#i-arrow"/></svg></a>
+              <a class="btn btn-ghost" href="#demos">See the gallery <svg><use href="#i-arrow"/></svg></a>
             </div>
             <div class="hero-tags" data-reveal style="--d:4">
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Free &amp; open source</span>
@@ -153,11 +153,11 @@
             <ul class="live-facts">
               <li><svg aria-hidden="true"><use href="#i-globe"/></svg><span><b>Project:</b> <a class="link" href="https://www.naturalearthdata.com/">Natural Earth</a>, hundreds of layers and data sources.</span></li>
               <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent → zoom levels 0–8 → <span class="text-brand">8 minutes</span></span></li>
-              <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to <a class="link" href="https://github.com/GallPeters/QGIS2VectorTiles-webmaps">GitHub Pages</a> as is.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to <a class="link" href="https://github.com/GallPeters/QGIS2VectorTiles/tree/main/docs/examples">GitHub Pages</a> as is.</span></li>
             </ul>
             <figure class="window">
-              <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>Natural Earth · live web map</span><a class="window-link" href="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/examples/natural-earth/?viewer=ml" target="_blank" rel="noopener">Full screen<svg><use href="#i-arrow"/></svg></a></div>
-              <div class="live-map" data-src="https://gallpeters.github.io/QGIS2VectorTiles-webmaps/examples/natural-earth/?embed=1&amp;viewer=ml&amp;z=1.5&amp;c=10,25">
+              <div class="window-bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>Natural Earth · live web map</span><a class="window-link" href="examples/natural-earth/?viewer=ml" target="_blank" rel="noopener">Full screen<svg><use href="#i-arrow"/></svg></a></div>
+              <div class="live-map" data-src="examples/natural-earth/?embed=1&amp;viewer=ml&amp;z=1.5&amp;c=10,25">
                 <p class="live-loading">Loading the live map…</p>
                 <button class="live-activate" type="button"><svg><use href="#i-pointer"/></svg>Click to explore the map</button>
               </div>
@@ -317,9 +317,10 @@
     </div>
   </section>
 
-  <!-- 4 · Demos -------------------------------------------------------- -->
-  <section class="slide" id="demos" data-title="Demos" aria-labelledby="demos-title">
-    <div class="container slide-inner gallery">
+  <!-- 4 · Gallery ------------------------------------------------------ -->
+  <!-- The example cards come from gallery.yaml (assets/gallery.js). -->
+  <section class="slide" id="demos" data-title="Gallery" aria-labelledby="demos-title">
+    <div class="container slide-inner gallery" id="gallery">
       <div class="screen">
         <div class="section-head split" data-reveal>
           <div>
@@ -328,56 +329,11 @@
           </div>
           <p class="lead">Real exports, straight from QGIS.</p>
         </div>
-
-        <button class="demo featured" type="button" data-video="demos/demo_main.mp4" data-reveal>
-          <span class="demo-media">
-            <video data-src="demos/demo_main.mp4" data-poster="demos/posters/demo_main.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
-            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
-          </span>
-          <span class="demo-body">
-            <span class="demo-tag">Overview</span>
-            <span class="h3">Full workflow overview</span>
-            <span class="demo-desc">Millions of features, from QGIS to the browser in minutes.</span>
-          </span>
-        </button>
-      </div>
-
-      <div class="screen">
-        <div class="section-head screen-head">
-          <p class="eyebrow">Gallery</p>
-          <p class="h2">Styling in detail.</p>
-          <p class="lead">Expressions, transparency and complex lines.</p>
-        </div>
-        <button class="demo" type="button" data-video="demos/demo_data_driven.mp4" data-reveal style="--d:1">
-          <span class="demo-media">
-            <video data-src="demos/demo_data_driven.mp4" data-poster="demos/posters/demo_data_driven.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
-            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
-          </span>
-          <span class="demo-body">
-            <span class="h3">Data-defined properties</span>
-            <span class="demo-desc">Complex QGIS expressions, the same on the web.</span>
-          </span>
-        </button>
-        <button class="demo" type="button" data-video="demos/demo_transparency.mp4" data-reveal style="--d:2">
-          <span class="demo-media">
-            <video data-src="demos/demo_transparency.mp4" data-poster="demos/posters/demo_transparency.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
-            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
-          </span>
-          <span class="demo-body">
-            <span class="h3">Opacity &amp; colors</span>
-            <span class="demo-desc">Random transparent colors from expressions.</span>
-          </span>
-        </button>
-        <button class="demo" type="button" data-video="demos/complex_lines_cartography.mp4" data-reveal style="--d:3">
-          <span class="demo-media">
-            <video data-src="demos/complex_lines_cartography.mp4" data-poster="demos/posters/complex_lines_cartography.webp" preload="none" muted loop playsinline aria-hidden="true"></video>
-            <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
-          </span>
-          <span class="demo-body">
-            <span class="h3">Complex cartography</span>
-            <span class="demo-desc">QGIS symbols and labels, fast and sharp on the web.</span>
-          </span>
-        </button>
+        <noscript>
+          <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
+            <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
+            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
+        </noscript>
       </div>
     </div>
   </section>
@@ -461,7 +417,7 @@
           <h2>Product</h2>
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
-          <a href="#demos">Demos</a>
+          <a href="#demos">Gallery</a>
           <a href="#use-cases">Use cases</a>
         </nav>
         <nav class="footer-col" aria-label="Resources">
@@ -502,13 +458,9 @@
   <div class="dialog-inner"></div>
 </dialog>
 
-<dialog class="video-dialog" id="video-dialog" aria-label="Demo video">
-  <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
-  <video controls playsinline controlslist="nodownload" preload="none"></video>
-</dialog>
-
-
-<script src="assets/site.js?v=4.0.4" defer></script>
-<script src="assets/home.js?v=4.0.4" defer></script>
+<script src="assets/site.js?v=4.2.0" defer></script>
+<script src="assets/home.js?v=4.2.0" defer></script>
+<script src="assets/vendor/js-yaml.min.js" defer></script>
+<script src="assets/gallery.js?v=4.2.0" defer></script>
 </body>
 </html>

@@ -1,0 +1,4 @@
+# The gallery's example web maps (docs/examples): the tiles and the search
+# index are large, so they are kept in Git LFS.
+docs/examples/**/*.pmtiles filter=lfs diff=lfs merge=lfs -text
+docs/examples/**/style/search.json filter=lfs diff=lfs merge=lfs -text
