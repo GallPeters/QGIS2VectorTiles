@@ -21,7 +21,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=4.2.3">
+<link rel="stylesheet" href="assets/site.css?v=4.2.4">
 <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -42,10 +42,10 @@
       <span class="brand-name"><span>QGIS2</span>VectorTiles</span>
     </a>
     <nav class="nav" aria-label="Main">
+      <a href="./#demos">Gallery</a>
       <a href="./#features">Features</a>
-      <a href="./#how-it-works">How it works</a>
-      <a href="./#demos">Demos</a>
       <a href="./#use-cases">Use cases</a>
+      <a href="./#how-it-works">How it works</a>
       <a href="changelog.html" aria-current="page">Changelog</a>
       <a href="compatibility.html">Styling guide</a>
     </nav>
@@ -57,10 +57,10 @@
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu"><span></span></button>
   </div>
   <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile">
+    <a href="./#demos">Gallery</a>
     <a href="./#features">Features</a>
-    <a href="./#how-it-works">How it works</a>
-    <a href="./#demos">Demos</a>
     <a href="./#use-cases">Use cases</a>
+    <a href="./#how-it-works">How it works</a>
     <a href="changelog.html" aria-current="page">Changelog</a>
     <a href="compatibility.html">Styling guide</a>
     <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
@@ -136,20 +136,22 @@
       <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li><strong>Balloon callouts</strong> of point labels, as the label's own background: drawn by QGIS with every layer of its fill symbol (outlines, and <strong>geometry generators</strong> such as an icon in its corner) and stretched around the text, so it fits at every zoom and is hidden with its label as in QGIS. Label signs keep their background.</li>
-      <li>The other callouts of labels placed at their point (around it or at an offset), not only at a data-defined position; a balloon's fill symbol drawn layer by layer there too.</li>
-      <li>Fixed: multi-line labels were always centred: their QGIS alignment (left, right, following the placement) is kept.</li>
-      <li>Fixed: spaces at the start or end of a label's lines (an indent, padding) were dropped by the web map, also after direction marks (as in mixed Hebrew lines).</li>
-      <li><strong>Map only</strong> in the web map: every control hidden but the map's credits, full screen where the browser allows it (phones: no browser bars either); a button in the corner brings them back.</li>
-      <li>The web map's credits include the plugin's (<em>Made with QGIS2VectorTiles</em>, linking here) and the viewer's own (OpenLayers too), with the background's as it changes; MapLibre marked <strong>recommended</strong> in the viewer switch.</li>
-      <li><strong>Faster web map</strong>: labels appear at once, as in QGIS, without MapLibre's fade, which was most of the wait after each pan or zoom (about 9.6 s down to 1.6 s over 16 moves on a 2,800-sign layer); the local server also answers on IPv6, so a new connection to localhost no longer stalls.</li>
-      <li>Labels around a point placed as QGIS places them: their side or corner on the point, then the label distance (no extra gap), so a balloon's wedge and what its generators draw land where QGIS draws them.</li>
-      <li>Line spacing of multi-line labels exactly as QGIS lays them out, and a balloon around them as tall as QGIS's label box (room above the first line and below the last, whatever the line height).</li>
-      <li>Fixed: a stretched balloon showed shading from its outline and icon while zooming.</li>
-      <li>Fixed: a balloon sign placed "cartographic" moved to other positions on the web map, its pointer left floating; with one position it keeps it, where QGIS puts it (the distance from the symbol's bounds, the text's descent), its pointer on the point; with several (around point, or a cartographic order) it moves through them as in QGIS, drawn without its pointer (which can't turn with it).</li>
-      <li>Fixed: beyond the highest tile zoom (15), clustered and displaced points kept zoom 15's groups, so points QGIS draws alone there still showed as clusters; the tiles now hold their groups for every zoom level shown, the style drawing the right one.</li>
-      <li>Fixed: a symbol's buffer (halo) was drawn around each of its symbol layers, filling an SVG marker's holes on the web map; it is drawn once, with the bottom layer, as QGIS draws it around the whole symbol.</li>
-      <li>Fixed: zoom bands beyond the highest tile zoom were drawn twice.</li>
+      <li><strong>Balloon callouts</strong> drawn as in QGIS, geometry generators included, and sized to fit the text.</li>
+      <li><strong>Callouts</strong> for labels placed around their point or at an offset.</li>
+      <li>Labels around a point <strong>placed as in QGIS</strong>.</li>
+      <li>Multi-line labels keep their <strong>alignment</strong> and <strong>line spacing</strong>.</li>
+      <li><strong>Map only</strong>: the map full screen, without controls.</li>
+      <li>A <strong>default background</strong> per web map, or in its address (<code>?basemap=osm</code>).</li>
+      <li>Credits for the plugin and the map library; MapLibre marked <strong>recommended</strong>.</li>
+      <li><strong>Faster web maps</strong>: labels appear at once, tiles need fewer requests.</li>
+      <li>The local server also answers on IPv6, so it no longer stalls.</li>
+      <li>Passes the plugin portal's <strong>security check</strong>.</li>
+      <li>Fixed: spaces at the start or end of label lines were dropped.</li>
+      <li>Fixed: "cartographic" balloon signs moved and left their pointer behind.</li>
+      <li>Fixed: clusters beyond zoom 15 kept zoom 15's groups.</li>
+      <li>Fixed: a symbol's halo filled the holes of SVG markers.</li>
+      <li>Fixed: stretched balloons showed stray shading while zooming.</li>
+      <li>Fixed: zoom bands beyond zoom 15 were drawn twice.</li>
     </ul>
   </article>
   <article class="release latest" id="v4-1">
@@ -162,18 +164,19 @@
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
       <li><strong>Point clusters</strong>, <strong>point displacement</strong>, <strong>heatmaps</strong>, <strong>merged features</strong> and <strong>inverted polygons</strong>.</li>
       <li><strong>Label priority</strong> as in QGIS in both viewers, data-defined too.</li>
-      <li><strong>Lighter, faster web maps</strong>: half-size styles, fewer layers (alike layers and zoom bands drawn as one), no needless sorting.</li>
-      <li>Outlines and point or line labels <strong>share their features' data</strong> in the tiles.</li>
-      <li><code>@map_scale</code> rules make <strong>one layer</strong> in the tiles and the style: smaller tiles, faster drawing.</li>
-      <li><strong>Arrows drawn as in QGIS</strong>: curved or straight, on every segment or not, half arrows, tapered.</li>
-      <li><strong>Callouts</strong> (simple, Manhattan, curved, balloon) to labels at a data-defined <strong>position (X, Y)</strong>, aligned there as in QGIS, data-defined alignment too.</li>
+      <li><strong>Lighter, faster web maps</strong>: half-size styles, fewer layers.</li>
+      <li>Outlines and labels <strong>share their features' data</strong> in the tiles.</li>
+      <li><code>@map_scale</code> rules export as <strong>one layer</strong>: smaller tiles.</li>
+      <li><strong>Arrows</strong> as in QGIS: curved, straight, half and tapered.</li>
+      <li><strong>Callouts</strong> for labels at a data-defined <strong>position</strong>.</li>
       <li>Features drawn in the layer's <strong>rendering order</strong>.</li>
-      <li>Data-defined <strong>colours</strong> work out in C++, any number of them.</li>
-      <li>Rules on <strong>fields a layer lacks</strong> (a style shared by layers) export in C++ too.</li>
+      <li>Data-defined <strong>colours</strong> export faster, any number of them.</li>
+      <li>Styles <strong>shared by layers</strong> with different fields export faster.</li>
       <li><strong>Trimmed lines</strong> and <strong>fill offsets</strong>, data-defined too; outlines drawn <strong>inside polygons</strong>.</li>
-      <li>Markers <strong>turned with the line</strong> on vertices and segment centres; first and last markers <strong>offset along the line</strong>.</li>
-      <li>Scale ranges switch at the <strong>exact zoom</strong>, measured at the data's latitude.</li>
-      <li><strong>Map-unit size limits</strong>; label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
+      <li>Line markers <strong>turn with the line</strong> and keep their offset.</li>
+      <li>Scale ranges switch at the <strong>exact zoom</strong>.</li>
+      <li>Label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
+      <li><strong>Map-unit</strong> size limits.</li>
       <li><strong>Hatched fills</strong> keep their hatching.</li>
       <li>Data-defined <strong>marker colours and shapes</strong> and <strong>font family</strong>.</li>
       <li>Data-defined <strong>show label</strong> and symbol layer <strong>enabled</strong>.</li>
@@ -181,13 +184,13 @@
       <li><strong>Outside-polygon</strong> labels, <strong>title case</strong> and labels that <strong>wrap on a character</strong>.</li>
       <li>Search shows <strong>one result per place</strong>.</li>
       <li>The map opens <strong>fitted to the export extent</strong>.</li>
-      <li>The web map's server sends the style, scripts and search index <strong>compressed</strong>.</li>
+      <li>The local server sends files <strong>compressed</strong>.</li>
       <li>An export that <strong>crashes runs again</strong> by itself.</li>
-      <li>Fixed: road casings of categorized layers could disappear.</li>
+      <li>Fixed: road casings could disappear in categorized layers.</li>
       <li>Fixed: some data-defined expressions crashed the export.</li>
       <li>Fixed: letters missing from labels sharing a font.</li>
-      <li>Fixed: <code>@map_scale</code> in data-defined show label or enabled.</li>
-      <li>Fixed: scale ranges beyond zoom 15 wrote their features twice.</li>
+      <li>Fixed: <code>@map_scale</code> in data-defined visibility.</li>
+      <li>Fixed: features beyond zoom 15 were written twice.</li>
     </ul>
   </article>
   <article class="release" id="v4-0">
@@ -197,14 +200,13 @@
     </div>
     <ul>
       <li><strong>Publish anywhere</strong>: a static web map with one <strong>PMTiles</strong> file.</li>
-      <li>No tiles layer, <code>.qlr</code> or <code>.mbtiles</code>: the web map is the result.</li>
+      <li>The web map is the output: no tiles layer, <code>.qlr</code> or <code>.mbtiles</code>.</li>
       <li><strong>One web map, two viewers</strong>: switch in the page.</li>
       <li>Same <strong>zoom numbers</strong> in both viewers.</li>
       <li>Reopens in the <strong>viewer you used last</strong>.</li>
       <li><strong>Tidier layout</strong>: settings left, zoom and drawing right.</li>
       <li><strong>About 40% faster</strong> on large projects.</li>
       <li>Low zoom levels <strong>keep all their features</strong>.</li>
-      <li>OpenLayers zoom levels follow MapLibre's numbering.</li>
       <li>No more <strong>blank map</strong> while zooming between levels.</li>
       <li><strong>Embed</strong> the web map anywhere with <code>?embed=1</code>.</li>
     </ul>
@@ -249,7 +251,7 @@
       <li><strong>Temporary layers</strong> are exported.</li>
       <li>MapLibre GL JS 6.13 and OpenLayers 10.11.</li>
       <li>Popups off by default.</li>
-      <li>Fixed label fonts and the startup zoom display.</li>
+      <li>Fixed label fonts and the starting zoom shown.</li>
       <li>Clearer local server description.</li>
       <li>Fixed crashes with thousands of rules.</li>
       <li>Fixed data-defined marker sizes.</li>
@@ -578,10 +580,10 @@
       </div>
       <nav class="footer-col" aria-label="Product">
         <h2>Product</h2>
+        <a href="./#demos">Gallery</a>
         <a href="./#features">Features</a>
-        <a href="./#how-it-works">How it works</a>
-        <a href="./#demos">Demos</a>
         <a href="./#use-cases">Use cases</a>
+        <a href="./#how-it-works">How it works</a>
       </nav>
       <nav class="footer-col" aria-label="Resources">
         <h2>Resources</h2>
@@ -605,6 +607,6 @@
 
 <button class="to-top" type="button" aria-label="Back to top"><svg><use href="#i-up"/></svg></button>
 
-<script src="assets/site.js?v=4.2.3" defer></script>
+<script src="assets/site.js?v=4.2.4" defer></script>
 </body>
 </html>

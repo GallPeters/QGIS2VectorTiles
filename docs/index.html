@@ -22,7 +22,7 @@
 <link rel="icon" type="image/png" href="icons/icon.png">
 <link rel="shortcut icon" href="icons/icon.ico">
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site.css?v=4.2.3">
+<link rel="stylesheet" href="assets/site.css?v=4.2.4">
 <script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
@@ -83,10 +83,10 @@
       <span class="brand-name"><span>QGIS2</span>VectorTiles</span>
     </a>
     <nav class="nav" aria-label="Main">
-      <a href="#features">Features</a>
       <a href="#demos">Gallery</a>
-      <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
       <a href="#use-cases">Use cases</a>
+      <a href="#how-it-works">How it works</a>
       <a href="changelog.html">Changelog</a>
       <a href="compatibility.html">Styling guide</a>
     </nav>
@@ -98,10 +98,10 @@
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu"><span></span></button>
   </div>
   <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile">
-    <a href="#features">Features</a>
     <a href="#demos">Gallery</a>
-    <a href="#how-it-works">How it works</a>
+    <a href="#features">Features</a>
     <a href="#use-cases">Use cases</a>
+    <a href="#how-it-works">How it works</a>
     <a href="changelog.html">Changelog</a>
     <a href="compatibility.html">Styling guide</a>
     <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
@@ -181,7 +181,28 @@
     </div>
   </section>
 
-  <!-- 2 · Features ----------------------------------------------------- -->
+  <!-- 2 · Gallery ------------------------------------------------------ -->
+  <!-- The example cards come from gallery.yaml (assets/gallery.js). -->
+  <section class="slide" id="demos" data-title="Gallery" aria-labelledby="demos-title">
+    <div class="container slide-inner gallery" id="gallery">
+      <div class="screen">
+        <div class="section-head split" data-reveal>
+          <div>
+            <p class="eyebrow">Gallery</p>
+            <h2 class="h2" id="demos-title">See it in action.</h2>
+          </div>
+          <p class="lead">Real exports, straight from QGIS.</p>
+        </div>
+        <noscript>
+          <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
+            <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
+            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
+        </noscript>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · Features ----------------------------------------------------- -->
   <section class="slide" id="features" data-title="Features" aria-labelledby="features-title">
     <div class="container slide-inner">
       <div class="screen">
@@ -240,28 +261,56 @@
     </div>
   </section>
 
-  <!-- 3 · Gallery ------------------------------------------------------ -->
-  <!-- The example cards come from gallery.yaml (assets/gallery.js). -->
-  <section class="slide" id="demos" data-title="Gallery" aria-labelledby="demos-title">
-    <div class="container slide-inner gallery" id="gallery">
+  <!-- 4 · Use cases ---------------------------------------------------- -->
+  <section class="slide" id="use-cases" data-title="Use cases" aria-labelledby="uc-title">
+    <div class="container slide-inner usecases">
       <div class="screen">
         <div class="section-head split" data-reveal>
           <div>
-            <p class="eyebrow">Gallery</p>
-            <h2 class="h2" id="demos-title">See it in action.</h2>
+            <p class="eyebrow">Use cases</p>
+            <h2 class="h2" id="uc-title">Fits the stack you already have.</h2>
           </div>
-          <p class="lead">Real exports, straight from QGIS.</p>
+          <p class="lead">One export, three ways to use it.</p>
         </div>
-        <noscript>
-          <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
-            <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
-            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
-        </noscript>
+
+        <article class="usecase" data-reveal>
+          <span class="usecase-num">01</span>
+          <h3 class="h3">Client-side rendering</h3>
+          <p>Use the style in any MapLibre-compatible web client. Drawn in the browser, no map server.</p>
+          <div class="chips">
+            <a class="chip" href="https://www.mapbox.com/"><img src="icons/mapbox.png" alt="" width="26" height="26" loading="lazy">Mapbox</a>
+            <a class="chip" href="https://www.maptiler.com/"><img src="icons/maptiler.png" alt="" width="26" height="26" loading="lazy">MapTiler</a>
+            <a class="chip" href="https://maplibre.org/"><img src="icons/maplibre.png" alt="" width="26" height="26" loading="lazy">MapLibre</a>
+            <a class="chip" href="https://openlayers.org/"><img src="icons/openlayers.png" alt="" width="26" height="26" loading="lazy">OpenLayers</a>
+          </div>
+          <p class="usecase-note">Standard <a class="link" href="https://github.com/mapbox/vector-tile-spec">Vector Tiles</a> and <a class="link" href="https://maplibre.org/maplibre-style-spec/">GL Styles</a>.</p>
+        </article>
+        <article class="usecase" data-reveal style="--d:1">
+          <span class="usecase-num">02</span>
+          <h3 class="h3">Web map services</h3>
+          <p>Serve the tiles, or the styled map as WMS/WMTS, from your server.</p>
+          <div class="chips">
+            <a class="chip" href="https://geoserver.org/"><img src="icons/geoserver.png" alt="" width="26" height="26" loading="lazy">GeoServer*</a>
+            <a class="chip" href="https://github.com/maptiler/tileserver-gl"><img src="icons/tileserver-gl.png" alt="" width="26" height="26" loading="lazy">TileServer GL</a>
+            <a class="chip" href="https://maplibre.org/martin/"><img src="icons/martin.png" alt="" width="26" height="26" loading="lazy">Martin</a>
+          </div>
+          <p class="usecase-note">* With the <a class="link" href="https://geoserver.org/geoserver/en/user/community/pmtiles-store">PMTiles</a> and <a class="link" href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html">MBStyle</a> extensions.</p>
+        </article>
+        <article class="usecase" data-reveal style="--d:2">
+          <span class="usecase-num">03</span>
+          <h3 class="h3">Publish anywhere</h3>
+          <p>A folder of plain files. Upload it anywhere and share the link.</p>
+          <div class="chips stacked">
+            <a class="chip" href="https://pages.github.com/"><span class="chip-glyph"><svg><use href="#i-github"/></svg></span>GitHub Pages</a>
+            <span class="chip"><span class="chip-glyph"><svg><use href="#i-globe"/></svg></span>Any web host</span>
+          </div>
+          <p class="usecase-note">One <a class="link" href="https://docs.protomaps.com/pmtiles/">PMTiles</a> file, over plain HTTP.</p>
+        </article>
       </div>
     </div>
   </section>
 
-  <!-- 4 · How it works ------------------------------------------------- -->
+  <!-- 5 · How it works ------------------------------------------------- -->
   <section class="slide" id="how-it-works" data-title="How it works" aria-labelledby="how-title">
     <div class="container slide-inner pipeline">
       <div class="screen">
@@ -338,55 +387,6 @@
     </div>
   </section>
 
-  <!-- 5 · Use cases ---------------------------------------------------- -->
-  <section class="slide" id="use-cases" data-title="Use cases" aria-labelledby="uc-title">
-    <div class="container slide-inner usecases">
-      <div class="screen">
-        <div class="section-head split" data-reveal>
-          <div>
-            <p class="eyebrow">Use cases</p>
-            <h2 class="h2" id="uc-title">Fits the stack you already have.</h2>
-          </div>
-          <p class="lead">One export, three ways to use it.</p>
-        </div>
-
-        <article class="usecase" data-reveal>
-          <span class="usecase-num">01</span>
-          <h3 class="h3">Client-side rendering</h3>
-          <p>Use the style in any MapLibre-compatible web client. Drawn in the browser, no map server.</p>
-          <div class="chips">
-            <a class="chip" href="https://www.mapbox.com/"><img src="icons/mapbox.png" alt="" width="26" height="26" loading="lazy">Mapbox</a>
-            <a class="chip" href="https://www.maptiler.com/"><img src="icons/maptiler.png" alt="" width="26" height="26" loading="lazy">MapTiler</a>
-            <a class="chip" href="https://maplibre.org/"><img src="icons/maplibre.png" alt="" width="26" height="26" loading="lazy">MapLibre</a>
-            <a class="chip" href="https://openlayers.org/"><img src="icons/openlayers.png" alt="" width="26" height="26" loading="lazy">OpenLayers</a>
-          </div>
-          <p class="usecase-note">Standard <a class="link" href="https://github.com/mapbox/vector-tile-spec">Vector Tiles</a> and <a class="link" href="https://maplibre.org/maplibre-style-spec/">GL Styles</a>.</p>
-        </article>
-        <article class="usecase" data-reveal style="--d:1">
-          <span class="usecase-num">02</span>
-          <h3 class="h3">Web map services</h3>
-          <p>Serve the tiles, or the styled map as WMS/WMTS, from your server.</p>
-          <div class="chips">
-            <a class="chip" href="https://geoserver.org/"><img src="icons/geoserver.png" alt="" width="26" height="26" loading="lazy">GeoServer*</a>
-            <a class="chip" href="https://github.com/maptiler/tileserver-gl"><img src="icons/tileserver-gl.png" alt="" width="26" height="26" loading="lazy">TileServer GL</a>
-            <a class="chip" href="https://maplibre.org/martin/"><img src="icons/martin.png" alt="" width="26" height="26" loading="lazy">Martin</a>
-          </div>
-          <p class="usecase-note">* With the <a class="link" href="https://geoserver.org/geoserver/en/user/community/pmtiles-store">PMTiles</a> and <a class="link" href="https://docs.geoserver.org/stable/en/user/styling/mbstyle/index.html">MBStyle</a> extensions.</p>
-        </article>
-        <article class="usecase" data-reveal style="--d:2">
-          <span class="usecase-num">03</span>
-          <h3 class="h3">Publish anywhere</h3>
-          <p>A folder of plain files. Upload it anywhere and share the link.</p>
-          <div class="chips stacked">
-            <a class="chip" href="https://pages.github.com/"><span class="chip-glyph"><svg><use href="#i-github"/></svg></span>GitHub Pages</a>
-            <span class="chip"><span class="chip-glyph"><svg><use href="#i-globe"/></svg></span>Any web host</span>
-          </div>
-          <p class="usecase-note">One <a class="link" href="https://docs.protomaps.com/pmtiles/">PMTiles</a> file, over plain HTTP.</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
 </main>
 
 <!-- 6 · Download + footer, one screen ----------------------------------- -->
@@ -415,10 +415,10 @@
         </div>
         <nav class="footer-col" aria-label="Product">
           <h2>Product</h2>
-          <a href="#features">Features</a>
           <a href="#demos">Gallery</a>
-          <a href="#how-it-works">How it works</a>
+          <a href="#features">Features</a>
           <a href="#use-cases">Use cases</a>
+          <a href="#how-it-works">How it works</a>
         </nav>
         <nav class="footer-col" aria-label="Resources">
           <h2>Resources</h2>
@@ -458,9 +458,9 @@
   <div class="dialog-inner"></div>
 </dialog>
 
-<script src="assets/site.js?v=4.2.3" defer></script>
-<script src="assets/home.js?v=4.2.3" defer></script>
+<script src="assets/site.js?v=4.2.4" defer></script>
+<script src="assets/home.js?v=4.2.4" defer></script>
 <script src="assets/vendor/js-yaml.min.js" defer></script>
-<script src="assets/gallery.js?v=4.2.3" defer></script>
+<script src="assets/gallery.js?v=4.2.4" defer></script>
 </body>
 </html>
