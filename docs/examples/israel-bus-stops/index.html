@@ -72,6 +72,18 @@
                 link.href = href;
                 document.head.appendChild(link);
             });
+            // Asked for now, together, rather than one after the other as
+            // bundle.js gets to them: MapLibre's own file (which bundle.js
+            // imports) and the style. On a slow connection each wait adds up.
+            var preload = function (rel, href, as) {
+                var link = document.createElement('link');
+                link.rel = rel;
+                link.href = href;
+                if (as) { link.as = as; link.crossOrigin = 'anonymous'; }
+                document.head.appendChild(link);
+            };
+            if (viewer === 'ml') preload('modulepreload', 'ml/maplibre-gl.mjs');
+            preload('preload', config.styleUrl, 'fetch');
         })();
     </script>
 </head>

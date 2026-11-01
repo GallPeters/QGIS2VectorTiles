@@ -997,9 +997,10 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
   border-radius: var(--radius-l);
   background: var(--surface);
   overflow: hidden;
-  transition: border-color 0.25s;
+  transition: border-color 0.25s, box-shadow 0.25s;
 }
-.webmap:not(.is-soon):hover { border-color: var(--brand-line); }
+/* On hover, a slightly thicker frame (a shadow, so nothing moves). */
+.webmap:not(.is-soon):hover { border-color: var(--brand-line); box-shadow: 0 0 0 1px var(--brand-line); }
 .webmap-window { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
 .webmap-window .window-bar { height: 34px; padding: 0 12px; gap: 6px; }
 .webmap-window .window-bar i { width: 9px; height: 9px; }
@@ -1065,9 +1066,9 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .webmap-tags li {
   padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(152, 176, 35, 0.2);
+  background: var(--brand-soft);
   font-size: 12px;
-  color: var(--text);
+  color: var(--brand-hi);
 }
 .webmap-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 4px; }
 .webmap-actions .btn { flex: 1 1 auto; justify-content: center; }
