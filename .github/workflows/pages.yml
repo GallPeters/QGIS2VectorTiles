@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read
   pages: write
   id-token: write
 
@@ -35,5 +36,18 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
+      # An earlier deployment that never finished blocks every later one
+      # ("in progress deployment"). Runs wait for each other (above), so
+      # any earlier one still in progress here is stuck: cancel it.
+      - name: Cancel stuck earlier deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for sha in $(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=10" --jq '.[].sha' | sort -u); do
+            [ "$sha" = "$GITHUB_SHA" ] && continue
+            if gh api -X POST "repos/$GITHUB_REPOSITORY/pages/deployments/$sha/cancel" > /dev/null 2>&1; then
+              echo "Cancelled the deployment of $sha"
+            fi
+          done
       - id: deployment
         uses: actions/deploy-pages@v4
