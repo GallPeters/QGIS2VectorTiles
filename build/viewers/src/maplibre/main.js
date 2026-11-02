@@ -31,6 +31,9 @@ maplibregl.addProtocol('pmtiles', protocol.tile);
 const map = new maplibregl.Map({
     container: 'map',
     style,
+    // Labels fade in over half MapLibre's default (300 ms): smooth, and each
+    // move finishes sooner (the fade is much of the wait after a move).
+    fadeDuration: 150,
     // The map's credits: the background's (each basemap source's), MapLibre's
     // and the plugin's.
     attributionControl: {
