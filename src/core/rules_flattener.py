@@ -48,7 +48,8 @@ from ..utils.config import QDomDocument
 from ..utils.flattened_rule import (
     FlattenedRule, MARKER_ALL_VERTICES, MARKER_CENTRAL_POINT, MARKER_FIRST_VERTEX,
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, OFFSET_PROPERTY,
-    HEATMAP_PROPERTY, CLUSTER_PROPERTY, DISPLACEMENT_LABEL_PROPERTY, displacement_label_settings,
+    HEATMAP_PROPERTY, CLUSTER_PROPERTY, DISPLACEMENT_LABEL_PROPERTY, cluster_settings,
+    displacement_label_settings,
 )
 from ..utils.zoom_levels import ZoomLevels
 # Registers the q2vt_* expression functions the rules' geometry generators call.
@@ -826,10 +827,12 @@ class RulesFlattener:
             for remove_idx in reversed(range(layer_count)):
                 if remove_idx != layer_idx:
                     clone_symbol.deleteSymbolLayer(remove_idx)
-            if layer_idx != bottom_idx:
+            if layer_idx != bottom_idx and not (layer_type == "FontMarker" and cluster_settings(clone_symbol)):
                 # The symbol's buffer, which QGIS draws once around the whole
                 # symbol: kept by its bottom layer alone (most often holding
                 # the others), not around each (a halo filling an SVG's holes).
+                # A cluster's count keeps it: drawn below the symbol where
+                # the count is wider (QgisMapLibreStyleExporter._cluster_count_buffer).
                 self._without_buffer(clone_symbol)
 
             clone_symbol_layer = clone_symbol.symbolLayers()[0]

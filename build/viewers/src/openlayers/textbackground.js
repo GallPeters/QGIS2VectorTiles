@@ -5,7 +5,9 @@
 // small sprite size. The style gives such layers their box in metadata
 // ("q2vt:text-background": fill, stroke, stroke-width, padding), which
 // OpenLayers draws as the text's own background instead of the icon: a
-// rectangle (rounded corners and ellipses are MapLibre's only).
+// rectangle (rounded corners and ellipses are MapLibre's only). A buffer
+// drawn as a shape (its "halo": how far it reaches around the letters) is
+// drawn as the text's outline instead, as QGIS draws it.
 
 import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
@@ -20,7 +22,9 @@ export function applyTextBackgrounds(olLayer, style) {
     style.layers.forEach((layer, index) => {
         const box = layer.metadata?.['q2vt:text-background'];
         if (box) {
-            boxes[index] = {
+            boxes[index] = box.halo ? {
+                halo: new Stroke({ color: box.fill, width: box.halo * 2 }),
+            } : {
                 fill: new Fill({ color: box.fill }),
                 stroke: box['stroke-width'] > 0
                     ? new Stroke({ color: box.stroke, width: box['stroke-width'] }) : undefined,
@@ -38,10 +42,14 @@ export function applyTextBackgrounds(olLayer, style) {
             const box = boxes[Math.floor(olStyle.getZIndex() ?? NaN)];
             const text = olStyle.getText();
             if (!box || !text) continue;
+            olStyle.setImage(undefined);
+            if (box.halo) {
+                text.setStroke(box.halo);
+                continue;
+            }
             text.setBackgroundFill(box.fill);
             text.setBackgroundStroke(box.stroke);
             text.setPadding(box.padding);
-            olStyle.setImage(undefined);
         }
         return styles;
     });

@@ -1923,18 +1923,26 @@ class TextPropertyExtractor:
         reach = width / 2
         if reach <= TextPropertyExtractor._HALO_MAX_EM * size:
             return None
+        color = QColor(buffer.color())
+        color.setAlphaF(color.alphaF() * buffer.opacity())
+        return TextPropertyExtractor.buffer_shape(
+            reach, size, text_format.font(), TextPropertyExtractor.get_text_line_height(text_format), color)
+
+    @staticmethod
+    def buffer_shape(reach: float, size: float, font: QFont, line_height: float,
+                     color: QColor) -> Tuple[QgsTextBackgroundSettings, List[float]]:
+        """A buffer reaching ``reach`` pixels around the letters of a text
+        ``size`` pixels in ``font`` (lines ``line_height`` ems apart) as a
+        rounded background in ``color``, and its icon-text-fit-padding."""
         # MapLibre's text box is a line height tall, the letters (capitals
         # and digits: their cap height) in its middle: the padding is less
         # than nothing where the buffer is lower.
-        font = QFont(text_format.font())
+        font = QFont(font)
         font.setPixelSize(100)
         cap_height = QFontMetricsF(font).capHeight() / 100 * size
-        line_height = TextPropertyExtractor.get_text_line_height(text_format) * size
-        padding_y = reach - (line_height - cap_height) / 2
+        padding_y = reach - (line_height * size - cap_height) / 2
         # Round ends; the sprite's corners (radius + 2 px) fit in its height.
         radius = max((cap_height / 2 + reach) - 3, 0.0)
-        color = QColor(buffer.color())
-        color.setAlphaF(color.alphaF() * buffer.opacity())
         background = QgsTextBackgroundSettings()
         background.setEnabled(True)
         background.setType(QgsTextBackgroundSettings.ShapeType.ShapeRectangle)
@@ -2897,6 +2905,56 @@ class QgisMapLibreStyleExporter:
         }
         return layer_def
 
+    def _cluster_count_buffer(self, symbol, font_marker, count_layer: dict) -> Optional[dict]:
+        """The cluster symbol's buffer (QgsSymbolBufferSettings) around its
+        count, which QGIS draws once around the whole symbol: the count in
+        the buffer's colour with a halo, or, reaching further than a halo
+        can, a rounded shape (TextPropertyExtractor.buffer_shape), to be
+        drawn below the cluster's other layers; None without a buffer. The
+        symbol's bottom layer draws the buffer around itself (its sprite)."""
+        try:
+            buffer = symbol.bufferSettings()
+            if buffer is None or not buffer.enabled():
+                return None
+            # A symbol buffer reaches its whole size around the symbol.
+            reach = PropertyExtractor.length_to_style_value(
+                buffer.size(), buffer.sizeUnit(), buffer.sizeMapUnitScale())
+            fill = buffer.fillSymbol()
+            color = QColor(fill.color()) if fill is not None else QColor("white")
+            if fill is not None:
+                color.setAlphaF(color.alphaF() * fill.opacity())
+        except (AttributeError, RuntimeError, TypeError):
+            return None
+        size = count_layer["layout"]["text-size"]
+        if not isinstance(reach, (int, float)) or reach <= 0:
+            return None
+        size_px = size if isinstance(size, (int, float)) and size > 0 else 16.0
+        cap = TextPropertyExtractor._HALO_MAX_EM * size_px
+        css = PropertyExtractor.convert_qcolor_to_maplibre(color)
+        layer_def = copy.deepcopy(count_layer)
+        layer_def["id"] = f"{count_layer['id']}_buffer"
+        layer_def["paint"] = {"text-color": css, "text-halo-color": css, "text-halo-width": min(reach, cap)}
+        if reach <= cap:
+            return layer_def
+        font = QFont(font_marker.fontFamily())
+        if hasattr(font_marker, "fontStyle") and font_marker.fontStyle():
+            font.setStyleName(font_marker.fontStyle())
+        background, padding = TextPropertyExtractor.buffer_shape(reach, size_px, font, 1.2, color)
+        name, text_fit, _, box = self._label_shape(background, 0)
+        if not name:
+            return layer_def
+        # The shape draws the buffer (a halo that wide shows its letters' boxes);
+        # OpenLayers outlines the text (see textbackground.js).
+        box.update(padding=padding, halo=round(reach, 2))
+        layer_def["paint"].pop("text-halo-color")
+        layer_def["paint"].pop("text-halo-width")
+        layer_def["layout"].update({
+            "icon-image": name, "icon-text-fit": text_fit, "icon-text-fit-padding": padding,
+            "icon-allow-overlap": True, "icon-ignore-placement": True,
+        })
+        layer_def["metadata"] = dict(layer_def.get("metadata") or {}, **{"q2vt:text-background": box})
+        return layer_def
+
     def _heatmap_layer(self, symbol_layer: QgsSymbolLayer, layer_def: dict, dataset: str) -> Optional[dict]:
         """A heatmap renderer's placeholder marker (see HEATMAP_PROPERTY) as a
         MapLibre ``heatmap`` layer: its radius, its colour ramp along the
@@ -3152,7 +3210,16 @@ class QgisMapLibreStyleExporter:
             if isinstance(symbol_layer, QgsFontMarkerSymbolLayer):
                 # The cluster's count, as QGIS's default cluster symbol draws
                 # it (a font marker of @cluster_size).
-                self.style["layers"].append(self._cluster_count_layer(symbol_layer, layer_def))
+                count = self._cluster_count_layer(symbol_layer, layer_def)
+                buffer = self._cluster_count_buffer(symbol, symbol_layer, count)
+                if buffer is not None:
+                    # Below the cluster's layers drawn so far (its bottom ones).
+                    layers = self.style["layers"]
+                    below = next((i for i, layer in enumerate(layers)
+                                  if layer.get("source-layer") == count.get("source-layer")
+                                  and "q2vt:cluster" in (layer.get("metadata") or {})), len(layers))
+                    layers.insert(below, buffer)
+                self.style["layers"].append(count)
                 return
         sprite_symbol, ground_icon_size = self._sprite_marker(symbol)
         marker_name = self._register_sprite(sprite_symbol, "marker")
@@ -3812,7 +3879,7 @@ class QgisMapLibreStyleExporter:
             # A buffer wider than the halo: drawn behind the text instead
             # (a halo that wide shows its letters' boxes around the shape).
             name, text_fit, _, box = shape
-            box["padding"] = wide_buffer[1]
+            box.update(padding=wide_buffer[1], halo=wide_buffer[1][1])
             layer_def["paint"]["text-halo-width"] = 0
             self._apply_icon_from_background(layer_def, wide_buffer[0], style_name,
                                              (name, text_fit, wide_buffer[1], box))
