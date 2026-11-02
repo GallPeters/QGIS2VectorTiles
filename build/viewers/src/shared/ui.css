@@ -23,7 +23,7 @@ body { font-family: var(--q2vt-font); }
 .q2vt-top-left {
     position: absolute; top: 10px; left: 10px; z-index: 5;
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
-    width: min(330px, calc(100vw - 72px));
+    width: min(270px, calc(100vw - 72px));
 }
 /* The zoom level is a card as tall as the search bar: with the settings
    card below, the three make one rectangle. */
@@ -75,7 +75,7 @@ body { font-family: var(--q2vt-font); }
 /* Segmented control */
 .q2vt-segmented { display: flex; padding: 2px; border-radius: 7px; background: #f3f4f6; }
 .q2vt-segment {
-    padding: 4px 9px; border: 0; border-radius: 5px; background: transparent;
+    padding: 4px 7px; border: 0; border-radius: 5px; background: transparent;
     font: 600 12px var(--q2vt-font); color: #4b5563; white-space: nowrap; cursor: pointer;
 }
 .q2vt-segment:hover { color: var(--q2vt-text); }

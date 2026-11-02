@@ -8,6 +8,7 @@ import re
 from os.path import join
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from qgis.PyQt.QtCore import QSizeF
 from qgis.PyQt.QtGui import QColor, QFont, QFontMetrics, QFontMetricsF
 from ..utils.config import Qt
 from qgis.core import (
@@ -1891,6 +1892,63 @@ class TextPropertyExtractor:
         return width
 
     @staticmethod
+    def wide_buffer_background(
+        text_format: QgsTextFormat,
+        label_settings: QgsPalLayerSettings = None,
+    ) -> Optional[Tuple[QgsTextBackgroundSettings, List[float]]]:
+        """A label buffer reaching further than MapLibre's halo can
+        (get_text_halo_width) as a rounded background in its colour, and its
+        icon-text-fit-padding: as far around the letters as QGIS draws the
+        buffer. None for a buffer the halo draws, or one whose size or
+        colour varies by feature."""
+        buffer = text_format.buffer()
+        if not buffer.enabled():
+            return None
+        try:
+            props = label_settings.dataDefinedProperties() if label_settings is not None else None
+            for key in (QgsPalLayerSettings.Property.BufferSize, QgsPalLayerSettings.Property.BufferColor):
+                prop = props.property(key) if props is not None else None
+                if prop and prop.isActive():
+                    return None
+            width = PropertyExtractor.length_to_style_value(
+                buffer.size(), buffer.sizeUnit(), buffer.sizeMapUnitScale()
+            )
+        except (AttributeError, RuntimeError):
+            return None
+        size = TextPropertyExtractor.get_text_size_px(text_format)
+        if not isinstance(width, (int, float)):
+            return None
+        # QGIS strokes the letters' outline with a pen as wide as the buffer:
+        # half of it outside.
+        reach = width / 2
+        if reach <= TextPropertyExtractor._HALO_MAX_EM * size:
+            return None
+        # MapLibre's text box is a line height tall, the letters (capitals
+        # and digits: their cap height) in its middle: the padding is less
+        # than nothing where the buffer is lower.
+        font = QFont(text_format.font())
+        font.setPixelSize(100)
+        cap_height = QFontMetricsF(font).capHeight() / 100 * size
+        line_height = TextPropertyExtractor.get_text_line_height(text_format) * size
+        padding_y = reach - (line_height - cap_height) / 2
+        # Round ends; the sprite's corners (radius + 2 px) fit in its height.
+        radius = max((cap_height / 2 + reach) - 3, 0.0)
+        color = QColor(buffer.color())
+        color.setAlphaF(color.alphaF() * buffer.opacity())
+        background = QgsTextBackgroundSettings()
+        background.setEnabled(True)
+        background.setType(QgsTextBackgroundSettings.ShapeType.ShapeRectangle)
+        background.setSizeType(QgsTextBackgroundSettings.SizeType.SizeBuffer)
+        background.setSizeUnit(Qgis.RenderUnit.Pixels)
+        background.setRadii(QSizeF(radius, radius))
+        background.setRadiiUnit(Qgis.RenderUnit.Pixels)
+        background.setFillColor(color)
+        background.setStrokeColor(QColor(0, 0, 0, 0))
+        background.setStrokeWidth(0)
+        background.setStrokeWidthUnit(Qgis.RenderUnit.Pixels)
+        return background, [round(padding_y, 2), round(reach, 2), round(padding_y, 2), round(reach, 2)]
+
+    @staticmethod
     def get_text_halo_blur(
         text_format: QgsTextFormat,
         label_settings: QgsPalLayerSettings = None,
@@ -3749,6 +3807,15 @@ class QgisMapLibreStyleExporter:
             moving = TextPropertyExtractor.moving_balloon(label_settings, geometry_type)
             self._apply_icon_from_background(layer_def, background, style_name,
                                              self._balloon_shape(label_settings, layer_def, moving))
+        elif (wide_buffer := TextPropertyExtractor.wide_buffer_background(label_format, label_settings)) and \
+                (shape := self._label_shape(wide_buffer[0], 0))[0]:
+            # A buffer wider than the halo: drawn behind the text instead
+            # (a halo that wide shows its letters' boxes around the shape).
+            name, text_fit, _, box = shape
+            box["padding"] = wide_buffer[1]
+            layer_def["paint"]["text-halo-width"] = 0
+            self._apply_icon_from_background(layer_def, wide_buffer[0], style_name,
+                                             (name, text_fit, wide_buffer[1], box))
         else:
             self._apply_default_icon_props(layer_def)
 

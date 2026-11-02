@@ -1,4 +1,4 @@
-# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.2).
+# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.3).
 #
 # Rendered by assets/guide.js on compatibility.html. Each property:
 #   qgis_prop      the QGIS setting, as named in the QGIS interface
@@ -526,7 +526,7 @@ categories:
         maplibre_prop: "text-halo-width"
         supported: "Partial"
         data_driven: "Yes"
-        notes: "Exact up to a fifth of the text size, the widest halo MapLibre draws cleanly; wider buffers are capped."
+        notes: "A halo up to a fifth of the text size, the widest MapLibre draws cleanly; a wider buffer is drawn as a rounded shape behind the text, as far around the letters as QGIS draws it (OpenLayers: a rectangle)."
       - qgis_prop: "Buffer color"
         maplibre_prop: "text-halo-color"
         supported: "Yes"
