@@ -115,7 +115,7 @@ categories:
         maplibre_prop: "symbol (per zoom level)"
         supported: "Yes"
         data_driven: "No"
-        notes: "Points close together at each zoom level become one cluster symbol with its count (QGIS's default symbol: a circle and the number) at their centre, the others are drawn with the renderer inside it. Points are grouped as QGIS groups them: by distance, in drawing order. The cluster symbol's buffer surrounds its count too, where the number is wider than the symbol."
+        notes: "Points close together at each zoom level become one cluster symbol with its count (QGIS's default symbol: a circle and the number) at their centre, the others are drawn with the renderer inside it. Points are grouped as QGIS groups them: by distance, in drawing order. The cluster symbol's buffer surrounds its count too, where the number is wider than the symbol. A symbol layer's size depending on @cluster_size alone follows each cluster's count."
       - qgis_prop: "Inverted polygons"
         maplibre_prop: "fill (extent minus the polygons)"
         supported: "Yes"

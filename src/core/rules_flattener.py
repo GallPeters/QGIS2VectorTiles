@@ -27,6 +27,8 @@ from qgis.core import (
     QgsReadWriteContext,
     QgsRenderContext,
     QgsExpression,
+    QgsExpressionContext,
+    QgsExpressionContextScope,
     QgsExpressionNode,
     QgsSimpleLineSymbolLayer,
     QgsFillSymbol,
@@ -278,10 +280,71 @@ class RulesFlattener:
         }
         # On every symbol layer: each becomes a rule of its own.
         for index in range(symbol.symbolLayerCount()):
-            symbol.symbolLayer(index).setDataDefinedProperty(
-                CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps(settings), False))
+            symbol_layer = symbol.symbolLayer(index)
+            layer_settings = dict(settings)
+            sizes = self._cluster_sizes(symbol_layer)
+            if sizes is not None:
+                # Drawn by cluster size (the tiles' q2vt_cluster_size) instead.
+                layer_settings["sizes"] = sizes
+                size_prop = QgsProperty(symbol_layer.dataDefinedProperties().property(
+                    QgsSymbolLayer.Property.PropertySize))
+                size_prop.setActive(False)
+                symbol_layer.setDataDefinedProperty(QgsSymbolLayer.Property.PropertySize, size_prop)
+            symbol_layer.setDataDefinedProperty(
+                CLUSTER_PROPERTY, QgsProperty.fromValue(json.dumps(layer_settings), False))
         rules.rootRule().appendChild(QgsRuleBasedRenderer.Rule(symbol))
         return rules
+
+    # Most sizes a cluster symbol layer is drawn at, one sprite each; beyond
+    # it the size is interpolated between samples (a scaled icon).
+    _MAX_CLUSTER_SIZE_STEPS = 24
+
+    @classmethod
+    def _cluster_sizes(cls, symbol_layer) -> Optional[dict]:
+        """A cluster symbol layer's data-defined size depending on
+        @cluster_size alone, which the points it would be evaluated on don't
+        have, by cluster size: {"steps": [[from size, value], ...]} (each
+        value up to the next), or {"stops": [[size, value], ...]} to
+        interpolate between when it takes too many values; None for any
+        other size."""
+        prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertySize)
+        if prop is None or not prop.isActive():
+            return None
+        expression = QgsExpression(prop.asExpression())
+        if expression.hasParserError() or "cluster_size" not in expression.referencedVariables()                 or expression.referencedColumns():
+            return None
+        scope = QgsExpressionContextScope()
+        context = QgsExpressionContext()
+        context.appendScope(scope)
+        expression.prepare(context)
+
+        def value(count: int):
+            scope.setVariable("cluster_size", count)
+            result = expression.evaluate(context)
+            try:
+                return round(float(result), 4)
+            except (TypeError, ValueError):
+                return None
+
+        samples = sorted({*range(1, 101), *(m * 10 ** k for k in range(2, 7) for m in (1, 2, 5)),
+                          *(10 ** k - 1 for k in range(3, 8)), 10 ** 7})
+        values = [value(n) for n in samples]
+        if any(v is None for v in values):
+            return None
+        steps = [[1, values[0]]]
+        for start, end, end_value in zip(samples, samples[1:], values[1:]):
+            while steps[-1][1] != end_value:
+                low, high = max(start, steps[-1][0]), end
+                while high - low > 1:  # The first count past low the value changes at.
+                    middle = (low + high) // 2
+                    if value(middle) == steps[-1][1]:
+                        low = middle
+                    else:
+                        high = middle
+                steps.append([high, value(high)])
+                if len(steps) > cls._MAX_CLUSTER_SIZE_STEPS:
+                    return {"stops": [[n, v] for n, v in zip(samples, values)]}
+        return {"steps": steps}
 
     def _displacement_rules(self, displacement):
         """A point displacement renderer as its own renderer's rules (each

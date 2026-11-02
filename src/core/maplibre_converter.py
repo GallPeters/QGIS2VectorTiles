@@ -2895,7 +2895,10 @@ class QgisMapLibreStyleExporter:
         layer_def["layout"] = {
             "text-field": ["to-string", ["get", CLUSTER_SIZE_FIELD]],
             "text-font": [key],
-            "text-size": PropertyExtractor.length_to_style_value(font_marker.size(), font_marker.sizeUnit()),
+            "text-size": self._by_cluster_size(
+                (layer_def.get("metadata") or {}).get("q2vt:cluster_sizes"),
+                lambda size: PropertyExtractor.length_to_style_value(size, font_marker.sizeUnit()),
+                PropertyExtractor.length_to_style_value(font_marker.size(), font_marker.sizeUnit())),
             "text-allow-overlap": True,
             "text-ignore-placement": True,
             "visibility": "visible",
@@ -2904,6 +2907,33 @@ class QgisMapLibreStyleExporter:
             "text-color": PropertyExtractor.convert_qcolor_to_maplibre(font_marker.color()),
         }
         return layer_def
+
+    @staticmethod
+    def _by_cluster_size(sizes: Optional[dict], convert, default):
+        """A value by the cluster's size (q2vt_cluster_size), from a cluster
+        symbol layer's sizes (RulesFlattener._cluster_sizes) each turned
+        into a style value by ``convert``: a step, or an interpolation;
+        ``default`` without sizes or for sizes that vary by zoom."""
+        if not sizes:
+            return default
+        count = ["get", CLUSTER_SIZE_FIELD]
+        if "steps" in sizes:
+            values = [(n, convert(v)) for n, v in sizes["steps"]]
+            if not all(isinstance(v, (int, float, str)) for _, v in values):  # Numbers or sprites.
+                return default
+            if len(values) == 1:
+                return values[0][1]
+            expression = ["step", count, values[0][1]]
+            for n, v in values[1:]:
+                expression += [n, v]
+            return expression
+        values = [(n, convert(v)) for n, v in sizes.get("stops", [])]
+        if len(values) < 2 or not all(isinstance(v, (int, float)) for _, v in values):
+            return default
+        expression = ["interpolate", ["linear"], count]
+        for n, v in values:
+            expression += [n, v]
+        return expression
 
     def _cluster_count_buffer(self, symbol, font_marker, count_layer: dict) -> Optional[dict]:
         """The cluster symbol's buffer (QgsSymbolBufferSettings) around its
@@ -3207,10 +3237,13 @@ class QgisMapLibreStyleExporter:
         cluster = cluster_settings(symbol)
         if cluster is not None:
             layer_def["metadata"] = {"q2vt:cluster": self._cluster_distance(cluster)}
+            if cluster.get("sizes"):  # Read below, not written to the style.
+                layer_def["metadata"]["q2vt:cluster_sizes"] = cluster["sizes"]
             if isinstance(symbol_layer, QgsFontMarkerSymbolLayer):
                 # The cluster's count, as QGIS's default cluster symbol draws
                 # it (a font marker of @cluster_size).
                 count = self._cluster_count_layer(symbol_layer, layer_def)
+                count["metadata"] = {k: v for k, v in count["metadata"].items() if k != "q2vt:cluster_sizes"}
                 buffer = self._cluster_count_buffer(symbol, symbol_layer, count)
                 if buffer is not None:
                     # Below the cluster's layers drawn so far (its bottom ones).
@@ -3227,6 +3260,9 @@ class QgisMapLibreStyleExporter:
 
         if cluster is not None:  # Clusters are drawn, all of them, as QGIS does.
             layer_def["layout"].update({"icon-allow-overlap": True, "icon-ignore-placement": True})
+            marker_name, cluster_icon_size = self._cluster_sized_marker(
+                sprite_symbol, layer_def["metadata"].pop("q2vt:cluster_sizes", None), marker_name)
+            ground_icon_size = cluster_icon_size or ground_icon_size
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": ground_icon_size or IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
@@ -3256,6 +3292,25 @@ class QgisMapLibreStyleExporter:
         })
 
         self.style["layers"].append(layer_def)
+
+    def _cluster_sized_marker(self, sprite_symbol: QgsSymbol, sizes: Optional[dict], name: str) -> tuple:
+        """(icon-image, icon-size or None) of a cluster symbol layer sized by
+        the cluster's size (RulesFlattener._cluster_sizes): a sprite per size,
+        its stroke as wide as QGIS draws it, or the icon scaled between
+        sizes when there are too many."""
+        if not sizes:
+            return name, None
+        symbol_layer = sprite_symbol.symbolLayer(0)
+        if "steps" in sizes:
+            def sized(size):
+                symbol = sprite_symbol.clone()
+                symbol.symbolLayer(0).setSize(size)
+                return self._register_sprite(symbol, "marker")
+            return self._by_cluster_size(sizes, sized, name) if len(sizes["steps"]) > 1                 else sized(sizes["steps"][0][1]), None
+        base = symbol_layer.size()
+        if not base or base <= 0:
+            return name, None
+        return name, self._by_cluster_size(sizes, lambda size: size / base / _SPRITE_QUALITY, None)
 
     # Properties drawn into a marker's sprite that the style applies itself
     # (icon-size, icon-rotate) or that aren't part of its look.
