@@ -1,35 +1,84 @@
 {
   "marker_0": {
-    "x": 2,
+    "x": 82,
     "y": 5,
-    "width": 16,
-    "height": 16,
+    "width": 20,
+    "height": 20,
     "pixelRatio": 1
   },
   "marker_1": {
-    "x": 20,
-    "y": 11,
-    "width": 4,
-    "height": 4,
+    "x": 104,
+    "y": 10,
+    "width": 14,
+    "height": 10,
     "pixelRatio": 1
   },
   "marker_2": {
-    "x": 26,
-    "y": 2,
-    "width": 22,
-    "height": 22,
+    "x": 120,
+    "y": 3,
+    "width": 24,
+    "height": 24,
     "pixelRatio": 1
   },
   "marker_3": {
-    "x": 2,
-    "y": 37,
-    "width": 14,
-    "height": 8,
+    "x": 146,
+    "y": 2,
+    "width": 26,
+    "height": 26,
     "pixelRatio": 1
   },
-  "balloon_4": {
-    "x": 18,
-    "y": 26,
+  "marker_4": {
+    "x": 34,
+    "y": 41,
+    "width": 34,
+    "height": 34,
+    "pixelRatio": 1
+  },
+  "marker_5": {
+    "x": 70,
+    "y": 37,
+    "width": 42,
+    "height": 42,
+    "pixelRatio": 1
+  },
+  "marker_6": {
+    "x": 114,
+    "y": 34,
+    "width": 48,
+    "height": 48,
+    "pixelRatio": 1
+  },
+  "marker_7": {
+    "x": 164,
+    "y": 30,
+    "width": 56,
+    "height": 56,
+    "pixelRatio": 1
+  },
+  "marker_8": {
+    "x": 2,
+    "y": 96,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "marker_9": {
+    "x": 68,
+    "y": 92,
+    "width": 72,
+    "height": 72,
+    "pixelRatio": 1
+  },
+  "marker_10": {
+    "x": 142,
+    "y": 88,
+    "width": 80,
+    "height": 80,
+    "pixelRatio": 1
+  },
+  "balloon_11": {
+    "x": 224,
+    "y": 113,
     "width": 29,
     "height": 30,
     "pixelRatio": 1,

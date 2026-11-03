@@ -42,18 +42,18 @@ examples:
     project: { url: "", size: null }
 
   - id: israel-bus-stops
-    title: Jerusalem Bus Stops
+    title: Israel Bus Stops
     extent:
-      name: Jerusalem
-      bounds: [35.120, 31.702, 35.288, 31.869]
-    zooms: [12, 21]
-    layers: 1
+      name: Israel
+      bounds: [34.285, 29.494, 35.839, 33.282]
+    zooms: [0, 19]
+    layers: 2
     size:
       original: 42
-      output: 3.4
+      output: 9.9
     description: >-
-      Every Jerusalem bus stop as a sign listing its lines, styled in QGIS
-      from GTFS data.
+      Every bus stop in Israel as a sign listing its lines, in clusters
+      when zoomed out, styled in QGIS from GTFS data.
     tags: [Balloon callouts, Geometry generators, Hebrew labels]
     image: gallery/israel-bus-stops.webp
     webmap: examples/israel-bus-stops/
