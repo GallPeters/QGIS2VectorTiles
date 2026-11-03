@@ -36,7 +36,7 @@ export function createSegmented({ label, options, current, onChoose }) {
                 render();
                 onChoose(option.id);
             },
-        }, option.label)));
+        }, option.badge ? [option.label, el('span', { class: 'q2vt-badge' }, option.badge)] : option.label)));
     }
     render();
     return { element: group };

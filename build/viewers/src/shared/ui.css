@@ -75,6 +75,7 @@ body { font-family: var(--q2vt-font); }
 /* Segmented control */
 .q2vt-segmented { display: flex; padding: 2px; border-radius: 7px; background: #f3f4f6; }
 .q2vt-segment {
+    position: relative;
     padding: 4px 7px; border: 0; border-radius: 5px; background: transparent;
     font: 600 12px var(--q2vt-font); color: #4b5563; white-space: nowrap; cursor: pointer;
 }
@@ -83,10 +84,12 @@ body { font-family: var(--q2vt-font); }
     background: #ffffff; color: var(--q2vt-accent); cursor: default;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
 }
-/* "Recommended", under an option's name */
+/* "Recommended", above an option (in the gap between rows): the option
+   as tall as the others. */
 .q2vt-badge {
-    display: block; margin-top: 1px;
-    font: 600 9px var(--q2vt-font); letter-spacing: 0.02em; color: #15803d;
+    position: absolute; left: 50%; bottom: calc(100% + 3px); transform: translateX(-50%);
+    font: 600 9px/1 var(--q2vt-font); letter-spacing: 0.02em; color: #15803d;
+    white-space: nowrap; pointer-events: none;
 }
 .q2vt-toggle:focus-visible, .q2vt-segment:focus-visible, .q2vt-panel-head:focus-visible {
     outline: 2px solid var(--q2vt-accent); outline-offset: 1px;

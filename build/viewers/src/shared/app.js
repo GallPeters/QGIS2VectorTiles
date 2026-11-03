@@ -119,7 +119,8 @@ export async function startViewer(map, config) {
         label: 'Viewer',
         options: VIEWERS.map(([id, name, recommended]) => ({
             id,
-            label: recommended ? [name, el('span', { class: 'q2vt-badge' }, 'Recommended')] : name,
+            label: name,
+            badge: recommended ? 'Recommended' : undefined,
             title: `Show this map with ${name}${recommended ? ' (recommended: draws everything the export makes)' : ''}`,
         })),
         current: config.viewer,
@@ -128,10 +129,11 @@ export async function startViewer(map, config) {
     const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b), initial: config.basemap });
     const mapOnly = createMapOnly();
     const settings = createSettingsPanel([
+        // The two switches, then the two choices.
         settingsRow('Popups', popupToggle.element),
+        settingsRow('Map only', mapOnly.toggle),
         settingsRow('Viewer', viewerControl.element),
         settingsRow('Background', basemaps.element),
-        settingsRow('Map only', mapOnly.toggle),
     ]);
 
     const search = createSearch({
