@@ -1047,7 +1047,8 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 .webmap .h3 { font-size: clamp(18px, 2.4vh, 21px); }
 /* The facts share one row. */
-.webmap-stats { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text-2); }
+/* One row; on the narrowest screens it wraps rather than cutting a fact off. */
+.webmap-stats { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 6px; font-size: 13px; color: var(--text-2); }
 .webmap-stats li { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .webmap-stats li[title] { cursor: help; }
 .webmap-stats svg { flex: none; width: 14px; height: 14px; color: var(--brand-hi); }

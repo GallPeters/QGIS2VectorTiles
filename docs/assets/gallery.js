@@ -121,7 +121,9 @@
     // The preview, in a window frame like the hero's.
     var win = el('figure', 'window webmap-window');
     var bar = el('div', 'window-bar');
-    bar.append(el('i'), el('i'), el('i'), el('span', null, soon ? 'New example' : extent.name ? ex.title + ' · ' + extent.name : ex.title));
+    var place = el('span', null, soon ? 'New example' : extent.name ? ex.title + ' · ' + extent.name : ex.title);
+    if (extent.bounds) place.title = coords(extent.bounds);  // Where, on hover.
+    bar.append(el('i'), el('i'), el('i'), place);
     [].forEach.call(bar.querySelectorAll('i'), function (i) { i.setAttribute('aria-hidden', 'true'); });
     var map = el('div', 'live-map webmap-map');
     if (soon) {
@@ -157,11 +159,12 @@
       stats.appendChild(li);
       return li;
     };
-    // One row: where, which zooms, how many layers, and how much smaller
-    // the web map is than the project's data (the sizes on hover).
-    if (extent.name) stat('globe', extent.name, extent.bounds ? coords(extent.bounds) : null);
+    // One row: which zooms, how many layers, how long it took to make, and
+    // how much smaller the web map is than the project's data (the sizes on
+    // hover). Where it is: in the window bar above.
     if (ex.zooms) stat('search', 'Zoom ' + ex.zooms[0] + '–' + ex.zooms[1], 'Zoom levels');
     if (ex.layers) stat('layers', ex.layers + (ex.layers === 1 ? ' layer' : ' layers'), 'Layers in the QGIS project');
+    if (ex.time) stat('gear', ex.time, 'Processing time');
     if (ex.size && ex.size.original && ex.size.output) {
       var saved = Math.round((1 - ex.size.output / ex.size.original) * 100);
       stat('feather', '−' + saved + '%', 'Web map ' + size(ex.size.output) + ', from ' + size(ex.size.original) + ' of project data')

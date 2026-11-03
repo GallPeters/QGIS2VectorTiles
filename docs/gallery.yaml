@@ -9,6 +9,7 @@
 # layers       How many layers the QGIS project has.
 # size         The QGIS project's data (original) and the exported web map
 #              (output), in MB: the card shows the saving (sizes on hover).
+# time         Optional: how long the plugin took to make it (e.g. "3.5 min").
 # description  One or two short sentences.
 # tags         A few words on what the example shows.
 # image        A still of the map (docs/gallery/), about 16:10.
@@ -32,7 +33,8 @@ examples:
     layers: 235
     size:
       original: 827
-      output: 56
+      output: 58.4
+    time: 3.5 min
     description: >-
       The whole Natural Earth quick-start project, from the world map
       down to regional detail.
@@ -51,7 +53,7 @@ examples:
     layers: 2
     size:
       original: 42
-      output: 9.9
+      output: 9.6
     description: >-
       Every bus stop in Israel as a sign listing its lines, in clusters
       when zoomed out, styled in QGIS from GTFS data.
