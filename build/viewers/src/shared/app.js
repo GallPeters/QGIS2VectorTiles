@@ -16,17 +16,13 @@
 //                              showing the feature; null if unknown)
 //   setHighlight(lngLat|null)  mark a found feature
 //   setBasemap(basemap)        show a BASEMAPS entry under the tiles
-//   addRightControl(element)   place element under the map's zoom buttons
-//   createDrawAdapter()        a Terra Draw adapter for the map
 //
 // Layout: one column on the left (search and zoom level, the map settings
-// panel); on the right the map's zoom buttons with the drawing tools under
-// them, as wide as they are.
+// panel); on the right the map's zoom buttons.
 
 import { el, icon } from './dom.js';
 import { createBasemapControl } from './basemaps.js';
 import { createSegmented, createToggle, settingsRow } from './controls.js';
-import { createDrawing } from './draw.js';
 import { formatCoordinate } from './geo.js';
 import { popupContent } from './popup.js';
 import { createSearch } from './search.js';
@@ -144,11 +140,6 @@ export async function startViewer(map, config) {
         },
         onClear: () => map.setHighlight(null),
     });
-    const drawing = createDrawing({
-        createAdapter: () => map.createDrawAdapter(),
-        storageKey: config.storageKey,
-        onToolChange: (active) => { if (active) hidePopup(); },
-    });
     const coords = el('div', { class: 'q2vt-coords', hidden: true });
 
     document.body.append(
@@ -159,7 +150,6 @@ export async function startViewer(map, config) {
         coords,
         mapOnly.exit,
     );
-    map.addRightControl(drawing.element);
 
     function hidePopup() {
         clearTimeout(closeTimer);
@@ -174,7 +164,6 @@ export async function startViewer(map, config) {
     await map.ready;
 
     basemaps.apply();
-    drawing.start();
 
     const updateZoom = () => { zoomLabel.textContent = `Zoom ${map.getZoom().toFixed(2)}`; };
     updateZoom();
@@ -193,8 +182,8 @@ export async function startViewer(map, config) {
     function handlePointerMove({ lngLat, point }) {
         coords.textContent = formatCoordinate(lngLat);
         coords.hidden = false;
-        if (!popupsEnabled || drawing.isActive()) {
-            if (!drawing.isActive()) map.setCursor('');
+        if (!popupsEnabled) {
+            map.setCursor('');
             return;
         }
         if (overPopup) return;

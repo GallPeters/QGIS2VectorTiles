@@ -5,22 +5,19 @@ import View from 'ol/View.js';
 import Feature from 'ol/Feature.js';
 import Overlay from 'ol/Overlay.js';
 import Point from 'ol/geom/Point.js';
-import GeoJSON from 'ol/format/GeoJSON.js';
 import TileLayer from 'ol/layer/Tile.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import XYZ from 'ol/source/XYZ.js';
-import Projection from 'ol/proj/Projection.js';
-import { fromLonLat, getUserProjection, toLonLat, transformExtent } from 'ol/proj.js';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj.js';
 import { getCenter } from 'ol/extent.js';
-import { Circle, Fill, Icon, Stroke, Style } from 'ol/style.js';
+import { Circle, Fill, Stroke, Style } from 'ol/style.js';
 import { defaults as defaultControls } from 'ol/control/defaults.js';
 import Control from 'ol/control/Control.js';
 import Rotate from 'ol/control/Rotate.js';
 import ScaleLine from 'ol/control/ScaleLine.js';
 import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
-import { TerraDrawOpenLayersAdapter } from 'terra-draw-openlayers-adapter';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
 import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
@@ -49,8 +46,8 @@ function fitStart(view) {
     startCenter = toLonLat(getCenter(extent));
 }
 
-// The zoom buttons, the reset-north button (shown once the map is turned)
-// and the drawing tools stack in one column on the right, as in MapLibre.
+// The zoom buttons and the reset-north button (shown once the map is
+// turned) stack in one column on the right, as in MapLibre.
 const rightColumn = document.createElement('div');
 rightColumn.className = 'q2vt-ol-right';
 
@@ -86,7 +83,6 @@ map.addLayer(new VectorLayer({
     zIndex: -1,
 }));
 
-// Below Terra Draw's layer (zIndex 900), whose canvas takes the drawing clicks.
 const highlight = new VectorLayer({
     source: new VectorSource(),
     zIndex: 800,
@@ -122,8 +118,7 @@ const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => ap
     view.setZoom(Number.isFinite(startZoom) ? startZoom : old.getZoom());
     map.setView(view);
     map.addLayer(highlight);
-    // Terra Draw listens on the map's top canvas, which exists once the
-    // map has rendered.
+    // Ready once the map has rendered.
     return new Promise((resolve) => map.once('rendercomplete', resolve));
 });
 
@@ -191,23 +186,6 @@ const adapter = {
         const layers = map.getLayers();
         const background = layers.getArray().findIndex((l) => (l.get('mapbox-layers') || []).includes('background'));
         layers.insertAt(background + 1, basemapLayer);
-    },
-    addRightControl: (element) => rightColumn.append(element),
-    createDrawAdapter() {
-        const drawAdapter = new TerraDrawOpenLayersAdapter({
-            map,
-            zIndex: 900,
-            lib: {
-                Fill, Feature, GeoJSON, Style, Circle, VectorLayer, VectorSource, Stroke, Icon,
-                Projection, getUserProjection, fromLonLat, toLonLat,
-            },
-        });
-        // The adapter listens on the map's top canvas, but OpenLayers
-        // replaces its canvases when layers change (e.g. a new basemap).
-        // It listens on the viewport instead, which viewer.html makes the
-        // pointer events' target (Terra Draw ignores events aimed elsewhere).
-        drawAdapter.getMapEventElement = () => map.getViewport();
-        return drawAdapter;
     },
 };
 

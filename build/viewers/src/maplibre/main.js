@@ -4,7 +4,6 @@
 
 import * as maplibregl from './maplibre-gl.mjs';
 import { Protocol } from 'pmtiles';
-import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
 import { archives, loadStyle, tileUrls, withDescription } from '../shared/style.js';
@@ -123,12 +122,6 @@ const adapter = {
         });
         map.addLayer({ id: BASEMAP, type: 'raster', source: BASEMAP }, firstDataLayer());
     },
-    // MapLibre stacks the controls of a corner in the order they are added.
-    addRightControl(element) {
-        element.classList.add('maplibregl-ctrl');
-        map.addControl({ onAdd: () => element, onRemove: () => element.remove() }, 'top-right');
-    },
-    createDrawAdapter: () => new TerraDrawMapLibreGLAdapter({ map }),
 };
 
 startViewer(adapter, config);

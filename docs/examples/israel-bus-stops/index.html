@@ -11,10 +11,6 @@
 
         /* OpenLayers viewer */
         .q2vt-ol #map { background: #ffffff; }
-        /* Pointer events go to the viewport, not to the layer canvases
-           (which OpenLayers replaces as layers change): the drawing tools
-           listen there and need it to be the event target. */
-        .q2vt-ol .ol-layers, .q2vt-ol .ol-layers * { pointer-events: none; }
         .q2vt-ol-popup {
             position: relative; background: #ffffff; border-radius: 6px; padding: 6px;
             box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18); min-width: 60px;
@@ -63,7 +59,7 @@
 
             document.documentElement.classList.add('q2vt-' + viewer);
             // ?embed=1: a clean preview for embedding the map in another
-            // page (an iframe): no search, settings or drawing tools.
+            // page (an iframe): no search or settings.
             if (params.has('embed')) document.documentElement.classList.add('q2vt-embed');
             document.title = (viewer === 'ol' ? 'OpenLayers' : 'MapLibre') + ' web map';
             var styles = viewer === 'ol' ? ['ol/ol.css', 'ol/bundle.css'] : ['ml/maplibre-gl.css', 'ml/bundle.css'];
