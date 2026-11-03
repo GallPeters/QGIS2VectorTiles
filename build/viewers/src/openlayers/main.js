@@ -99,7 +99,12 @@ let basemapLayer = null;
 const isDataLayer = (layer) => layer.get('mapbox-source') === SOURCE;
 
 // The tiles come from the export's PMTiles file (see shared/style.js).
-const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => apply(map, style, {
+// Labels' stand-in copies, drawn from the tiles MapLibre shows in place of
+// a new zoom's while they load, are MapLibre's only: OpenLayers leaves them out.
+const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => {
+    style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']);
+    return style;
+}).then((style) => apply(map, style, {
     transformRequest: (url, type) => (type === 'Tiles' ? readPmtilesTile(url) : null) || undefined,
 }).then(() => {
     // Labels in their QGIS priority order within each layer (see sortkey.js),

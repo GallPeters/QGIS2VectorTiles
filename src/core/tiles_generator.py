@@ -322,16 +322,20 @@ class GDALTilesGenerator:
         viewers enlarge them, so a layer shown only beyond it is written to
         that zoom's tiles.
 
-        Lines and fills are also written to the tiles of the zoom below
-        their own: while a zoom's tiles load, MapLibre draws the tiles it
-        has from the zoom below in their place, which then hold them too
+        Lines, fills and labels are also written to the tiles of the zoom
+        below their own: while a zoom's tiles load, MapLibre draws the tiles
+        it has from the zoom below in their place, which then hold them too
         (the style draws them only from their own zoom, see
-        bridge_zoom_bands), so the map isn't blank meanwhile."""
+        bridge_zoom_bands), so the map isn't blank meanwhile. Grouped points
+        (clusters, displaced points) are grouped for each zoom: not them."""
         low = self._parse_layer_zoom(layer, "o")
-        if self._parse_layer_zoom(layer, "t") == 0 and self._parse_layer_zoom(layer, "c") in (1, 2):
+        kind = (self._parse_layer_zoom(layer, "t"), self._parse_layer_zoom(layer, "c"))
+        if kind[0] == 1 or kind in ((0, 1), (0, 2)):
             if not hasattr(self, "_first_zoom"):
                 self._first_zoom = self._get_global_min_zoom()
-            low = max(low - 1, self._first_zoom)
+                self._grouped = self._group_sources()
+            if self._group_of(self._layer_name(layer), self._grouped) is None:
+                low = max(low - 1, self._first_zoom)
         return (min(low, _TILES_MAX_ZOOM),
                 min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM))
 
