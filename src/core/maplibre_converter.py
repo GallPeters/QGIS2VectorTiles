@@ -558,6 +558,9 @@ def _label_stand_in(layer_def: dict, low: float) -> Optional[dict]:
 # Datasets also written to the tiles of the zoom below their own: the
 # symbology's lines and fills, and labels (tiles_generator _layer_zooms).
 _LOWER_TILES_HOLD = re.compile(r"l\d+t(?:00d\d+r\d+g\d+c0[12]|01)")
+# The style's metadata key of the viewers' popup descriptions, by tile layer
+# and rule number (kept once in the style rather than in every feature).
+DESCRIPTIONS_KEY = "q2vt:descriptions"
 # A style layer's metadata key marking a label layer's stand-in copy
 # (_label_stand_in), which only MapLibre draws.
 STAND_IN_KEY = "q2vt:stand-in"
@@ -2650,7 +2653,7 @@ class QgisMapLibreStyleExporter:
         if descriptions:
             # The viewers' popups describe a feature by its source-layer and
             # q2vt_rule ("" without), from here rather than from the tiles.
-            self.style["metadata"] = {"q2vt:descriptions": descriptions}
+            self.style["metadata"] = {DESCRIPTIONS_KEY: descriptions}
         self.style["layers"].append(self._build_background_layer())
 
     def _resolve_layer(self, layer: Optional[QgsVectorTileLayer]) -> QgsVectorTileLayer:
@@ -2762,7 +2765,7 @@ class QgisMapLibreStyleExporter:
             shared[dataset] = target
         if shared:
             # For GDALTilesGenerator; not written to style.json.
-            self.style["metadata"] = {TILE_LAYERS_KEY: shared}
+            self.style.setdefault("metadata", {})[TILE_LAYERS_KEY] = shared
         self._filter_group_zooms(self.style["layers"])
         return self.style
 
@@ -4231,7 +4234,16 @@ class QgisMapLibreStyleExporter:
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
-        rounded_style.pop("metadata", None)
+        metadata = rounded_style.pop("metadata", None) or {}
+        descriptions = dict(metadata.get(DESCRIPTIONS_KEY) or {})
+        if descriptions:
+            # The viewers' popups find a feature's by its tile layer: a
+            # dataset written into another's (share_tile_layers) is
+            # described there, if that one isn't.
+            for dataset, tile_layer in (metadata.get(TILE_LAYERS_KEY) or {}).items():
+                if dataset in descriptions:
+                    descriptions.setdefault(tile_layer, descriptions[dataset])
+            rounded_style["metadata"] = {DESCRIPTIONS_KEY: descriptions}
         strip_defaults(rounded_style["layers"])
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:

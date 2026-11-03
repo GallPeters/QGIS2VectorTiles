@@ -217,7 +217,12 @@ class GDALTilesGenerator:
             return [_Run(first, last)]
         cost = {}
         for z in zooms:
-            data = sum(self._dataset_size(layer) for layer, _, _ in self._run_layers(z, z).values())
+            # A dataset in the tiles of the zoom below its own (see
+            # _layer_zooms) costs there about what it does in a quarter as
+            # many tiles; counted whole, it would leave the highest zoom
+            # levels' share too large, in fewer strips run in parallel.
+            data = sum(self._dataset_size(layer) * (0.25 if z < self._parse_layer_zoom(layer, "o") else 1)
+                       for layer, _, _ in self._run_layers(z, z).values())
             cost[z] = max(data, 1) * (1 + _TILE_COST * math.sqrt(self._tile_count(z)))
         share = sum(cost.values()) / (workers * _RUNS_PER_WORKER)
         plan: List[list] = []  # [lo, hi, strips, cost]
