@@ -44,6 +44,11 @@ _FIELD_PREFIX = 'q2vt'                    # Field name prefix
 # low zooms than half a pixel). None at the highest zoom, where viewers
 # enlarge the tiles.
 _SIMPLIFICATION = 8
+# Up to this zoom, twice that (two screen pixels): a world or continent at
+# once, whose detail that small isn't seen, and whose tiles are the first
+# loaded.
+_SIMPLIFICATION_LOW = 16
+_SIMPLIFICATION_LOW_ZOOM = 4
 _SIMPLIFICATION_MAX_ZOOM = 0
 # Largest tile (bytes) and most features per tile. Beyond them GDAL writes a
 # tile with less precision or leaves features out; tiles this big already
@@ -130,6 +135,8 @@ __all__ = [
     "_SPRITE_QUALITY",
     "_FIELD_PREFIX",
     "_SIMPLIFICATION",
+    "_SIMPLIFICATION_LOW",
+    "_SIMPLIFICATION_LOW_ZOOM",
     "_SIMPLIFICATION_MAX_ZOOM",
     "_TILE_MAX_SIZE",
     "_TILE_MAX_SIZE_FEW",
