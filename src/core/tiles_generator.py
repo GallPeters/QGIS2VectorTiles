@@ -320,8 +320,19 @@ class GDALTilesGenerator:
     def _layer_zooms(self, layer: QgsVectorLayer) -> Tuple[int, int]:
         """The layer's tile zoom range. Tiles stop at _TILES_MAX_ZOOM, where
         viewers enlarge them, so a layer shown only beyond it is written to
-        that zoom's tiles."""
-        return (min(self._parse_layer_zoom(layer, "o"), _TILES_MAX_ZOOM),
+        that zoom's tiles.
+
+        Lines and fills are also written to the tiles of the zoom below
+        their own: while a zoom's tiles load, MapLibre draws the tiles it
+        has from the zoom below in their place, which then hold them too
+        (the style draws them only from their own zoom, see
+        bridge_zoom_bands), so the map isn't blank meanwhile."""
+        low = self._parse_layer_zoom(layer, "o")
+        if self._parse_layer_zoom(layer, "t") == 0 and self._parse_layer_zoom(layer, "c") in (1, 2):
+            if not hasattr(self, "_first_zoom"):
+                self._first_zoom = self._get_global_min_zoom()
+            low = max(low - 1, self._first_zoom)
+        return (min(low, _TILES_MAX_ZOOM),
                 min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM))
 
     def _run_layers(self, lo: int, hi: int) -> Dict[str, Tuple[QgsVectorLayer, int, int]]:

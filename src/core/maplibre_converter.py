@@ -489,17 +489,37 @@ def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
     Only whole-zoom edges are widened: an edge within a zoom level (a scale
     limit's exact zoom) has the data in that zoom's tiles on both sides of
     it, and widening it would draw the layer beyond its scale range.
+
+    Lines and fills are also in the tiles of the zoom below their own
+    (tiles_generator _layer_zooms), and MapLibre prepares a tile's layers
+    only for the tile's own zoom: they start a zoom below their first whole
+    zoom, transparent until their own start, so a fast zoom (whose tiles
+    from the zoom below are drawn in its place) shows them meanwhile; a
+    zoom-dependent opacity can't hold the switch, and its layer keeps its
+    range.
     """
     for layer_def in layers:
         if "source-layer" not in layer_def:
             continue  # background
         low = layer_def.get("minzoom")
         high = layer_def.get("maxzoom")
-        if low is not None and 0 < low <= archive_max_zoom and float(low).is_integer():
+        opacity = f"{layer_def['type']}-opacity"
+        if (layer_def["type"] in ("fill", "line") and low is not None and 0 < low <= archive_max_zoom
+                and _LOWER_TILES_HOLD.match(layer_def["source-layer"])):
+            paint = layer_def.setdefault("paint", {})
+            if not PropertyExtractor.uses_zoom(paint.get(opacity)):
+                paint[opacity] = ["step", ["zoom"], 0, low, paint.get(opacity, 1)]
+                layer_def["minzoom"] = max(math.floor(low) - 1, 0)
+        elif low is not None and 0 < low <= archive_max_zoom and float(low).is_integer():
             layer_def["minzoom"] = low - 1
         if high is not None and high <= archive_max_zoom and float(high).is_integer():
             layer_def["maxzoom"] = high + 1
     return layers
+
+
+# Datasets also written to the tiles of the zoom below their own: the
+# symbology's lines and fills (tiles_generator _layer_zooms).
+_LOWER_TILES_HOLD = re.compile(r"l\d+t00d\d+r\d+g\d+c0[12]")
 
 
 # MapLibre's default values (style specification) of the properties the
