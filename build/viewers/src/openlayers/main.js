@@ -105,6 +105,10 @@ const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => {
     style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']);
     return style;
 }).then((style) => apply(map, style, {
+    // Without it ol-mapbox-style takes the page's address for the style's
+    // and its last parameter for an access token added to the tile URLs,
+    // which then name another archive (read twice, kept apart).
+    styleUrl: new URL(config.styleUrl, window.location.href).href,
     transformRequest: (url, type) => (type === 'Tiles' ? readPmtilesTile(url) : null) || undefined,
 }).then(() => {
     // Labels in their QGIS priority order within each layer (see sortkey.js),
