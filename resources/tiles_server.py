@@ -133,8 +133,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         body = None
-        if (not partial and size >= _MIN_COMPRESSED_SIZE
-                and target.suffix.lower() in _COMPRESSIBLE
+        # Glyphs (.pbf) are protobuf the viewer reads as is: compressed for
+        # the transfer like text (about five times smaller), unless stored so.
+        compressible = (target.suffix.lower() in _COMPRESSIBLE
+                        or (target.suffix.lower() == ".pbf" and not self._is_gzip(target)))
+        if (not partial and size >= _MIN_COMPRESSED_SIZE and compressible
                 and "gzip" in self.headers.get("Accept-Encoding", "")):
             body = self._gzipped(target, etag)
         length = len(body) if body is not None else (end - start + 1 if size else 0)
@@ -146,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", "gzip")
         if body is not None:
             self.send_header("Content-Encoding", "gzip")
-        if target.suffix.lower() in _COMPRESSIBLE:
+        if compressible:
             self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(length))
         if partial:

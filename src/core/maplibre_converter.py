@@ -2692,8 +2692,10 @@ class QgisMapLibreStyleExporter:
                     "maxzoom": max(0, min(self.maxzoom, _TILES_MAX_ZOOM)),
                 }
             },
-            "glyphs": "glyphs/{fontstack}/{range}.pbf",
-            "sprite": "sprite/sprite",
+            # Versioned (by the export, see ServerInitializer) as the tiles:
+            # browsers may keep them.
+            "glyphs": "glyphs/{fontstack}/{range}.pbf?v=10031993",
+            "sprite": "sprite/sprite?v=10031993",
             "layers": [],
         }
 
