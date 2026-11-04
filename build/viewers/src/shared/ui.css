@@ -86,7 +86,7 @@ body { font-family: var(--q2vt-font); }
 .q2vt-segmented-grid { display: grid; position: relative; }
 .q2vt-segmented-grid .q2vt-segment { z-index: 1; min-width: 0; padding: 4px 2px; }
 .q2vt-segmented-grid::before, .q2vt-segmented-grid.q2vt-rows-2::after,
-.q2vt-segmented-grid.q2vt-rows-3::after {
+.q2vt-segmented-grid.q2vt-rows-3::after, .q2vt-segmented-grid.q2vt-rows-4::after {
     content: ''; position: absolute; pointer-events: none; box-sizing: border-box;
 }
 .q2vt-segmented-grid::before { left: 50%; top: 8px; bottom: 8px; width: 1px; background: #e6e8ec; }
@@ -95,6 +95,12 @@ body { font-family: var(--q2vt-font); }
 .q2vt-segmented-grid.q2vt-rows-3::after {
     top: calc(100% / 3); bottom: calc(100% / 3); left: 10px; right: 10px;
     border-top: 1px solid #e6e8ec; border-bottom: 1px solid #e6e8ec;
+}
+/* Four rows: the lines a quarter, half and three quarters down. */
+.q2vt-segmented-grid.q2vt-rows-4::after {
+    top: 25%; bottom: 25%; left: 10px; right: 10px;
+    border-top: 1px solid #e6e8ec; border-bottom: 1px solid #e6e8ec;
+    background: linear-gradient(#e6e8ec, #e6e8ec) center / 100% 1px no-repeat;
 }
 .q2vt-setting[hidden] { display: none; }
 .q2vt-segment:hover { color: var(--q2vt-text); }

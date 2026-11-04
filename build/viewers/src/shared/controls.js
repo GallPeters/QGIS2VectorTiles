@@ -19,8 +19,9 @@ export function createToggle({ label, on = false, onChange }) {
 }
 
 /**
- * A segmented control. ``options`` are {id, label, title?}; ``onChoose(id)``
- * is called when another option is picked. With ``columns``, the options
+ * A segmented control. ``options`` are {id, label, title?, onAgain?};
+ * ``onChoose(id)`` is called when another option is picked, an option's
+ * ``onAgain()`` when it is clicked while chosen. With ``columns``, the options
  * are laid out in that many columns (rows of them, for more options than
  * fit in one).
  */
@@ -38,7 +39,10 @@ export function createSegmented({ label, options, current, onChoose, columns }) 
             'aria-checked': String(option.id === current),
             title: option.title || option.label,
             onclick: () => {
-                if (option.id === current) return;
+                if (option.id === current) {
+                    option.onAgain?.();
+                    return;
+                }
                 current = option.id;
                 render();
                 onChoose(option.id);
@@ -46,7 +50,14 @@ export function createSegmented({ label, options, current, onChoose, columns }) 
         }, option.badge ? [option.label, el('span', { class: 'q2vt-badge' }, option.badge)] : option.label)));
     }
     render();
-    return { element: group };
+    // ``set(id)``: the option shown chosen, without onChoose.
+    return {
+        element: group,
+        set: (id) => {
+            current = id;
+            render();
+        },
+    };
 }
 
 /** A settings row: a label on the left, its control on the right. */

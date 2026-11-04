@@ -5,7 +5,10 @@ SearchIndexBuilder — writes style/search.json, the index the web viewers
 search. It is built from the exported rule datasets, so it holds exactly
 what the output package holds: the features the rules show inside the
 export extent, with the fields the Included Fields setting exports (all,
-visible, or none) and their label text.
+visible, or none). Label text (q2vt_label, calculated) is searched only
+when it is a layer's only text: with no fields exported, or none of a
+layer's exported fields text. Otherwise its source fields are searched
+and the label, made of them, would only find the same features again.
 
     {"layers": [{"name": "...", "fields": ["...", ...]}, ...],
      "features": [[layer index, [value, ...], [west, south, east, north]], ...],
@@ -30,7 +33,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime
 
-from ..utils.config import _FIELD_PREFIX
+from ..utils.config import _FIELD_PREFIX, _FIELDS_REQUIRED
 from ..utils.flattened_rule import FlattenedRule
 
 # The Web Mercator (EPSG:3857) sphere's radius, in metres.
@@ -46,6 +49,8 @@ _MAX_VALUE_LENGTH = 120
 _DUPLICATE_DISTANCE = 0.01
 _ORIG_ID = f"{_FIELD_PREFIX}_orig_id"
 _LABEL = f"{_FIELD_PREFIX}_label"
+# QMetaType code of a text (string) field.
+_STRING_TYPE = 10
 
 
 class _IndexedLayer:
@@ -69,8 +74,10 @@ class SearchIndexBuilder:
         rules: List[FlattenedRule],
         output_path: str,
         feedback,
+        included_fields: int = _FIELDS_REQUIRED,
     ):
         self.datasets = datasets
+        self.included_fields = included_fields
         self.rules = rules
         self.output_path = output_path
         self.feedback = feedback
@@ -114,6 +121,12 @@ class SearchIndexBuilder:
             (i, fields.at(i).name()) for i in range(fields.count())
             if self._searchable(fields.at(i).name())
         ]
+        # Source fields exported, and a text one among them: the label is
+        # left out (see the module's description).
+        if self.included_fields != _FIELDS_REQUIRED and any(
+            not name.startswith(_LABEL) and self._is_text(fields.at(i)) for i, name in searchable
+        ):
+            searchable = [(i, name) for i, name in searchable if not name.startswith(_LABEL)]
         # A dataset's label fields (q2vt_label, or q2vt_label_NNNN for labels
         # drawn from their features' rows) are one "label" column.
         searchable = [(i, _LABEL if name.startswith(_LABEL) else name) for i, name in searchable]
@@ -144,6 +157,12 @@ class SearchIndexBuilder:
                     if value is not None:
                         values[name] = value
         return count, truncated
+
+    @staticmethod
+    def _is_text(field) -> bool:
+        """Whether a field holds text (its QMetaType code, read as in Qt 5 and 6)."""
+        kind = field.type()
+        return int(getattr(kind, "value", kind)) == _STRING_TYPE
 
     @staticmethod
     def _searchable(name: str) -> bool:

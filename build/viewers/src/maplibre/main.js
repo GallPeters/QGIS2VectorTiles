@@ -104,9 +104,10 @@ function openFreeMapImage(value) {
         ['case', ['==', ['var', 'q2vt_image'], ''], '', ['concat', OFM, ['var', 'q2vt_image']]]];
 }
 
-// The OpenFreeMap layers shown (their style's), and its sources added.
+// The OpenFreeMap layers shown (their style's), and its sources added (by
+// id, their definition).
 let openFreeMapLayers = [];
-let openFreeMapSources = [];
+const openFreeMapSources = new Map();
 
 /** OpenFreeMap's ``ofm`` style under the data: its layers, sources, fonts
  * and icons marked OFM, apart from the export's. */
@@ -117,13 +118,16 @@ function addOpenFreeMap(ofm) {
     if (sprite && sprite.url !== ofm.sprite) map.removeSprite('ofm');
     if (ofm.sprite && sprite?.url !== ofm.sprite) map.addSprite('ofm', ofm.sprite);
     // The styles share their sources: kept from one style to the next, with
-    // the tiles they have loaded.
+    // the tiles they have loaded; a visitor's style's own replace them.
     for (const [id, source] of Object.entries(ofm.sources)) {
-        if (map.getSource(OFM + id)) continue;
+        const definition = JSON.stringify(source);
+        if (openFreeMapSources.get(OFM + id) === definition) continue;
+        if (map.getSource(OFM + id)) map.removeSource(OFM + id);
         map.addSource(OFM + id, source);
-        openFreeMapSources.push(OFM + id);
+        openFreeMapSources.set(OFM + id, definition);
     }
     const before = firstDataLayer();
+    openFreeMapLayers = [];
     for (const layer of ofm.layers) {
         const copy = structuredClone(layer);
         copy.id = OFM + layer.id;
@@ -136,9 +140,10 @@ function addOpenFreeMap(ofm) {
         for (const key of ['fill-pattern', 'line-pattern', 'fill-extrusion-pattern', 'background-pattern']) {
             if (copy.paint?.[key] !== undefined) copy.paint[key] = openFreeMapImage(copy.paint[key]);
         }
+        // A layer MapLibre finds wrong (a visitor's style) is left out.
         map.addLayer(copy, before);
+        if (map.getLayer(copy.id)) openFreeMapLayers.push(layer);
     }
-    openFreeMapLayers = ofm.layers;
 }
 
 /** The background shown taken away; OpenFreeMap's sources kept when
@@ -149,8 +154,8 @@ function removeBasemap(keepSources = false) {
     for (const layer of openFreeMapLayers) map.removeLayer(OFM + layer.id);
     openFreeMapLayers = [];
     if (keepSources) return;
-    for (const id of openFreeMapSources) map.removeSource(id);
-    openFreeMapSources = [];
+    for (const id of openFreeMapSources.keys()) map.removeSource(id);
+    openFreeMapSources.clear();
 }
 
 let shownBasemap = null;
@@ -210,9 +215,10 @@ const adapter = {
         if (ofmStyle === '3d' && !wasTilted) map.easeTo({ pitch: 60, duration: 800 });
         if (ofmStyle !== '3d' && wasTilted) map.easeTo({ pitch: 0, duration: 800 });
         // OpenFreeMap already shown in this style: only its labels' language changes.
-        if (ofmStyle && shownBasemap?.openfreemap && shownBasemap.mapStyle === ofmStyle && openFreeMapLayers.length) {
+        if (ofmStyle && shownBasemap?.openfreemap && shownBasemap.mapStyle === ofmStyle
+            && shownBasemap.customVersion === basemap.customVersion && openFreeMapLayers.length) {
             for (const layer of openFreeMapLayers) {
-                if (showsNames(layer)) map.setLayoutProperty(OFM + layer.id, 'text-field', nameExpression(basemap.language));
+                if (layer.layout && showsNames(layer)) map.setLayoutProperty(OFM + layer.id, 'text-field', nameExpression(basemap.language));
             }
             shownBasemap = basemap;
             return;
@@ -227,7 +233,15 @@ const adapter = {
                 console.warn(error);
                 return;
             }
-            if (request === basemapRequest) addOpenFreeMap(localized(ofm, basemap.language));
+            if (request !== basemapRequest) return;
+            try {
+                addOpenFreeMap(localized(ofm, basemap.language));
+            } catch (error) {
+                // A visitor's style MapLibre cannot draw: what was added taken away.
+                console.warn('Background not shown:', error);
+                removeBasemap();
+                if (ofmStyle === 'custom') window.alert(`Your style cannot be shown: ${error.message}`);
+            }
             return;
         }
         if (!basemap.url) return;

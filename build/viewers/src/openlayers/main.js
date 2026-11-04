@@ -203,7 +203,10 @@ const adapter = {
             if (request !== basemapRequest) return;
             layer = new LayerGroup();
             apply(layer, localized(ofm, basemap.language), { styleUrl: styleUrl(basemap.mapStyle) })
-                .catch((error) => console.warn('OpenFreeMap not shown:', error));
+                .catch((error) => {
+                    console.warn('Background not shown:', error);
+                    if (basemap.mapStyle === 'custom') window.alert(`Your style cannot be shown: ${error.message}`);
+                });
         } else if (basemap.url) {
             layer = new TileLayer({
                 source: new XYZ({

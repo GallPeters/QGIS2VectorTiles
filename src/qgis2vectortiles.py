@@ -270,7 +270,8 @@ class QGIS2VectorTiles:
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(
-            layers, rules, join(temp_dir, "style", "search.json"), self.feedback
+            layers, rules, join(temp_dir, "style", "search.json"), self.feedback,
+            self.included_fields,
         ).build()
 
     def _log(self, message: str):
