@@ -489,17 +489,81 @@ def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
     Only whole-zoom edges are widened: an edge within a zoom level (a scale
     limit's exact zoom) has the data in that zoom's tiles on both sides of
     it, and widening it would draw the layer beyond its scale range.
+
+    Lines and fills are also in the tiles of the zoom below their own
+    (tiles_generator _layer_zooms), and MapLibre prepares a tile's layers
+    only for the tile's own zoom: they start a zoom below their first whole
+    zoom, transparent until their own start, so a fast zoom (whose tiles
+    from the zoom below are drawn in its place) shows them meanwhile; a
+    zoom-dependent opacity can't hold the switch, and its layer keeps its
+    range.
+
+    Labels are too, but a transparent label still keeps other labels from
+    its place: a label layer keeps its range, and a copy of it (see
+    _label_stand_in) draws it from those tiles only.
     """
+    result = []
     for layer_def in layers:
+        result.append(layer_def)
         if "source-layer" not in layer_def:
             continue  # background
         low = layer_def.get("minzoom")
         high = layer_def.get("maxzoom")
-        if low is not None and 0 < low <= archive_max_zoom and float(low).is_integer():
-            layer_def["minzoom"] = low - 1
+        meta = layer_def.get("metadata") or {}
+        lower_tiles = (low is not None and 0 < low <= archive_max_zoom
+                       and _LOWER_TILES_HOLD.match(layer_def["source-layer"])
+                       and not meta.get("q2vt:cluster") and not meta.get("q2vt:displacement"))
         if high is not None and high <= archive_max_zoom and float(high).is_integer():
             layer_def["maxzoom"] = high + 1
-    return layers
+        if lower_tiles and layer_def["type"] in ("fill", "line"):
+            opacity = f"{layer_def['type']}-opacity"
+            paint = layer_def.setdefault("paint", {})
+            if not PropertyExtractor.uses_zoom(paint.get(opacity)):
+                paint[opacity] = ["step", ["zoom"], 0, low, paint.get(opacity, 1)]
+                layer_def["minzoom"] = max(math.floor(low) - 1, 0)
+        elif lower_tiles and layer_def["type"] == "symbol":
+            if "text-field" in layer_def.get("layout", {}) and low >= 1:
+                stand_in = _label_stand_in(layer_def, low)
+                if stand_in is not None:
+                    result.append(stand_in)
+        elif low is not None and 0 < low <= archive_max_zoom and float(low).is_integer():
+            layer_def["minzoom"] = low - 1
+    return result
+
+
+def _label_stand_in(layer_def: dict, low: float) -> Optional[dict]:
+    """A label layer's copy drawing its labels from the tiles of the zoom
+    below its first whole zoom only (its filter's zoom is the tile's), which
+    MapLibre draws in place of the new zoom's until they load: transparent
+    below the layer's own start, and keeping no other label from its place
+    (ignore-placement). None when its opacity depends on the zoom.
+    OpenLayers, which draws no tiles in place of others, leaves it out."""
+    stand_in = copy.deepcopy(layer_def)
+    layout, paint = stand_in.setdefault("layout", {}), stand_in.setdefault("paint", {})
+    kinds = ["text"] + (["icon"] if "icon-image" in layout else [])
+    if any(PropertyExtractor.uses_zoom(paint.get(f"{kind}-opacity")) for kind in kinds):
+        return None
+    for kind in kinds:
+        paint[f"{kind}-opacity"] = ["step", ["zoom"], 0, low, paint.get(f"{kind}-opacity", 1)]
+        layout[f"{kind}-ignore-placement"] = True
+    first = math.floor(low)
+    below = ["<", ["zoom"], first]
+    stand_in["filter"] = ["all", layer_def["filter"], below] if "filter" in layer_def else below
+    stand_in["id"] = f"{layer_def['id']}_stand_in"
+    stand_in["minzoom"] = first - 1
+    stand_in["metadata"] = dict(stand_in.get("metadata") or {}, **{STAND_IN_KEY: True})
+    return stand_in
+
+
+# Datasets also written to the tiles of the zoom below their own: the
+# symbology's lines and fills, and labels (tiles_generator _layer_zooms).
+_LOWER_TILES_HOLD = re.compile(r"l\d+t(?:00d\d+r\d+g\d+c0[12]|01)")
+# The style's metadata key of the viewers' popup descriptions, by tile layer
+# and rule number (kept once in the style rather than in every feature).
+DESCRIPTIONS_KEY = "q2vt:descriptions"
+# A style layer's metadata key marking a label layer's stand-in copy
+# (_label_stand_in), which only MapLibre draws.
+STAND_IN_KEY = "q2vt:stand-in"
 
 
 # MapLibre's default values (style specification) of the properties the
@@ -2589,7 +2653,7 @@ class QgisMapLibreStyleExporter:
         if descriptions:
             # The viewers' popups describe a feature by its source-layer and
             # q2vt_rule ("" without), from here rather than from the tiles.
-            self.style["metadata"] = {"q2vt:descriptions": descriptions}
+            self.style["metadata"] = {DESCRIPTIONS_KEY: descriptions}
         self.style["layers"].append(self._build_background_layer())
 
     def _resolve_layer(self, layer: Optional[QgsVectorTileLayer]) -> QgsVectorTileLayer:
@@ -2631,8 +2695,10 @@ class QgisMapLibreStyleExporter:
                     "maxzoom": max(0, min(self.maxzoom, _TILES_MAX_ZOOM)),
                 }
             },
-            "glyphs": "glyphs/{fontstack}/{range}.pbf",
-            "sprite": "sprite/sprite",
+            # Versioned (by the export, see ServerInitializer) as the tiles:
+            # browsers may keep them.
+            "glyphs": "glyphs/{fontstack}/{range}.pbf?v=10031993",
+            "sprite": "sprite/sprite?v=10031993",
             "layers": [],
         }
 
@@ -2699,7 +2765,7 @@ class QgisMapLibreStyleExporter:
             shared[dataset] = target
         if shared:
             # For GDALTilesGenerator; not written to style.json.
-            self.style["metadata"] = {TILE_LAYERS_KEY: shared}
+            self.style.setdefault("metadata", {})[TILE_LAYERS_KEY] = shared
         self._filter_group_zooms(self.style["layers"])
         return self.style
 
@@ -4168,7 +4234,16 @@ class QgisMapLibreStyleExporter:
         else:
              del self.style["glyphs"]
         rounded_style = self.round_numeric_values(self.style)
-        rounded_style.pop("metadata", None)
+        metadata = rounded_style.pop("metadata", None) or {}
+        descriptions = dict(metadata.get(DESCRIPTIONS_KEY) or {})
+        if descriptions:
+            # The viewers' popups find a feature's by its tile layer: a
+            # dataset written into another's (share_tile_layers) is
+            # described there, if that one isn't.
+            for dataset, tile_layer in (metadata.get(TILE_LAYERS_KEY) or {}).items():
+                if dataset in descriptions:
+                    descriptions.setdefault(tile_layer, descriptions[dataset])
+            rounded_style["metadata"] = {DESCRIPTIONS_KEY: descriptions}
         strip_defaults(rounded_style["layers"])
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:

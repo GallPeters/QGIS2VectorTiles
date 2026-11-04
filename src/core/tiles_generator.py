@@ -46,7 +46,8 @@ from ..utils.flattened_rule import (
     group_of, group_sources,
 )
 from ..utils.config import (
-    _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
+    _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_LOW, _SIMPLIFICATION_LOW_ZOOM,
+    _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
 )
 
@@ -216,7 +217,12 @@ class GDALTilesGenerator:
             return [_Run(first, last)]
         cost = {}
         for z in zooms:
-            data = sum(self._dataset_size(layer) for layer, _, _ in self._run_layers(z, z).values())
+            # A dataset in the tiles of the zoom below its own (see
+            # _layer_zooms) costs there about what it does in a quarter as
+            # many tiles; counted whole, it would leave the highest zoom
+            # levels' share too large, in fewer strips run in parallel.
+            data = sum(self._dataset_size(layer) * (0.25 if z < self._parse_layer_zoom(layer, "o") else 1)
+                       for layer, _, _ in self._run_layers(z, z).values())
             cost[z] = max(data, 1) * (1 + _TILE_COST * math.sqrt(self._tile_count(z)))
         share = sum(cost.values()) / (workers * _RUNS_PER_WORKER)
         plan: List[list] = []  # [lo, hi, strips, cost]
@@ -320,8 +326,23 @@ class GDALTilesGenerator:
     def _layer_zooms(self, layer: QgsVectorLayer) -> Tuple[int, int]:
         """The layer's tile zoom range. Tiles stop at _TILES_MAX_ZOOM, where
         viewers enlarge them, so a layer shown only beyond it is written to
-        that zoom's tiles."""
-        return (min(self._parse_layer_zoom(layer, "o"), _TILES_MAX_ZOOM),
+        that zoom's tiles.
+
+        Lines, fills and labels are also written to the tiles of the zoom
+        below their own: while a zoom's tiles load, MapLibre draws the tiles
+        it has from the zoom below in their place, which then hold them too
+        (the style draws them only from their own zoom, see
+        bridge_zoom_bands), so the map isn't blank meanwhile. Grouped points
+        (clusters, displaced points) are grouped for each zoom: not them."""
+        low = self._parse_layer_zoom(layer, "o")
+        kind = (self._parse_layer_zoom(layer, "t"), self._parse_layer_zoom(layer, "c"))
+        if kind[0] == 1 or kind in ((0, 1), (0, 2)):
+            if not hasattr(self, "_first_zoom"):
+                self._first_zoom = self._get_global_min_zoom()
+                self._grouped = self._group_sources()
+            if self._group_of(self._layer_name(layer), self._grouped) is None:
+                low = max(low - 1, self._first_zoom)
+        return (min(low, _TILES_MAX_ZOOM),
                 min(self._parse_layer_zoom(layer, "i"), _TILES_MAX_ZOOM))
 
     def _run_layers(self, lo: int, hi: int) -> Dict[str, Tuple[QgsVectorLayer, int, int]]:
@@ -369,10 +390,13 @@ class GDALTilesGenerator:
         entries (see _group_blocks)."""
         style_text = str(self.style)
         min_area = self._min_area(last_zoom)
+        # Below the highest zoom, lines are joined within cells of a tile's
+        # size at the run's last zoom (see _vrt_layer_block).
+        cell = 2 * _WORLD_HALF / 2 ** last_zoom if min_area is not None else None
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
             for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(layer, style_text, min_area))
+                f.write(self._vrt_layer_block(layer, style_text, min_area, cell))
             f.write(extra)
             f.write("</OGRVRTDataSource>\n")
 
@@ -664,21 +688,47 @@ class GDALTilesGenerator:
         return _MIN_POLYGON_PIXELS * pixel * pixel
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
-                         min_area: Optional[float] = None) -> str:
-        """Return the VRT XML block for a single layer; a polygon layer's
-        smaller polygons than ``min_area`` are left out."""
+                         min_area: Optional[float] = None, cell: Optional[float] = None) -> str:
+        """Return the VRT XML block for a single layer, with its tiled fields
+        only (see _vrt_fields): a polygon layer's smaller polygons than
+        ``min_area`` are left out; a line layer's lines alike in every tiled
+        field are joined where they meet within cells of ``cell`` metres (a
+        network's many two-point parts then simplify, fewer to draw)."""
         source = layer.source().split("|layername=")[0]
         geometry = re.search(r"c(\d\d)", self._layer_name(layer))
         geometry = geometry.group(1) if geometry else None
         src_sql = ""
-        if min_area and geometry == "02":
-            ds = ogr.Open(source)
-            if ds is not None:
-                # SQL over the plugin's own dataset; the name is quoted.
-                name = ds.GetLayer(0).GetName().replace('"', '""')
-                sql = f'SELECT * FROM "{name}" WHERE OGR_GEOM_AREA >= {min_area!r}'  # nosec B608
+        ds = ogr.Open(source)
+        if ds is not None:
+            # SQL over the plugin's own dataset; names are quoted.
+            def quote(text: str) -> str:
+                return '"' + text.replace('"', '""') + '"'
+            source_layer = ds.GetLayer(0)
+            name = quote(source_layer.GetName())
+            defn = source_layer.GetLayerDefn()
+            names = [defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())]
+            tiled = [quote(n) for n in names if self._is_tiled_field(n, style_text)]
+            untiled = [quote(n) for n in names if not self._is_tiled_field(n, style_text)]
+            # Labels keep their lines: QGIS labels each one (joined, they
+            # would be fewer, elsewhere).
+            symbology = self._parse_layer_zoom(layer, "t") == 0
+            if (cell and geometry == "01" and symbology and self._sqlite_geometry()
+                    and not self._directed(self._layer_name(layer))):
+                grid = (f"CAST(ST_MinX(geometry) / {cell!r} AS INTEGER), "
+                        f"CAST(ST_MinY(geometry) / {cell!r} AS INTEGER)")
+                columns = "".join(", " + t for t in tiled)
+                groups = "".join(t + ", " for t in tiled)
+                sql = (f"SELECT ST_LineMerge(ST_Collect(geometry)) AS geometry{columns} "
+                       f"FROM {name} GROUP BY {groups}{grid}")  # nosec B608
+                src_sql = f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
+            elif (min_area and geometry == "02") or (untiled and not tiled):
+                # Without <Field> elements (no tiled field) a VRT layer
+                # has every field of its source: none, then.
+                columns = f"* EXCLUDE ({', '.join(untiled)})" if untiled else "*"
+                where = f" WHERE OGR_GEOM_AREA >= {min_area!r}" if min_area and geometry == "02" else ""
+                sql = f"SELECT {columns} FROM {name}{where}"  # nosec B608
                 src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
-                ds = None
+            ds = None
         return (
             f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
             f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
@@ -688,6 +738,44 @@ class GDALTilesGenerator:
             f'{self._vrt_fields(source, style_text)}'
             f'    </OGRVRTLayer>\n'
         )
+
+    def _directed(self, name: str) -> bool:
+        """Whether a dataset's lines must stay as they are: drawn along their
+        direction (an offset, a pattern or a gradient), which joining them
+        may reverse, or labelled (a label layer reads them, see
+        share_tile_layers), where QGIS labels each line."""
+        if not hasattr(self, "_directed_layers"):
+            self._directed_layers = set()
+            for layer_def in self.style.get("layers", []):
+                paint = layer_def.get("paint", {})
+                if layer_def.get("type") == "symbol" or (layer_def.get("type") == "line" and any(
+                        paint.get(key) not in (None, 0) for key in ("line-offset", "line-pattern", "line-gradient"))):
+                    self._directed_layers.add(layer_def.get("source-layer"))
+        shared = self._shared_tile_layers()
+        return name in self._directed_layers or shared.get(name) in self._directed_layers
+
+    @staticmethod
+    def _sqlite_geometry() -> bool:
+        """Whether GDAL's SQLite dialect has its geometry functions
+        (SpatiaLite), which joining lines needs; checked once."""
+        if not hasattr(GDALTilesGenerator, "_has_sqlite_geometry"):
+            has = False
+            try:
+                # MEM holds vectors from GDAL 3.11, which deprecates Memory.
+                driver = next(d for d in map(ogr.GetDriverByName, ("MEM", "Memory"))
+                              if d is not None and d.GetMetadataItem("DCAP_VECTOR") == "YES")
+                ds = driver.CreateDataSource("q2vt_check")
+                result = ds.ExecuteSQL(
+                    "SELECT ST_NumGeometries(ST_LineMerge(ST_Collect(ST_GeomFromText("
+                    "'LINESTRING(0 0, 1 1)')))) AS n", dialect="SQLITE")
+                if result is not None:
+                    feature = result.GetNextFeature()
+                    has = bool(feature and feature.GetField(0) == 1)
+                    ds.ReleaseResultSet(result)
+            except (RuntimeError, AttributeError, StopIteration):
+                has = False
+            GDALTilesGenerator._has_sqlite_geometry = has
+        return GDALTilesGenerator._has_sqlite_geometry
 
     @staticmethod
     def _is_tiled_field(field_name: str, style_text: str) -> bool:
@@ -755,8 +843,9 @@ class GDALTilesGenerator:
             temporary_db = join(QgsProcessingUtils.tempFolder(), f"tiles_{tag}.temp.db")
         # The driver applies SIMPLIFICATION_MAX_ZOOM at a run's last zoom:
         # only the tiles' real last zoom is left unsimplified.
+        simplification = _SIMPLIFICATION_LOW if hi <= _SIMPLIFICATION_LOW_ZOOM else _SIMPLIFICATION
         last_zoom_simplification = (
-            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else _SIMPLIFICATION
+            _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else simplification
         )
         return [
             "ogr2ogr", "-f", "MBTiles", run.output, vrt_path,
@@ -769,7 +858,7 @@ class GDALTilesGenerator:
             "-t_srs", f"EPSG:{_EPSG_CRS}",
             "-dsco", f"MAX_SIZE={self._max_tile_size(hi)}",
             "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
-            "-dsco", f"SIMPLIFICATION={_SIMPLIFICATION}",
+            "-dsco", f"SIMPLIFICATION={simplification}",
             "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
             *self._strip_filter(run),
         ]

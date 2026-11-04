@@ -9,7 +9,7 @@
 // protocol, OpenLayers <archive>#pmtiles={z}/{x}/{y} with readPmtilesTile()
 // (its style loader rewrites URLs with another scheme).
 
-import { PMTiles } from 'pmtiles';
+import { FetchSource, PMTiles } from 'pmtiles';
 
 const PMTILES_PREFIX = 'pmtiles://';
 const OL_TILE = /^(.+)#pmtiles=(\d+)\/(\d+)\/(\d+)$/;
@@ -29,10 +29,70 @@ export function withDescription(sourceLayer, properties) {
     return text === undefined ? properties : { q2vt_description: text, ...properties };
 }
 
+// The archive's bytes read so far, kept in the browser between visits
+// (Cache Storage), by the archive's URL: its version (?v=, unique per
+// export) makes a new export a new archive, and its older versions' are
+// removed. A returning visitor's map then asks the server for nothing it
+// had, not even whether it changed.
+const STORE_PREFIX = 'q2vt-tiles:';
+
+async function openStore(url) {
+    if (!/[?&]v=/.test(url) || typeof caches === 'undefined') return null;  // Unversioned, or not https/localhost.
+    try {
+        const name = STORE_PREFIX + url;
+        const archive = (address) => { const u = new URL(address); return [u.origin + u.pathname, u.searchParams.get('v')]; };
+        const [path, version] = archive(url);
+        // The archive's other versions (earlier exports), removed meanwhile.
+        caches.keys().then((names) => names.forEach((other) => {
+            if (!other.startsWith(STORE_PREFIX)) return;
+            const [otherPath, otherVersion] = archive(other.slice(STORE_PREFIX.length));
+            if (otherPath === path && otherVersion !== version) caches.delete(other);
+        })).catch(() => {});
+        return await caches.open(name);
+    } catch (error) {
+        return null;  // Storage blocked (private mode, settings): read from the server.
+    }
+}
+
+/** A PMTiles source reading byte ranges from the browser's store, else
+ * from the server (and keeping them). */
+class StoredSource {
+    constructor(url) {
+        this.url = url;
+        this.server = new FetchSource(url);
+        this.store = openStore(url);
+    }
+
+    getKey() {
+        return this.url;
+    }
+
+    async getBytes(offset, length, signal, etag) {
+        const store = await this.store;
+        if (!store) return this.server.getBytes(offset, length, signal, etag);
+        // Nothing kept yet (a first visit): no store look-ups to wait for.
+        if (this.empty === undefined) this.empty = store.keys().then((keys) => keys.length === 0).catch(() => false);
+        if (await this.empty) return this.keep(store, offset, length, signal, etag);
+        const key = `${this.url}${this.url.includes('?') ? '&' : '?'}q2vt-bytes=${offset}-${length}`;
+        const kept = await store.match(key).catch(() => undefined);
+        if (kept) return { data: await kept.arrayBuffer(), etag: kept.headers.get('ETag') || undefined };
+        return this.keep(store, offset, length, signal, etag);
+    }
+
+    /** The bytes from the server, kept in the store. */
+    async keep(store, offset, length, signal, etag) {
+        const response = await this.server.getBytes(offset, length, signal, etag);
+        const key = `${this.url}${this.url.includes('?') ? '&' : '?'}q2vt-bytes=${offset}-${length}`;
+        const headers = response.etag ? { ETag: response.etag } : {};
+        store.put(key, new Response(response.data.slice(0), { headers })).catch(() => {});
+        return response;
+    }
+}
+
 function archiveAt(url) {
     let archive = archives.get(url);
     if (!archive) {
-        archive = new PMTiles(url);
+        archive = new PMTiles(new StoredSource(url));
         archives.set(url, archive);
         prefetchLeaves(archive);
     }
