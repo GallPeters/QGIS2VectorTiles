@@ -61,7 +61,7 @@ examples:
     tags: [Balloon callouts, Geometry generators, Hebrew labels]
     image: gallery/israel-bus-stops.webp
     webmap: examples/israel-bus-stops/
-    view: { basemap: osm }
+    view: { basemap: openfreemap }
     project: { url: "", size: null }
 
   - id: coming-soon
