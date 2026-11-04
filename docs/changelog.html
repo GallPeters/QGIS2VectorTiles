@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.1</strong>, 26 Oct 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.2</strong>, 4 Nov 2026.</p>
     </div>
   </section>
 
@@ -87,7 +87,7 @@
       <h2>Releases</h2>
       <ol>
         <li><a href="#v4-3">v4.3<small>Coming soon</small></a></li>
-        <li><a href="#v4-2">v4.2<small>Coming soon</small></a></li>
+        <li><a href="#v4-2">v4.2<small>Nov 2026</small></a></li>
         <li><a href="#v4-1">v4.1<small>Oct 2026</small></a></li>
         <li><a href="#v4-0">v4.0<small>Oct 2026</small></a></li>
         <li><a href="#v3-9">v3.9<small>Oct 2026</small></a></li>
@@ -137,22 +137,24 @@
       <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li>A cluster symbol's <strong>buffer</strong> surrounds its count too, where the number is wider than the symbol.</li>
-      <li><strong>Wide label buffers</strong> drawn as in QGIS, as a rounded shape behind the text.</li>
-      <li>A <strong>slimmer, tidier settings panel</strong> in the web map: its switches, then its choices.</li>
-      <li>The web map's drawing and measuring tools are gone: <strong>lighter viewers</strong> (MapLibre's code a sixth of its size).</li>
-      <li>Cluster symbols <strong>sized by their count</strong> (a size using <code>@cluster_size</code>), each size drawn as in QGIS.</li>
-      <li><strong>No blank map on fast zooms</strong>: while a zoom's tiles load, the previous zoom's shapes and labels stay on screen.</li>
-      <li><strong>Lighter tiles</strong>: about a fifth smaller, so web maps open sooner.</li>
-      <li>Tiles are <strong>kept in the browser</strong> between visits: a returning visitor's map opens about 40% sooner.</li>
-      <li>A new background, <strong>OpenFreeMap</strong>, now the default: OpenStreetMap as vector tiles in six styles (Positron, Bright, Liberty, Dark, Fiord and a tilted 3D), its labels in the local language, English, Arabic or Hebrew (also in the address: <code>?basemap=openfreemap&amp;mapstyle=dark&amp;lang=he</code>).</li>
-      <li>Fonts sent compressed by the local server.</li>
+      <li><strong>No blank map</strong> on fast zooms: the last zoom stays on screen while tiles load.</li>
+      <li><strong>OpenFreeMap</strong> background, now the default, in six styles (3D included).</li>
+      <li>Its labels in the <strong>local language, English, Arabic or Hebrew</strong>.</li>
+      <li><strong>Lighter tiles</strong>: about 20% smaller.</li>
+      <li><strong>Faster return visits</strong>: tiles are kept in the browser.</li>
+      <li><strong>Wide label buffers</strong> as in QGIS.</li>
+      <li>Cluster symbols <strong>sized by their count</strong> (<code>@cluster_size</code>).</li>
+      <li>A cluster's <strong>buffer</strong> surrounds its count too.</li>
+      <li>A <strong>tidier settings panel</strong>.</li>
+      <li>Drawing tools removed: <strong>lighter viewers</strong>.</li>
+      <li>Fonts sent <strong>compressed</strong> by the local server.</li>
     </ul>
   </article>
-  <article class="release" id="v4-2">
+  <article class="release latest" id="v4-2">
     <div class="release-meta">
       <h2>v4.2</h2>
-      <span class="tag muted">Coming soon</span>
+      <time datetime="2026-11-04">4 Nov 2026</time>
+      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Balloon callouts</strong> drawn as in QGIS, geometry generators included, and sized to fit the text.</li>
@@ -173,11 +175,10 @@
       <li>Fixed: zoom bands beyond zoom 15 were drawn twice.</li>
     </ul>
   </article>
-  <article class="release latest" id="v4-1">
+  <article class="release" id="v4-1">
     <div class="release-meta">
       <h2>v4.1</h2>
       <time datetime="2026-10-26">26 Oct 2026</time>
-      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
