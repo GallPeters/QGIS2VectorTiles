@@ -20,10 +20,15 @@ export function createToggle({ label, on = false, onChange }) {
 
 /**
  * A segmented control. ``options`` are {id, label, title?}; ``onChoose(id)``
- * is called when another option is picked.
+ * is called when another option is picked. With ``columns``, the options
+ * are laid out in that many columns (rows of them, for more options than
+ * fit in one).
  */
-export function createSegmented({ label, options, current, onChoose }) {
-    const group = el('div', { class: 'q2vt-segmented', role: 'radiogroup', 'aria-label': label });
+export function createSegmented({ label, options, current, onChoose, columns }) {
+    const group = el('div', {
+        class: `q2vt-segmented${columns ? ' q2vt-segmented-grid' : ''}`, role: 'radiogroup', 'aria-label': label,
+        style: columns ? `grid-template-columns: repeat(${columns}, 1fr)` : undefined,
+    });
     function render() {
         group.replaceChildren(...options.map((option) => el('button', {
             type: 'button', role: 'radio',

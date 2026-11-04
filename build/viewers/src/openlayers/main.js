@@ -5,6 +5,7 @@ import View from 'ol/View.js';
 import Feature from 'ol/Feature.js';
 import Overlay from 'ol/Overlay.js';
 import Point from 'ol/geom/Point.js';
+import LayerGroup from 'ol/layer/Group.js';
 import TileLayer from 'ol/layer/Tile.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
@@ -20,6 +21,7 @@ import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
+import { localized, openFreeMapStyle, OPENFREEMAP_STYLE } from '../shared/openfreemap.js';
 import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
 import { applySortKeys } from './sortkey.js';
 import { applyTextBackgrounds } from './textbackground.js';
@@ -96,6 +98,7 @@ const highlight = new VectorLayer({
 });
 
 let basemapLayer = null;
+let basemapRequest = 0;
 const isDataLayer = (layer) => layer.get('mapbox-source') === SOURCE;
 
 // The tiles come from the export's PMTiles file (see shared/style.js).
@@ -181,16 +184,36 @@ const adapter = {
         source.clear();
         if (lngLat) source.addFeature(new Feature(new Point(fromLonLat(lngLat))));
     },
-    setBasemap(basemap) {
+    async setBasemap(basemap) {
+        const request = ++basemapRequest;
         if (basemapLayer) map.removeLayer(basemapLayer);
         basemapLayer = null;
-        if (!basemap.url) return;
-        basemapLayer = new TileLayer({
-            source: new XYZ({
-                url: basemap.url, maxZoom: basemap.maxzoom,
-                attributions: basemap.attribution, crossOrigin: 'anonymous',
-            }),
-        });
+        let layer;
+        if (basemap.style) {
+            // OpenFreeMap: its own style, in a group of its own, its place
+            // names in the language chosen.
+            let ofm;
+            try {
+                ofm = await openFreeMapStyle();
+            } catch (error) {
+                console.warn(error);
+                return;
+            }
+            if (request !== basemapRequest) return;
+            layer = new LayerGroup();
+            apply(layer, localized(ofm, basemap.language), { styleUrl: OPENFREEMAP_STYLE })
+                .catch((error) => console.warn('OpenFreeMap not shown:', error));
+        } else if (basemap.url) {
+            layer = new TileLayer({
+                source: new XYZ({
+                    url: basemap.url, maxZoom: basemap.maxzoom,
+                    attributions: basemap.attribution, crossOrigin: 'anonymous',
+                }),
+            });
+        } else {
+            return;
+        }
+        basemapLayer = layer;
         // Above the style's background colour, below the tiles.
         const layers = map.getLayers();
         const background = layers.getArray().findIndex((l) => (l.get('mapbox-layers') || []).includes('background'));

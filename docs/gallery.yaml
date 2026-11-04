@@ -16,8 +16,8 @@
 # webmap       The full web map: its folder in docs/examples/.
 # view         Where the live preview and the full web map open: zoom,
 #              centre [lon, lat] (without them, fitted to the map's whole
-#              extent), and optionally the background (basemap: none, osm
-#              or bluemarble).
+#              extent), and optionally the background (basemap: none, osm,
+#              bluemarble or openfreemap).
 # project      The QGIS project to download (address and size in MB).
 #              Leave the address empty until there is one.
 # coming_soon  true for a placeholder card (a title and a line of text);

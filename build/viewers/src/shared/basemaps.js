@@ -1,7 +1,10 @@
 // Background maps the viewer can show under the vector tiles. "Project"
-// shows the project's background colour (from the style), which also works offline.
+// shows the project's background colour (from the style), which also works
+// offline. OpenFreeMap is drawn from vector tiles, its labels in a language
+// of the visitor's choice (see openfreemap.js).
 
-import { createSegmented } from './controls.js';
+import { createSegmented, settingsRow } from './controls.js';
+import { LANGUAGES, OPENFREEMAP_STYLE } from './openfreemap.js';
 import { load, save } from './storage.js';
 
 export const BASEMAPS = [
@@ -22,27 +25,56 @@ export const BASEMAPS = [
         maxzoom: 8,
         attribution: 'Imagery: <a href="https://earthdata.nasa.gov/gibs" target="_blank">NASA EOSDIS GIBS</a>',
     },
+    {
+        id: 'openfreemap',
+        name: 'OpenFreeMap',
+        title: 'OpenStreetMap as vector tiles, its labels in a language of your choice',
+        style: OPENFREEMAP_STYLE,
+    },
 ];
 
 const STORAGE_KEY = 'q2vt:basemap';
+const LANGUAGE_KEY = 'q2vt:basemap-language';
 
-/** The basemap choice, as a segmented control; ``apply(basemap)`` shows it.
- * The first one shown: the address's ?basemap= (none, osm, bluemarble), else
- * the visitor's last choice, else ``initial`` (the page's default), else the
- * project's background. */
+/** The background choice, as a segmented control, and OpenFreeMap's label
+ * language (its row shown with it); ``apply(basemap)`` shows a background,
+ * with its ``language``. The first background shown: the address's
+ * ?basemap= (none, osm, bluemarble, openfreemap), else the visitor's last
+ * choice, else ``initial`` (the page's default), else the project's
+ * background; the language: ?lang= (local, en, ar, he), else the last one,
+ * else local. */
 export function createBasemapControl({ apply, initial }) {
     const find = (id) => BASEMAPS.find((b) => b.id === id);
-    const fromUrl = new URLSearchParams(window.location.search).get('basemap');
-    let current = find(fromUrl) || find(load(STORAGE_KEY, initial)) || BASEMAPS[0];
-    const control = createSegmented({
+    const params = new URLSearchParams(window.location.search);
+    let current = find(params.get('basemap')) || find(load(STORAGE_KEY, initial)) || BASEMAPS[0];
+    const known = (id) => LANGUAGES.some(([language]) => language === id);
+    let language = [params.get('lang'), load(LANGUAGE_KEY, 'local')].find(known) || 'local';
+    const show = () => apply({ ...current, language });
+
+    const backgrounds = createSegmented({
         label: 'Background',
+        columns: 2,
         options: BASEMAPS.map((b) => ({ id: b.id, label: b.name, title: b.title })),
         current: current.id,
         onChoose: (id) => {
-            current = BASEMAPS.find((b) => b.id === id);
+            current = find(id);
             save(STORAGE_KEY, id);
-            apply(current);
+            languageRow.hidden = !current.style;
+            show();
         },
     });
-    return { element: control.element, apply: () => apply(current) };
+    const languages = createSegmented({
+        label: 'Labels',
+        columns: 2,
+        options: LANGUAGES.map(([id, name, title]) => ({ id, label: name, title })),
+        current: language,
+        onChoose: (id) => {
+            language = id;
+            save(LANGUAGE_KEY, id);
+            show();
+        },
+    });
+    const languageRow = settingsRow('Labels', languages.element);
+    languageRow.hidden = !current.style;
+    return { rows: [settingsRow('Background', backgrounds.element), languageRow], apply: show };
 }

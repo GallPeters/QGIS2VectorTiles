@@ -6,11 +6,15 @@ import * as maplibregl from './maplibre-gl.mjs';
 import { Protocol } from 'pmtiles';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
+import { localized, nameExpression, openFreeMapStyle, showsNames } from '../shared/openfreemap.js';
 import { archives, loadStyle, tileUrls, withDescription } from '../shared/style.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
 const BASEMAP = 'q2vt-basemap';
+// OpenFreeMap's layers, sources, fonts and icons, by this prefix.
+const OFM = 'ofm:';
+const GLYPHS = 'q2vt-glyphs';
 const HIGHLIGHT = 'q2vt-search-hit';
 const config = window.Q2VT_CONFIG;
 
@@ -26,6 +30,27 @@ const style = await loadStyle(config.styleUrl, tileUrls.maplibre);
 const protocol = new Protocol();
 for (const archive of archives.values()) protocol.add(archive);
 maplibregl.addProtocol('pmtiles', protocol.tile);
+
+// A map has one glyphs address: the export's fonts, and OpenFreeMap's for
+// its labels (their font names marked OFM, see addOpenFreeMap), each from
+// its own place.
+const projectGlyphs = style.glyphs;
+let openFreeMapGlyphs = null;
+style.glyphs = `${GLYPHS}://{fontstack}/{range}`;
+maplibregl.addProtocol(GLYPHS, async (params, abortController) => {
+    const rest = params.url.slice(GLYPHS.length + 3);
+    const cut = rest.lastIndexOf('/');
+    const fontstack = rest.slice(0, cut);
+    const range = rest.slice(cut + 1);
+    const ours = fontstack.split(',').every((font) => font.startsWith(OFM));
+    const template = ours ? openFreeMapGlyphs : projectGlyphs;
+    if (!template) throw new Error(`No glyphs for ${fontstack}`);
+    const fonts = ours ? fontstack.split(',').map((font) => font.slice(OFM.length)).join(',') : fontstack;
+    const response = await fetch(template.replace('{fontstack}', fonts).replace('{range}', range),
+        { signal: abortController.signal });
+    if (!response.ok) throw new Error(`Glyphs ${fontstack} ${range}: ${response.status}`);
+    return { data: await response.arrayBuffer() };
+});
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -65,7 +90,62 @@ const dataLayers = () => {
     return dataLayerIds;
 };
 const firstDataLayer = () => map.getLayersOrder()
-    .find((id) => map.getLayer(id)?.type !== 'background' && id !== BASEMAP);
+    .find((id) => map.getLayer(id)?.type !== 'background' && id !== BASEMAP && !id.startsWith(OFM));
+
+/** An OpenFreeMap icon's name, in its own sprite (added as OFM): every
+ * name the property gives, a zoom step's each. */
+function openFreeMapImage(value) {
+    if (typeof value === 'string') return value ? OFM + value : value;
+    if (!Array.isArray(value)) return value;
+    if (value[0] === 'step' && JSON.stringify(value[1]) === '["zoom"]') {
+        return value.map((item, i) => (i >= 2 && i % 2 === 0 ? openFreeMapImage(item) : item));
+    }
+    return ['let', 'q2vt_image', ['to-string', value],
+        ['case', ['==', ['var', 'q2vt_image'], ''], '', ['concat', OFM, ['var', 'q2vt_image']]]];
+}
+
+// The OpenFreeMap layers shown (their style's), and its sources added.
+let openFreeMapLayers = [];
+let openFreeMapSources = [];
+
+/** OpenFreeMap's ``ofm`` style under the data: its layers, sources, fonts
+ * and icons marked OFM, apart from the export's. */
+function addOpenFreeMap(ofm) {
+    openFreeMapGlyphs = ofm.glyphs;
+    if (ofm.sprite && !map.getSprite().some((sprite) => sprite.id === 'ofm')) map.addSprite('ofm', ofm.sprite);
+    for (const [id, source] of Object.entries(ofm.sources)) {
+        map.addSource(OFM + id, source);
+        openFreeMapSources.push(OFM + id);
+    }
+    const before = firstDataLayer();
+    for (const layer of ofm.layers) {
+        const copy = structuredClone(layer);
+        copy.id = OFM + layer.id;
+        if (copy.source) copy.source = OFM + copy.source;
+        const layout = copy.layout || {};
+        if (Array.isArray(layout['text-font']) && layout['text-font'].every((font) => typeof font === 'string')) {
+            layout['text-font'] = layout['text-font'].map((font) => OFM + font);
+        }
+        if (layout['icon-image'] !== undefined) layout['icon-image'] = openFreeMapImage(layout['icon-image']);
+        for (const key of ['fill-pattern', 'line-pattern', 'fill-extrusion-pattern', 'background-pattern']) {
+            if (copy.paint?.[key] !== undefined) copy.paint[key] = openFreeMapImage(copy.paint[key]);
+        }
+        map.addLayer(copy, before);
+    }
+    openFreeMapLayers = ofm.layers;
+}
+
+function removeBasemap() {
+    if (map.getLayer(BASEMAP)) map.removeLayer(BASEMAP);
+    if (map.getSource(BASEMAP)) map.removeSource(BASEMAP);
+    for (const layer of openFreeMapLayers) map.removeLayer(OFM + layer.id);
+    for (const id of openFreeMapSources) map.removeSource(id);
+    openFreeMapLayers = [];
+    openFreeMapSources = [];
+}
+
+let shownBasemap = null;
+let basemapRequest = 0;
 
 const adapter = {
     ready: new Promise((resolve) => map.once('load', resolve)),
@@ -113,9 +193,29 @@ const adapter = {
             },
         });
     },
-    setBasemap(basemap) {
-        if (map.getLayer(BASEMAP)) map.removeLayer(BASEMAP);
-        if (map.getSource(BASEMAP)) map.removeSource(BASEMAP);
+    async setBasemap(basemap) {
+        const request = ++basemapRequest;
+        // OpenFreeMap already shown, in another language: only its labels change.
+        if (basemap.style && shownBasemap?.id === basemap.id && openFreeMapLayers.length) {
+            for (const layer of openFreeMapLayers) {
+                if (showsNames(layer)) map.setLayoutProperty(OFM + layer.id, 'text-field', nameExpression(basemap.language));
+            }
+            shownBasemap = basemap;
+            return;
+        }
+        removeBasemap();
+        shownBasemap = basemap;
+        if (basemap.style) {
+            let ofm;
+            try {
+                ofm = await openFreeMapStyle();
+            } catch (error) {
+                console.warn(error);
+                return;
+            }
+            if (request === basemapRequest) addOpenFreeMap(localized(ofm, basemap.language));
+            return;
+        }
         if (!basemap.url) return;
         map.addSource(BASEMAP, {
             type: 'raster', tiles: [basemap.url], tileSize: 256,

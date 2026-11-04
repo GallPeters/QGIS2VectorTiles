@@ -129,7 +129,7 @@ export async function startViewer(map, config) {
         settingsRow('Popups', popupToggle.element),
         settingsRow('Map only', mapOnly.toggle),
         settingsRow('Viewer', viewerControl.element),
-        settingsRow('Background', basemaps.element),
+        ...basemaps.rows,  // Background, and OpenFreeMap's label language.
     ]);
 
     const search = createSearch({

@@ -79,6 +79,10 @@ body { font-family: var(--q2vt-font); }
     padding: 4px 7px; border: 0; border-radius: 5px; background: transparent;
     font: 600 12px var(--q2vt-font); color: #4b5563; white-space: nowrap; cursor: pointer;
 }
+/* Options in columns (a row of them per line): each as wide as its column. */
+.q2vt-segmented-grid { display: grid; gap: 1px; }
+.q2vt-segmented-grid .q2vt-segment { padding: 4px 5px; }
+.q2vt-setting[hidden] { display: none; }
 .q2vt-segment:hover { color: var(--q2vt-text); }
 .q2vt-segment.active {
     background: #ffffff; color: var(--q2vt-accent); cursor: default;
