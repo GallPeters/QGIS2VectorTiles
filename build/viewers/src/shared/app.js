@@ -113,6 +113,7 @@ export async function startViewer(map, config) {
     // The other map library reopens the page at the same place and zoom.
     const viewerControl = createSegmented({
         label: 'Viewer',
+        columns: 2,
         options: VIEWERS.map(([id, name, recommended]) => ({
             id,
             label: name,

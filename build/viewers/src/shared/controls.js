@@ -25,9 +25,11 @@ export function createToggle({ label, on = false, onChange }) {
  * fit in one).
  */
 export function createSegmented({ label, options, current, onChoose, columns }) {
+    const rows = columns ? Math.ceil(options.length / columns) : 1;
     const group = el('div', {
-        class: `q2vt-segmented${columns ? ' q2vt-segmented-grid' : ''}`, role: 'radiogroup', 'aria-label': label,
-        style: columns ? `grid-template-columns: repeat(${columns}, 1fr)` : undefined,
+        class: `q2vt-segmented${columns ? ` q2vt-segmented-grid q2vt-rows-${rows}` : ''}`,
+        role: 'radiogroup', 'aria-label': label,
+        style: columns ? `grid-template-columns: repeat(${columns}, minmax(0, 1fr))` : undefined,
     });
     function render() {
         group.replaceChildren(...options.map((option) => el('button', {
