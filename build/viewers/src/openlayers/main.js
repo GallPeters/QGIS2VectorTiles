@@ -21,7 +21,7 @@ import Zoom from 'ol/control/Zoom.js';
 import { apply } from 'ol-mapbox-style';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
-import { localized, openFreeMapStyle, OPENFREEMAP_STYLE } from '../shared/openfreemap.js';
+import { localized, openFreeMapStyle, styleUrl } from '../shared/openfreemap.js';
 import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
 import { applySortKeys } from './sortkey.js';
 import { applyTextBackgrounds } from './textbackground.js';
@@ -189,19 +189,20 @@ const adapter = {
         if (basemapLayer) map.removeLayer(basemapLayer);
         basemapLayer = null;
         let layer;
-        if (basemap.style) {
-            // OpenFreeMap: its own style, in a group of its own, its place
-            // names in the language chosen.
+        if (basemap.openfreemap) {
+            // OpenFreeMap: the style chosen (3D flat: OpenLayers doesn't
+            // tilt), in a group of its own, its place names in the language
+            // chosen.
             let ofm;
             try {
-                ofm = await openFreeMapStyle();
+                ofm = await openFreeMapStyle(basemap.mapStyle);
             } catch (error) {
                 console.warn(error);
                 return;
             }
             if (request !== basemapRequest) return;
             layer = new LayerGroup();
-            apply(layer, localized(ofm, basemap.language), { styleUrl: OPENFREEMAP_STYLE })
+            apply(layer, localized(ofm, basemap.language), { styleUrl: styleUrl(basemap.mapStyle) })
                 .catch((error) => console.warn('OpenFreeMap not shown:', error));
         } else if (basemap.url) {
             layer = new TileLayer({

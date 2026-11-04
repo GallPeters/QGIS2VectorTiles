@@ -85,11 +85,17 @@ body { font-family: var(--q2vt-font); }
 .q2vt-setting .q2vt-segmented { flex: none; width: 172px; box-sizing: border-box; }
 .q2vt-segmented-grid { display: grid; position: relative; }
 .q2vt-segmented-grid .q2vt-segment { z-index: 1; min-width: 0; padding: 4px 2px; }
-.q2vt-segmented-grid::before, .q2vt-segmented-grid.q2vt-rows-2::after {
-    content: ''; position: absolute; background: #e6e8ec; pointer-events: none;
+.q2vt-segmented-grid::before, .q2vt-segmented-grid.q2vt-rows-2::after,
+.q2vt-segmented-grid.q2vt-rows-3::after {
+    content: ''; position: absolute; pointer-events: none; box-sizing: border-box;
 }
-.q2vt-segmented-grid::before { left: 50%; top: 8px; bottom: 8px; width: 1px; }
-.q2vt-segmented-grid.q2vt-rows-2::after { top: 50%; left: 10px; right: 10px; height: 1px; }
+.q2vt-segmented-grid::before { left: 50%; top: 8px; bottom: 8px; width: 1px; background: #e6e8ec; }
+.q2vt-segmented-grid.q2vt-rows-2::after { top: 50%; left: 10px; right: 10px; height: 1px; background: #e6e8ec; }
+/* Three rows: the lines above and below the middle one. */
+.q2vt-segmented-grid.q2vt-rows-3::after {
+    top: calc(100% / 3); bottom: calc(100% / 3); left: 10px; right: 10px;
+    border-top: 1px solid #e6e8ec; border-bottom: 1px solid #e6e8ec;
+}
 .q2vt-setting[hidden] { display: none; }
 .q2vt-segment:hover { color: var(--q2vt-text); }
 .q2vt-segment.active {

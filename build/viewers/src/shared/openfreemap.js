@@ -1,9 +1,22 @@
 // OpenFreeMap: OpenStreetMap as vector tiles (https://openfreemap.org), drawn
-// in the browser from its Liberty style, so its labels can be shown in
+// in the browser from one of its styles, so its labels can be shown in
 // another language: each place has its local name ("name") and, where
 // OpenStreetMap has them, its names in other languages ("name:en", ...).
 
-export const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+/** The styles offered: [id, name shown, title]. 3D is Liberty (whose
+ * buildings rise) seen tilted, in MapLibre; flat in OpenLayers. */
+export const STYLES = [
+    ['positron', 'Positron', 'Light and quiet'],
+    ['bright', 'Bright', 'Colourful, detailed'],
+    ['liberty', 'Liberty', 'Detailed, soft colours'],
+    ['dark', 'Dark', 'Dark and quiet'],
+    ['fiord', 'Fiord', 'Dark blue'],
+    ['3d', '3D', 'Liberty, tilted, its buildings in 3D (MapLibre)'],
+];
+export const DEFAULT_STYLE = 'liberty';
+
+/** The address of a style's style.json. */
+export const styleUrl = (id) => `https://tiles.openfreemap.org/styles/${id === '3d' ? 'liberty' : id}`;
 
 /** The label languages offered: [id, name shown, title]. */
 export const LANGUAGES = [
@@ -13,18 +26,21 @@ export const LANGUAGES = [
     ['he', 'עברית', 'Hebrew names, else local'],
 ];
 
-let pending = null;
+const pending = new Map();
 
-/** The OpenFreeMap style (fetched once). */
-export function openFreeMapStyle() {
-    pending ??= fetch(OPENFREEMAP_STYLE).then((response) => {
-        if (!response.ok) throw new Error(`Cannot load OpenFreeMap (${response.status})`);
-        return response.json();
-    }).catch((error) => {
-        pending = null;  // Tried again next time.
-        throw error;
-    });
-    return pending;
+/** An OpenFreeMap style, by id (each fetched once). */
+export function openFreeMapStyle(id) {
+    const url = styleUrl(id);
+    if (!pending.has(url)) {
+        pending.set(url, fetch(url).then((response) => {
+            if (!response.ok) throw new Error(`Cannot load OpenFreeMap (${response.status})`);
+            return response.json();
+        }).catch((error) => {
+            pending.delete(url);  // Tried again next time.
+            throw error;
+        }));
+    }
+    return pending.get(url);
 }
 
 /** A label's text in ``language``: its name in that language, else its local name. */

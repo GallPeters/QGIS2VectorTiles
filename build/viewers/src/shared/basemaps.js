@@ -1,10 +1,10 @@
 // Background maps the viewer can show under the vector tiles. "Project"
 // shows the project's background colour (from the style), which also works
-// offline. OpenFreeMap is drawn from vector tiles, its labels in a language
-// of the visitor's choice (see openfreemap.js).
+// offline. OpenFreeMap is drawn from vector tiles, in one of its styles,
+// its labels in a language of the visitor's choice (see openfreemap.js).
 
 import { createSegmented, settingsRow } from './controls.js';
-import { LANGUAGES, OPENFREEMAP_STYLE } from './openfreemap.js';
+import { DEFAULT_STYLE, LANGUAGES, STYLES } from './openfreemap.js';
 import { load, save } from './storage.js';
 
 export const BASEMAPS = [
@@ -28,28 +28,33 @@ export const BASEMAPS = [
     {
         id: 'openfreemap',
         name: 'OpenFreeMap',
-        title: 'OpenStreetMap as vector tiles, its labels in a language of your choice',
-        style: OPENFREEMAP_STYLE,
+        title: 'OpenStreetMap as vector tiles, in a style and label language of your choice',
+        openfreemap: true,
     },
 ];
 
 const STORAGE_KEY = 'q2vt:basemap';
+const STYLE_KEY = 'q2vt:basemap-style';
 const LANGUAGE_KEY = 'q2vt:basemap-language';
 
-/** The background choice, as a segmented control, and OpenFreeMap's label
- * language (its row shown with it); ``apply(basemap)`` shows a background,
- * with its ``language``. The first background shown: the address's
- * ?basemap= (none, osm, bluemarble, openfreemap), else the visitor's last
- * choice, else ``initial`` (the page's default), else the project's
- * background; the language: ?lang= (local, en, ar, he), else the last one,
- * else local. */
+/** The first of ``choices`` that is one of ``options`` ([id, ...] each). */
+const firstKnown = (options, ...choices) => choices.find((id) => options.some(([known]) => known === id));
+
+/** The background choice, as a segmented control, and OpenFreeMap's style
+ * and label language (their rows shown with it); ``apply(basemap)`` shows a
+ * background, with its ``mapStyle`` and ``language``. The first background
+ * shown: the address's ?basemap= (none, osm, bluemarble, openfreemap), else
+ * the visitor's last choice, else ``initial`` (the page's default), else the
+ * project's background; the style: ?mapstyle= (positron, bright, liberty,
+ * dark, fiord, 3d), else the last one, else Liberty; the language: ?lang=
+ * (local, en, ar, he), else the last one, else local. */
 export function createBasemapControl({ apply, initial }) {
     const find = (id) => BASEMAPS.find((b) => b.id === id);
     const params = new URLSearchParams(window.location.search);
     let current = find(params.get('basemap')) || find(load(STORAGE_KEY, initial)) || BASEMAPS[0];
-    const known = (id) => LANGUAGES.some(([language]) => language === id);
-    let language = [params.get('lang'), load(LANGUAGE_KEY, 'local')].find(known) || 'local';
-    const show = () => apply({ ...current, language });
+    let mapStyle = firstKnown(STYLES, params.get('mapstyle'), load(STYLE_KEY, DEFAULT_STYLE)) || DEFAULT_STYLE;
+    let language = firstKnown(LANGUAGES, params.get('lang'), load(LANGUAGE_KEY, 'local')) || 'local';
+    const show = () => apply({ ...current, mapStyle, language });
 
     const backgrounds = createSegmented({
         label: 'Background',
@@ -59,7 +64,18 @@ export function createBasemapControl({ apply, initial }) {
         onChoose: (id) => {
             current = find(id);
             save(STORAGE_KEY, id);
-            languageRow.hidden = !current.style;
+            showRows();
+            show();
+        },
+    });
+    const styles = createSegmented({
+        label: 'Style',
+        columns: 2,
+        options: STYLES.map(([id, name, title]) => ({ id, label: name, title })),
+        current: mapStyle,
+        onChoose: (id) => {
+            mapStyle = id;
+            save(STYLE_KEY, id);
             show();
         },
     });
@@ -74,7 +90,9 @@ export function createBasemapControl({ apply, initial }) {
             show();
         },
     });
-    const languageRow = settingsRow('Labels', languages.element);
-    languageRow.hidden = !current.style;
-    return { rows: [settingsRow('Background', backgrounds.element), languageRow], apply: show };
+    // OpenFreeMap's own choices, shown with it only.
+    const ofmRows = [settingsRow('Style', styles.element), settingsRow('Labels', languages.element)];
+    const showRows = () => ofmRows.forEach((row) => { row.hidden = !current.openfreemap; });
+    showRows();
+    return { rows: [settingsRow('Background', backgrounds.element), ...ofmRows], apply: show };
 }

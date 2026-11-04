@@ -112,8 +112,14 @@ let openFreeMapSources = [];
  * and icons marked OFM, apart from the export's. */
 function addOpenFreeMap(ofm) {
     openFreeMapGlyphs = ofm.glyphs;
-    if (ofm.sprite && !map.getSprite().some((sprite) => sprite.id === 'ofm')) map.addSprite('ofm', ofm.sprite);
+    // The styles share one sprite; another one replaces it.
+    const sprite = map.getSprite().find((s) => s.id === 'ofm');
+    if (sprite && sprite.url !== ofm.sprite) map.removeSprite('ofm');
+    if (ofm.sprite && sprite?.url !== ofm.sprite) map.addSprite('ofm', ofm.sprite);
+    // The styles share their sources: kept from one style to the next, with
+    // the tiles they have loaded.
     for (const [id, source] of Object.entries(ofm.sources)) {
+        if (map.getSource(OFM + id)) continue;
         map.addSource(OFM + id, source);
         openFreeMapSources.push(OFM + id);
     }
@@ -135,12 +141,15 @@ function addOpenFreeMap(ofm) {
     openFreeMapLayers = ofm.layers;
 }
 
-function removeBasemap() {
+/** The background shown taken away; OpenFreeMap's sources kept when
+ * ``keepSources`` (another of its styles comes next). */
+function removeBasemap(keepSources = false) {
     if (map.getLayer(BASEMAP)) map.removeLayer(BASEMAP);
     if (map.getSource(BASEMAP)) map.removeSource(BASEMAP);
     for (const layer of openFreeMapLayers) map.removeLayer(OFM + layer.id);
-    for (const id of openFreeMapSources) map.removeSource(id);
     openFreeMapLayers = [];
+    if (keepSources) return;
+    for (const id of openFreeMapSources) map.removeSource(id);
     openFreeMapSources = [];
 }
 
@@ -195,20 +204,25 @@ const adapter = {
     },
     async setBasemap(basemap) {
         const request = ++basemapRequest;
-        // OpenFreeMap already shown, in another language: only its labels change.
-        if (basemap.style && shownBasemap?.id === basemap.id && openFreeMapLayers.length) {
+        const ofmStyle = basemap.openfreemap ? basemap.mapStyle : null;
+        // OpenFreeMap's 3D tilts the map; leaving it, the map is flat again.
+        const wasTilted = shownBasemap?.openfreemap && shownBasemap.mapStyle === '3d';
+        if (ofmStyle === '3d' && !wasTilted) map.easeTo({ pitch: 60, duration: 800 });
+        if (ofmStyle !== '3d' && wasTilted) map.easeTo({ pitch: 0, duration: 800 });
+        // OpenFreeMap already shown in this style: only its labels' language changes.
+        if (ofmStyle && shownBasemap?.openfreemap && shownBasemap.mapStyle === ofmStyle && openFreeMapLayers.length) {
             for (const layer of openFreeMapLayers) {
                 if (showsNames(layer)) map.setLayoutProperty(OFM + layer.id, 'text-field', nameExpression(basemap.language));
             }
             shownBasemap = basemap;
             return;
         }
-        removeBasemap();
+        removeBasemap(Boolean(ofmStyle));
         shownBasemap = basemap;
-        if (basemap.style) {
+        if (ofmStyle) {
             let ofm;
             try {
-                ofm = await openFreeMapStyle();
+                ofm = await openFreeMapStyle(ofmStyle);
             } catch (error) {
                 console.warn(error);
                 return;
