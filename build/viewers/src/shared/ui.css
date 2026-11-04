@@ -90,6 +90,14 @@ body { font-family: var(--q2vt-font); }
     content: ''; position: absolute; pointer-events: none; box-sizing: border-box;
 }
 .q2vt-segmented-grid::before { left: 50%; top: 8px; bottom: 8px; width: 1px; background: #e6e8ec; }
+/* Three columns (one row): the lines a third and two thirds across. */
+.q2vt-segmented-grid.q2vt-cols-3::before {
+    left: calc(100% / 3); width: calc(100% / 3); background: none;
+    border-left: 1px solid #e6e8ec; border-right: 1px solid #e6e8ec;
+}
+/* A last option across its row: the middle line stops above it. */
+.q2vt-segmented-grid .q2vt-wide { grid-column: 1 / -1; }
+.q2vt-segmented-grid.q2vt-rows-4.q2vt-last-wide::before { bottom: calc(25% + 6px); }
 .q2vt-segmented-grid.q2vt-rows-2::after { top: 50%; left: 10px; right: 10px; height: 1px; background: #e6e8ec; }
 /* Three rows: the lines above and below the middle one. */
 .q2vt-segmented-grid.q2vt-rows-3::after {
@@ -229,6 +237,7 @@ body { font-family: var(--q2vt-font); }
 .q2vt-meta-item { margin-bottom: 5px; }
 .q2vt-meta-item .q2vt-key { font-weight: 700; color: #1e88e5; font-size: 11px; margin-bottom: 2px; }
 .q2vt-field { margin-bottom: 6px; }
+.q2vt-popup-note { color: var(--q2vt-muted, #6b7280); font-size: 12px; }
 .q2vt-field .q2vt-key { font-weight: 800; font-size: 11px; margin-bottom: 2px; }
 .q2vt-value { color: #374151; font-size: 12px; word-break: break-word; }
 .q2vt-null { color: #9ca3af; }

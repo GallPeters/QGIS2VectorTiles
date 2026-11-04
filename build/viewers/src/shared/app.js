@@ -45,6 +45,14 @@ function switchViewer(map, viewer) {
 
 const PANEL_KEY = 'q2vt:settings-open';
 
+// What a feature's popup shows: nothing (no popups), its own fields, or the
+// plugin's metadata (for checking an export).
+const POPUP_MODES = [
+    ['off', 'Off', 'No popups'],
+    ['fields', 'Fields', "The feature's fields (those exported: all or visible fields)"],
+    ['debug', 'Debug', "The plugin's metadata: layer, rule, label text..."],
+];
+
 /** The collapsible "Map settings" card: open by default except on phones,
  * then as the user left it. */
 function createSettingsPanel(rows) {
@@ -96,18 +104,20 @@ function createMapOnly() {
 }
 
 export async function startViewer(map, config) {
-    let popupsEnabled = false;
+    let popupMode = 'off';
     let overPopup = false;
     let closeTimer = null;
 
     const zoomLabel = el('div', { class: 'q2vt-zoom', 'aria-live': 'off', title: 'Zoom level' }, 'Zoom –');
 
-    const popupToggle = createToggle({
+    const popupControl = createSegmented({
         label: 'Popups',
-        on: popupsEnabled,
-        onChange: (on) => {
-            popupsEnabled = on;
-            if (!on) hidePopup();
+        columns: 3,
+        options: POPUP_MODES.map(([id, label, title]) => ({ id, label, title })),
+        current: popupMode,
+        onChoose: (id) => {
+            popupMode = id;
+            hidePopup();  // The next hover shows the new kind.
         },
     });
     // The other map library reopens the page at the same place and zoom.
@@ -126,9 +136,9 @@ export async function startViewer(map, config) {
     const basemaps = createBasemapControl({ apply: (b) => map.setBasemap(b), initial: config.basemap });
     const mapOnly = createMapOnly();
     const settings = createSettingsPanel([
-        // The two switches, then the two choices.
-        settingsRow('Popups', popupToggle.element),
+        // The switch, then the choices.
         settingsRow('Map only', mapOnly.toggle),
+        settingsRow('Popups', popupControl.element),
         settingsRow('Viewer', viewerControl.element),
         ...basemaps.rows,  // Background, and OpenFreeMap's label language.
     ]);
@@ -183,7 +193,7 @@ export async function startViewer(map, config) {
     function handlePointerMove({ lngLat, point }) {
         coords.textContent = formatCoordinate(lngLat);
         coords.hidden = false;
-        if (!popupsEnabled) {
+        if (popupMode === 'off') {
             map.setCursor('');
             return;
         }
@@ -195,7 +205,7 @@ export async function startViewer(map, config) {
             return;
         }
         clearTimeout(closeTimer);
-        const content = popupContent(features[0]);
+        const content = popupContent(features[0], popupMode);
         content.addEventListener('mouseenter', () => { overPopup = true; clearTimeout(closeTimer); });
         content.addEventListener('mouseleave', () => { overPopup = false; scheduleClose(); });
         map.showPopup(lngLat, content);

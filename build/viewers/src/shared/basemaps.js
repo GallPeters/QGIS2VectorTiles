@@ -51,7 +51,7 @@ const firstKnown = (options, ...choices) => choices.find((id) => options.some(([
  * dark, fiord, 3d), else the last one, else Liberty; the language: ?lang=
  * (local, en, ar, he), else the last one, else local.
  *
- * "Your style…" shows a style.json the visitor chooses (or drops on the
+ * "Upload style" shows a style.json the visitor chooses (or drops on the
  * page): kept in their browser for their next visits, seen by them only. */
 export function createBasemapControl({ apply, initial }) {
     const find = (id) => BASEMAPS.find((b) => b.id === id);
@@ -129,7 +129,8 @@ export function createBasemapControl({ apply, initial }) {
         label: 'Style',
         columns: 2,
         options: STYLES.map(([id, name, title]) => ({
-            id, label: name, title, onAgain: id === CUSTOM ? choose : undefined,
+            // Across the row, under the six styles.
+            id, label: name, title, wide: id === CUSTOM, onAgain: id === CUSTOM ? choose : undefined,
         })),
         current: mapStyle,
         onChoose: (id) => {

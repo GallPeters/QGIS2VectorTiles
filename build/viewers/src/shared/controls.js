@@ -19,23 +19,26 @@ export function createToggle({ label, on = false, onChange }) {
 }
 
 /**
- * A segmented control. ``options`` are {id, label, title?, onAgain?};
+ * A segmented control. ``options`` are {id, label, title?, wide?, onAgain?}
+ * (``wide``: across its row, the last option only);
  * ``onChoose(id)`` is called when another option is picked, an option's
  * ``onAgain()`` when it is clicked while chosen. With ``columns``, the options
  * are laid out in that many columns (rows of them, for more options than
  * fit in one).
  */
 export function createSegmented({ label, options, current, onChoose, columns }) {
+    const wide = options.at(-1)?.wide;
     const rows = columns ? Math.ceil(options.length / columns) : 1;
     const group = el('div', {
-        class: `q2vt-segmented${columns ? ` q2vt-segmented-grid q2vt-rows-${rows}` : ''}`,
+        class: `q2vt-segmented${columns ? ` q2vt-segmented-grid q2vt-rows-${rows} q2vt-cols-${columns}` : ''}${
+            wide ? ' q2vt-last-wide' : ''}`,
         role: 'radiogroup', 'aria-label': label,
         style: columns ? `grid-template-columns: repeat(${columns}, minmax(0, 1fr))` : undefined,
     });
     function render() {
         group.replaceChildren(...options.map((option) => el('button', {
             type: 'button', role: 'radio',
-            class: `q2vt-segment${option.id === current ? ' active' : ''}`,
+            class: `q2vt-segment${option.id === current ? ' active' : ''}${option.wide ? ' q2vt-wide' : ''}`,
             'aria-checked': String(option.id === current),
             title: option.title || option.label,
             onclick: () => {

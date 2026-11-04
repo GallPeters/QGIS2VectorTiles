@@ -1,5 +1,6 @@
-// Feature popups shown on hover: the plugin's q2vt_* metadata first, then
-// the feature's own attributes.
+// Feature popups shown on hover: in "fields" mode the feature's own
+// attributes (those the export kept: all or visible fields), in "debug"
+// mode the plugin's q2vt_* metadata (layer, rule, label text...).
 
 import { escapeHtml } from './dom.js';
 
@@ -39,8 +40,9 @@ function formatValue(value) {
     return escapeHtml(value);
 }
 
-/** The popup's content element for a feature's properties. */
-export function popupContent(properties) {
+/** The popup's content element for a feature's properties, in ``mode``
+ * ("fields" or "debug"). */
+export function popupContent(properties, mode) {
     const metadata = [];
     const fields = [];
     for (const [key, value] of Object.entries(properties || {})) {
@@ -53,9 +55,15 @@ export function popupContent(properties) {
         + `<div class="q2vt-value">${formatValue(value)}</div></div>`;
     const div = document.createElement('div');
     div.className = 'q2vt-popup';
-    div.innerHTML = (metadata.length
-        ? `<div class="q2vt-meta"><div class="q2vt-meta-title">metadata</div>${
-            metadata.map((m) => item(m, 'q2vt-meta-item')).join('')}</div>`
-        : '') + fields.map((f) => item(f, 'q2vt-field')).join('');
+    if (mode === 'debug') {
+        div.innerHTML = `<div class="q2vt-meta"><div class="q2vt-meta-title">metadata</div>${
+            metadata.map((m) => item(m, 'q2vt-meta-item')).join('')}</div>`;
+    } else if (fields.length) {
+        div.innerHTML = fields.map((f) => item(f, 'q2vt-field')).join('');
+    } else {
+        // Exported with required fields only: none of the source's kept.
+        div.innerHTML = '<div class="q2vt-popup-note">No fields exported for this layer '
+            + '(the export kept required fields only).</div>';
+    }
     return div;
 }

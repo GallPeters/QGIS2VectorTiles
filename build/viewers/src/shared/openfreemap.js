@@ -12,7 +12,7 @@ export const STYLES = [
     ['dark', 'Dark', 'Dark and quiet'],
     ['fiord', 'Fiord', 'Dark blue'],
     ['3d', '3D', 'Liberty, tilted, its buildings in 3D (MapLibre)'],
-    ['custom', 'Your style…', 'Your own style.json (an OpenFreeMap style edited in Maputnik, say); click again for another'],
+    ['custom', 'Upload style', 'Show your own style.json (an OpenFreeMap style edited in Maputnik, say), kept in this browser; click again for another'],
 ];
 /** The visitor's own style (a style.json they chose, see setCustomStyle). */
 export const CUSTOM = 'custom';
