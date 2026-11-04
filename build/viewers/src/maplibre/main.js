@@ -30,9 +30,10 @@ maplibregl.addProtocol('pmtiles', protocol.tile);
 const map = new maplibregl.Map({
     container: 'map',
     style,
-    // Labels fade in briefly (MapLibre's default is 300 ms): smooth, and each
-    // move finishes sooner (the fade is much of the wait after a move).
-    fadeDuration: 75,
+    // Labels appear at once (MapLibre fades them in over 300 ms): with the
+    // previous zoom's labels standing in while tiles load, a fade would
+    // only delay them.
+    fadeDuration: 0,
     // The map's credits: the background's (each basemap source's), MapLibre's
     // and the plugin's.
     attributionControl: {
