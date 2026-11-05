@@ -111,6 +111,17 @@ body { font-family: var(--q2vt-font); }
     background: linear-gradient(#e6e8ec, #e6e8ec) center / 100% 1px no-repeat;
 }
 .q2vt-setting[hidden] { display: none; }
+/* A list choice (the label language): as wide as the other choices, in their colours. */
+.q2vt-select {
+    flex: none; width: 172px; box-sizing: border-box; padding: 5px 24px 5px 9px;
+    border: 0; border-radius: 7px; background: #f3f4f6 no-repeat right 8px center / 10px 6px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    font: 600 12px var(--q2vt-font); color: var(--q2vt-accent); cursor: pointer;
+    appearance: none; -webkit-appearance: none; text-overflow: ellipsis;
+}
+.q2vt-select:hover { background-color: #eceef1; }
+.q2vt-select:focus-visible { outline: 2px solid var(--q2vt-accent); outline-offset: 1px; }
+.q2vt-select option, .q2vt-select optgroup { color: var(--q2vt-text); font-weight: 400; }
 .q2vt-segment:hover { color: var(--q2vt-text); }
 .q2vt-segment.active {
     background: #ffffff; color: var(--q2vt-accent); cursor: default;

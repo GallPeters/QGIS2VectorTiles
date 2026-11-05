@@ -49,7 +49,8 @@ const firstKnown = (options, ...choices) => choices.find((id) => options.some(([
  * the visitor's last choice, else ``initial`` (the page's default), else the
  * project's background; the style: ?mapstyle= (positron, bright, liberty,
  * dark, fiord, 3d), else the last one, else Liberty; the language: ?lang=
- * (local, en, ar, he), else the last one, else local.
+ * (local, latin, nonlatin, or a language's code: en, de, he...), else the
+ * last one, else local.
  *
  * "Upload style" shows a style.json the visitor chooses (or drops on the
  * page): kept in their browser for their next visits, seen by them only. */
@@ -145,17 +146,23 @@ export function createBasemapControl({ apply, initial }) {
             show();
         },
     });
-    const languages = createSegmented({
-        label: 'Labels',
-        columns: 2,
-        options: LANGUAGES.map(([id, name, title]) => ({ id, label: name, title })),
-        current: language,
-        onChoose: (id) => {
-            language = id;
-            save(LANGUAGE_KEY, id);
-            show();
-        },
-    });
+    // The label language: a list (Local, English and the two scripts first,
+    // then every language), too many for buttons.
+    const option = ([id, name, title]) => el('option', { value: id, title, selected: id === language }, name);
+    const languages = {
+        element: el('select', {
+            class: 'q2vt-select', 'aria-label': 'Label language',
+            title: "The language of the map's place names (a place without a name in it shows its local name)",
+            onchange: (event) => {
+                language = event.target.value;
+                save(LANGUAGE_KEY, language);
+                show();
+            },
+        }, [
+            ...LANGUAGES.slice(0, 4).map(option),
+            el('optgroup', { label: 'Languages' }, LANGUAGES.slice(4).map(option)),
+        ]),
+    };
     // OpenFreeMap's own choices, shown with it only.
     const ofmRows = [settingsRow('Style', styles.element), settingsRow('Labels', languages.element)];
     const showRows = () => ofmRows.forEach((row) => { row.hidden = !current.openfreemap; });

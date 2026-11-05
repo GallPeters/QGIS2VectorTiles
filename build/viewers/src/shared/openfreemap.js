@@ -21,12 +21,39 @@ export const DEFAULT_STYLE = 'liberty';
 /** The address of a style's style.json. */
 export const styleUrl = (id) => `https://tiles.openfreemap.org/styles/${id === '3d' || id === 'custom' ? 'liberty' : id}`;
 
-/** The label languages offered: [id, name shown, title]. */
+// The languages OpenFreeMap's tiles name places in (OpenMapTiles' name:xx
+// fields): how many places have a name in each depends on OpenStreetMap
+// there; a place without one shows its local name.
+const LANGUAGE_CODES = [
+    'af', 'am', 'ar', 'az', 'be', 'bg', 'bn', 'br', 'bs', 'ca', 'co', 'cs', 'cy', 'da', 'de', 'el',
+    'en', 'eo', 'es', 'et', 'eu', 'fa', 'fi', 'fr', 'fy', 'ga', 'gd', 'he', 'hi', 'hr', 'hu', 'hy',
+    'id', 'is', 'it', 'ja', 'ka', 'kk', 'kn', 'ko', 'ku', 'la', 'lb', 'lt', 'lv', 'mk', 'ml', 'mt',
+    'nl', 'no', 'oc', 'pa', 'pl', 'pnb', 'pt', 'rm', 'ro', 'ru', 'sk', 'sl', 'sq', 'sr', 'sv', 'ta',
+    'te', 'th', 'tok', 'tr', 'uk', 'ur', 'vi', 'zh', 'zh-Hant',
+];
+
+/** A language's name in ``locale`` (its own name: ``locale`` = ``code``). */
+function languageName(code, locale) {
+    try {
+        const name = new Intl.DisplayNames([locale], { type: 'language' }).of(code);
+        if (name && name !== code) return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1);
+    } catch (e) { /* An engine without the language's name. */ }
+    return code === 'tok' ? 'Toki Pona' : code;
+}
+
+/** The label languages offered: [id, name shown, title]. Local first, then
+ * English, the two scripts, and every language by its English name, its
+ * own name with it ("German · Deutsch"). */
 export const LANGUAGES = [
     ['local', 'Local', "Each place's own name"],
     ['en', 'English', 'English names, else local'],
-    ['ar', 'عربي', 'Arabic names, else local'],
-    ['he', 'עברית', 'Hebrew names, else local'],
+    ['latin', 'Latin script', 'Names in Latin letters (romanised), else local'],
+    ['nonlatin', 'Non-Latin script', 'Names in their non-Latin script, else local'],
+    ...LANGUAGE_CODES.filter((code) => code !== 'en').map((code) => {
+        const english = languageName(code, 'en');
+        const own = languageName(code, code);
+        return [code, own === english ? english : `${english} · ${own}`, `${english} names, else local`];
+    }).sort((a, b) => a[1].localeCompare(b[1], 'en')),
 ];
 
 const pending = new Map();
@@ -97,9 +124,9 @@ export function openFreeMapStyle(id) {
 
 /** A label's text in ``language``: its name in that language, else its local name. */
 export function nameExpression(language) {
+    if (language === 'local' || !language) return ['coalesce', ['get', 'name'], ['get', 'name:latin']];
     if (language === 'en') return ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name']];
-    if (language === 'ar' || language === 'he') return ['coalesce', ['get', `name:${language}`], ['get', 'name']];
-    return ['coalesce', ['get', 'name'], ['get', 'name:latin']];
+    return ['coalesce', ['get', `name:${language}`], ['get', 'name']];
 }
 
 /** Whether a layer's labels are place names (not, e.g., road numbers). */
