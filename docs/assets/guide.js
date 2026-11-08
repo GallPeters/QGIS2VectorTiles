@@ -50,7 +50,7 @@
       var table = el('table');
       var thead = el('thead');
       var hr = el('tr');
-      ['QGIS property', 'MapLibre property', 'Support', 'Data-driven', 'Notes'].forEach(function (h) {
+      ['QGIS property', 'MapLibre property', 'Support', 'PostGIS live', 'Data-driven', 'Notes'].forEach(function (h) {
         var th = el('th', null, h);
         th.scope = 'col';
         hr.appendChild(th);
@@ -64,7 +64,17 @@
         var target = String(p.maplibre_prop || '').trim();
         var tr = el('tr');
         tr.dataset.status = status;
-        tr.dataset.search = norm([p.qgis_prop, p.maplibre_prop, p.notes].join(' '));
+        tr.dataset.search = norm([p.qgis_prop, p.maplibre_prop, p.notes, p.live_notes].join(' '));
+        // Live maps (q2vt_live.sql): as the export unless the row says otherwise.
+        var live = norm(p.live || p.supported);
+        if (!STATUS[live]) live = 'partial';
+        var notes = el('span', null, String(p.notes || ''));
+        if (p.live_notes) {
+          var liveNote = el('span', 'live-note');
+          liveNote.append(el('strong', null, 'PostGIS live: '), String(p.live_notes));
+          notes = el('span');
+          notes.append(el('span', null, String(p.notes || '')), liveNote);
+        }
         var prop = cell('QGIS property', String(p.qgis_prop || ''));
         prop.className = 'prop';
         var dd = norm(p.data_driven) === 'yes';
@@ -72,8 +82,9 @@
           prop,
           cell('MapLibre', el('span', 'code' + (target.toUpperCase() === 'N/A' ? ' na' : ''), target || 'N/A')),
           cell('Support', el('span', 'status ' + status, STATUS[status])),
+          cell('PostGIS live', el('span', 'status ' + live, STATUS[live])),
           cell('Data-driven', el('span', 'dd' + (dd ? ' yes' : ''), dd ? 'Yes' : 'No')),
-          cell('Notes', String(p.notes || ''))
+          cell('Notes', notes)
         );
         tbody.appendChild(tr);
       });

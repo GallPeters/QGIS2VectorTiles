@@ -40,6 +40,8 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
+from .html_label import EMPTY_IMAGE, BaseFormat, RichFields, parse_badge_name
+from .sprite_generator import TextBadge
 from .sprite_generator import (
     BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
@@ -2620,6 +2622,7 @@ class QgisMapLibreStyleExporter:
         zoom_ranges: Optional[Dict[str, tuple]] = None,
         descriptions: Optional[Dict[str, Dict[str, str]]] = None,
         raw_colors: Optional[Dict[str, set]] = None,
+        html_slots: Optional[Dict[str, Dict[str, int]]] = None,
     ):
         """Initialise the exporter.
 
@@ -2647,6 +2650,8 @@ class QgisMapLibreStyleExporter:
         # Per dataset: its colour fields holding raw colour values, mapped to
         # colours in the style (_map_raw_colors); others hold #RRGGBBAA.
         self.raw_colors = raw_colors or {}
+        # HTML labels' slot counts, by dataset and label field (html_label.py).
+        self.html_slots = html_slots or {}
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
@@ -3154,6 +3159,54 @@ class QgisMapLibreStyleExporter:
         if GlyphGenerator._resolve_font_key(family, families):  # pylint: disable=protected-access
             return family
         return None
+
+    def _rich_text_field(self, label_settings: QgsPalLayerSettings, text_format: QgsTextFormat,
+                         dataset: str, text_font, glyph_dataset: str) -> Optional[tuple]:
+        """An HTML label's text-field: a ``format`` of its slots (html_label.py),
+        each run in its own font, size and colour, a run on a background
+        colour as its badge image; and the same for OpenLayers (fonts and
+        sizes, badges as text: it draws neither colours nor images in a
+        text). None for other labels."""
+        if not text_format.allowHtmlFormatting():
+            return None
+        field = label_settings.fieldName
+        slots = self.html_slots.get(dataset, {}).get(field)
+        if not slots:
+            return None
+        rich = RichFields(field)
+        base = BaseFormat.of(text_format)
+        default_font = text_font if isinstance(text_font, list) and text_font[:1] == ["match"] else (
+            ["literal", text_font] if isinstance(text_font, list) else ["literal", [text_font]])
+        keys, badges, colors = set(), set(), False
+        for i in range(slots):
+            keys.update(self._distinct_values(dataset, rich.font(i)))
+            badges.update(self._distinct_values(dataset, rich.image(i)))
+            colors = colors or bool(self._distinct_values(dataset, rich.color(i)))
+        for key in keys:
+            self.glyphs.setdefault(key, []).append((glyph_dataset, field))
+        base_color = TextPropertyExtractor.get_text_color(text_format, label_settings)
+        ml, ol = ["format"], ["format"]
+        for i in range(slots):
+            options = {"font-scale": ["coalesce", ["get", rich.scale(i)], 1]}
+            if keys:
+                font = ["match", ["get", rich.font(i)]]
+                for key in sorted(keys):
+                    font += [key, ["literal", [key]]]
+                options["text-font"] = font + [default_font]
+            text = ["coalesce", ["get", rich.text(i)], ""]
+            ol += [text, dict(options)]
+            if colors:
+                options["text-color"] = ["case", ["has", rich.color(i)], ["to-color", ["get", rich.color(i)]], base_color]
+            ml += [["case", ["has", rich.image(i)], "", text], options]
+            if badges:
+                ml += [["image", ["coalesce", ["get", rich.image(i)], EMPTY_IMAGE]], {"vertical-align": "center"}]
+        if badges:
+            for name in badges:
+                badge = parse_badge_name(name)
+                if badge:
+                    self.marker_symbols[name] = TextBadge(*badge)
+            self.marker_symbols[EMPTY_IMAGE] = TextBadge("", 0.0, "#00000000", "#00000000", "")
+        return ml, ol
 
     def _distinct_values(self, dataset: str, field: str) -> List[str]:
         """The distinct non-NULL values of a dataset's field, as text."""
@@ -3880,6 +3933,10 @@ class QgisMapLibreStyleExporter:
         dataset = join(self.utils_dir, f'{source_layer_name}.{_TEMP_RULE_FORMAT}')
         for one in fonts:
             self.glyphs.setdefault(one, []).append((dataset, label_settings.fieldName))
+        rich_field = self._rich_text_field(label_settings, text_format, source_layer_name, text_font, dataset)
+        if rich_field is not None:
+            layer_def["layout"]["text-field"], ol_field = rich_field
+            layer_def.setdefault("metadata", {})["q2vt:ol-text-field"] = ol_field
         layer_def["layout"].update({
             "text-font": text_font,
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
@@ -3932,7 +3989,7 @@ class QgisMapLibreStyleExporter:
             layer_def["layout"]["text-allow-overlap"] = True
         displacement = displacement_label_settings(label_settings)
         if displacement is not None:
-            layer_def["metadata"] = {"q2vt:displacement": self._displacement_meta(displacement)}
+            layer_def["metadata"] = dict(layer_def.get("metadata") or {}, **{"q2vt:displacement": self._displacement_meta(displacement)})
             layer_def["layout"].update({
                 "text-allow-overlap": True, "text-ignore-placement": True,
                 "text-anchor": ["coalesce", ["get", DISPLACEMENT_ANCHOR_FIELD], "bottom-left"],
@@ -4029,7 +4086,7 @@ class QgisMapLibreStyleExporter:
             if background_box:
                 # The OpenLayers viewer draws it as the text's own background
                 # (it can't stretch an icon around a label).
-                layer_def["metadata"] = {"q2vt:text-background": background_box}
+                layer_def["metadata"] = dict(layer_def.get("metadata") or {}, **{"q2vt:text-background": background_box})
         else:
             try:
                 marker = background.markerSymbol() if hasattr(background, "markerSymbol") else None
@@ -4269,11 +4326,27 @@ class QgisMapLibreStyleExporter:
         font's ``match``, a font whose glyphs weren't written gives way to
         the label's default font (its fallback).
         """
+        def section_fonts(value, default: str) -> None:
+            # The fonts of an HTML label's runs, in its format sections.
+            if isinstance(value, dict) and isinstance(value.get("text-font"), list)                     and value["text-font"][:1] == ["match"]:
+                font = value["text-font"]
+                for i in range(3, len(font) - 1, 2):
+                    font[i] = ["literal", [fontstacks.get(font[i][1][0], default)]]
+                if font[-1][:1] == ["literal"]:
+                    font[-1] = ["literal", [fontstacks.get(font[-1][1][0], default)]]
+            elif isinstance(value, list):
+                for item in value:
+                    section_fonts(item, default)
+
         for layer_def in self.style["layers"]:
             layout = layer_def.get("layout", {})
             fonts = layout.get("text-font")
             if not fonts:
                 continue
+            first = fonts[-1][1][0] if fonts[0] == "match" else fonts[0]
+            default = fontstacks.get(first, first.strip())
+            section_fonts(layout.get("text-field"), default)
+            section_fonts((layer_def.get("metadata") or {}).get("q2vt:ol-text-field"), default)
             if fonts[0] != "match":
                 layout["text-font"] = [fontstacks.get(font, font.strip()) for font in fonts]
                 continue

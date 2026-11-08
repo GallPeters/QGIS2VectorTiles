@@ -851,6 +851,203 @@ CREATE OR REPLACE FUNCTION q2vt.big_enough(g geometry, min_area double precision
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT min_area IS NULL OR ST_Dimension(g) < 2 OR ST_Area(g) >= min_area
 $$;
+-- ---------------------------------------------------------------------
+-- HTML labels (html_label.py): a label's HTML as QGIS reads it (its
+-- paragraphs, and runs of text in their font, size, colour, background),
+-- as {plain, slots: [{t, f, s, c, i}]}: the plain text and, per slot, its
+-- text, font key, scale, colour, badge (for a run on a background colour).
+-- base: the label's own format {family, weight, italic, size, color, key};
+-- fonts: {"family|weight|italic": font key} of the installed fonts.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION q2vt.html_entities(t text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE m text[];
+BEGIN
+  t := replace(replace(replace(replace(replace(replace(t,
+       '&nbsp;', chr(160)), '&lt;', '<'), '&gt;', '>'), '&quot;', '"'), '&apos;', ''''), '&#39;', '''');
+  LOOP
+    m := regexp_match(t, '&#(x[0-9a-fA-F]+|[0-9]+);');
+    EXIT WHEN m IS NULL;
+    t := replace(t, '&#' || m[1] || ';', chr(CASE WHEN left(m[1], 1) IN ('x', 'X')
+                 THEN ('x' || lpad(substr(m[1], 2), 8, '0'))::bit(32)::int ELSE m[1]::int END));
+  END LOOP;
+  RETURN replace(t, '&amp;', '&');
+EXCEPTION WHEN OTHERS THEN RETURN t;
+END $$;
+
+-- A run added to a label's runs: joined to the last one if both are in
+-- the same format and neither is on a background colour.
+CREATE OR REPLACE FUNCTION q2vt.html_append(runs jsonb, run jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE prev jsonb := runs -> -1;
+BEGIN
+  IF prev IS NOT NULL AND prev->>'bg' IS NULL AND run->>'bg' IS NULL
+     AND (prev->'f') IS NOT DISTINCT FROM (run->'f') AND (prev->'s') IS NOT DISTINCT FROM (run->'s')
+     AND (prev->'c') IS NOT DISTINCT FROM (run->'c') THEN
+    RETURN jsonb_set(runs, ARRAY[(jsonb_array_length(runs) - 1)::text, 't'], to_jsonb((prev->>'t') || (run->>'t')));
+  END IF;
+  RETURN runs || jsonb_build_array(run);
+END $$;
+
+CREATE OR REPLACE FUNCTION q2vt.html_kept_edges(runs jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE k int; t text; o text; ch text; last text; at_start boolean := true; spaces text := ' ' || chr(160) || chr(9);
+        j text := chr(8288); n int := jsonb_array_length(runs);
+BEGIN
+  FOR k IN 0 .. n - 1 LOOP
+    t := runs->k->>'t'; o := '';
+    FOR ch IN SELECT c FROM regexp_split_to_table(t, '') WITH ORDINALITY AS x(c, i) ORDER BY i LOOP
+      IF ch = chr(10) THEN
+        last := CASE WHEN o <> '' THEN right(o, 1)
+                     WHEN k > 0 THEN right(runs->(k - 1)->>'t', 1) ELSE '' END;
+        IF last <> '' AND position(last in spaces) > 0 THEN
+          IF o <> '' THEN o := o || j;
+          ELSE runs := jsonb_set(runs, ARRAY[(k - 1)::text, 't'], to_jsonb((runs->(k - 1)->>'t') || j)); END IF;
+        END IF;
+        at_start := true;
+      ELSIF at_start AND position(ch in spaces) > 0 THEN
+        o := o || j; at_start := false;
+      ELSE
+        at_start := false;
+      END IF;
+      o := o || ch;
+    END LOOP;
+    runs := jsonb_set(runs, ARRAY[k::text, 't'], to_jsonb(o));
+  END LOOP;
+  IF n > 0 AND position(right(runs->(n - 1)->>'t', 1) in spaces) > 0 AND right(runs->(n - 1)->>'t', 1) <> '' THEN
+    runs := jsonb_set(runs, ARRAY[(n - 1)::text, 't'], to_jsonb((runs->(n - 1)->>'t') || j));
+  END IF;
+  RETURN runs;
+END $$;
+
+CREATE OR REPLACE FUNCTION q2vt.html_label(html text, base jsonb, slots int, fonts jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+  token text; tag text; closing boolean; attrs text; decl text; prop text; val text; m text[];
+  stack jsonb[] := ARRAY[]::jsonb[]; names text[] := ARRAY[]::text[];
+  cur jsonb := jsonb_build_object('family', base->>'family', 'weight', (base->>'weight')::int,
+                                  'italic', (base->>'italic')::boolean, 'size', NULL, 'color', NULL, 'bg', NULL);
+  runs jsonb := '[]'::jsonb; block_has boolean := false; started boolean := false; pending_break boolean := false;
+  run jsonb; prev jsonb; key text; scale numeric; size double precision; color text;
+  out_slots jsonb := '[]'::jsonb; plain text := ''; i int; n int; tail text;
+BEGIN
+  IF html IS NULL THEN RETURN NULL; END IF;
+  FOR token IN SELECT (regexp_matches(html, '<[^>]*>|[^<]+', 'g'))[1] LOOP
+    IF left(token, 1) = '<' THEN
+      m := regexp_match(token, '^<\s*(/?)\s*([A-Za-z0-9]+)(.*?)/?\s*>$');
+      IF m IS NULL THEN CONTINUE; END IF;
+      closing := m[1] = '/'; tag := lower(m[2]); attrs := COALESCE(m[3], '');
+      IF tag IN ('p', 'div') THEN
+        IF NOT closing THEN
+          IF started THEN pending_break := true; END IF;
+          started := true; block_has := false;
+        END IF;
+        CONTINUE;
+      END IF;
+      IF tag = 'br' THEN
+        runs := q2vt.html_append(runs, jsonb_build_object('t', chr(10), 'pt', (base->>'size')::double precision));
+        block_has := false; started := true;
+        CONTINUE;
+      END IF;
+      IF closing THEN
+        n := COALESCE(array_length(names, 1), 0);
+        FOR i IN REVERSE n .. 1 LOOP
+          IF names[i] = tag THEN
+            cur := stack[i]; stack := stack[1:i - 1]; names := names[1:i - 1];
+            EXIT;
+          END IF;
+        END LOOP;
+        CONTINUE;
+      END IF;
+      stack := stack || cur; names := names || tag;
+      IF tag IN ('b', 'strong') THEN cur := cur || jsonb_build_object('weight', 700); END IF;
+      IF tag IN ('i', 'em') THEN cur := cur || jsonb_build_object('italic', true); END IF;
+      IF tag = 'font' THEN
+        m := regexp_match(attrs, 'face\s*=\s*["'']?([^"''>]+)', 'i');
+        IF m IS NOT NULL THEN cur := cur || jsonb_build_object('family', trim(split_part(m[1], ',', 1))); END IF;
+        m := regexp_match(attrs, 'color\s*=\s*["'']?([^"''\s>]+)', 'i');
+        IF m IS NOT NULL THEN cur := cur || jsonb_build_object('color', q2vt.color_hex(m[1])); END IF;
+      END IF;
+      m := regexp_match(attrs, 'style\s*=\s*"([^"]*)"', 'i');
+      IF m IS NULL THEN m := regexp_match(attrs, 'style\s*=\s*''([^'']*)''', 'i'); END IF;
+      IF m IS NOT NULL THEN
+        FOREACH decl IN ARRAY string_to_array(m[1], ';') LOOP
+          CONTINUE WHEN position(':' in decl) = 0;
+          prop := lower(trim(split_part(decl, ':', 1)));
+          val := trim(substr(decl, position(':' in decl) + 1));
+          CONTINUE WHEN val = '';
+          IF prop = 'font-family' THEN
+            cur := cur || jsonb_build_object('family', trim(both '''" ' from split_part(val, ',', 1)));
+          ELSIF prop = 'font-size' THEN
+            -- QGIS reads sizes in points only (px, %, em are left as they were).
+            IF val ~* '^\s*[0-9.]+\s*pt\s*$' THEN
+              size := q2vt.num(regexp_replace(val, '\s*pt\s*$', '', 'i'));
+              IF size IS NOT NULL THEN cur := cur || jsonb_build_object('size', size); END IF;
+            END IF;
+          ELSIF prop = 'font-weight' THEN
+            cur := cur || jsonb_build_object('weight', CASE lower(val) WHEN 'bold' THEN 700 WHEN 'bolder' THEN 700
+              WHEN 'normal' THEN 400 WHEN 'lighter' THEN 300 ELSE COALESCE(q2vt.text_int(val), 400) END);
+          ELSIF prop = 'font-style' THEN
+            cur := cur || jsonb_build_object('italic', lower(val) IN ('italic', 'oblique'));
+          ELSIF prop = 'color' THEN
+            cur := cur || jsonb_build_object('color', q2vt.color_hex(val));
+          ELSIF prop IN ('background-color', 'background') THEN
+            cur := cur || jsonb_build_object('bg', q2vt.color_hex(val));
+          END IF;
+        END LOOP;
+      END IF;
+      CONTINUE;
+    END IF;
+    -- Text: white space collapsed (none at a block's start), entities decoded.
+    token := regexp_replace(token, '[ \t\r\n]+', ' ', 'g');
+    IF NOT block_has THEN token := ltrim(token, ' '); END IF;
+    token := q2vt.html_entities(token);
+    CONTINUE WHEN token = '';
+    IF pending_break THEN
+      runs := q2vt.html_append(runs, jsonb_build_object('t', chr(10), 'pt', (base->>'size')::double precision));
+      pending_break := false;
+    END IF;
+    started := true; block_has := true;
+    key := COALESCE(fonts->>(lower(cur->>'family') || '|' || (cur->>'weight') || '|' || (cur->>'italic')),
+                    fonts->>(lower(base->>'family') || '|' || (cur->>'weight') || '|' || (cur->>'italic')),
+                    base->>'key');
+    size := COALESCE((cur->>'size')::double precision, (base->>'size')::double precision);
+    scale := round((size / NULLIF((base->>'size')::double precision, 0))::numeric, 4);
+    color := cur->>'color';
+    run := jsonb_build_object('t', token,
+      'f', CASE WHEN key = base->>'key' THEN NULL ELSE key END,
+      's', CASE WHEN scale = 1 THEN NULL ELSE scale END,
+      'c', CASE WHEN color = base->>'color' THEN NULL ELSE color END,
+      'bg', cur->>'bg', 'pt', size);
+    runs := q2vt.html_append(runs, jsonb_strip_nulls(run));
+  END LOOP;
+  -- White space starting or ending a line, kept behind a word joiner
+  -- (html_label.kept_edges).
+  runs := q2vt.html_kept_edges(runs);
+  n := jsonb_array_length(runs);
+  IF n > slots THEN
+    tail := '';
+    FOR i IN slots - 1 .. n - 1 LOOP tail := tail || (runs->i->>'t'); END LOOP;
+    runs := (SELECT COALESCE(jsonb_agg(e ORDER BY o), '[]'::jsonb)
+             FROM jsonb_array_elements(runs) WITH ORDINALITY x(e, o) WHERE o < slots)
+            || jsonb_build_array(jsonb_build_object('t', tail));
+  END IF;
+  FOR i IN 0 .. jsonb_array_length(runs) - 1 LOOP
+    run := runs->i;
+    plain := plain || (run->>'t');
+    IF run->>'bg' IS NOT NULL THEN
+      out_slots := out_slots || jsonb_build_array(jsonb_build_object('t', run->>'t', 'i',
+        'q2vtb|' || COALESCE(run->>'f', base->>'key') || '|'
+        || round(COALESCE((run->>'pt')::numeric, (base->>'size')::numeric), 2)::text || '|'
+        || COALESCE(run->>'c', base->>'color') || '|' || (run->>'bg') || '|' || (run->>'t')));
+    ELSE
+      out_slots := out_slots || jsonb_build_array(jsonb_strip_nulls(run - 'bg' - 'pt'));
+    END IF;
+  END LOOP;
+  RETURN jsonb_build_object('plain', plain, 'slots', out_slots);
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('plain', regexp_replace(html, '<[^>]*>', '', 'g'), 'slots', '[]'::jsonb);
+END $$;
 """
 
 

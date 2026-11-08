@@ -160,6 +160,7 @@ from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
 from .live_sql import LiveLayer
+from .html_label import MAX_SLOTS, BaseFormat, RichFields, plain_text, runs_of, slot_values
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 
@@ -1229,6 +1230,12 @@ class RulesExporter:
 
         self.processed_layers: List[QgsVectorLayer] = []
         self.rule_groups: List["_RuleGroupSnapshot"] = []
+        # Labels with HTML formatting, by dataset: {label field: its label's
+        # own format}; once written, {label field: slot count} (html_label.py).
+        self.html_labels: Dict[str, Dict[str, BaseFormat]] = {}
+        self.html_slots: Dict[str, Dict[str, int]] = {}
+        # The font families HTML labels name, by dataset (live_sql.py).
+        self.html_families: Dict[str, set] = {}
         self.live_layers: Dict[str, "LiveLayer"] = {}
         # Per dataset: its colour fields holding raw colour values (the style
         # maps each value to its colour); others hold #RRGGBBAA values.
@@ -1267,6 +1274,7 @@ class RulesExporter:
             # For the live tiles' script (live_sql.py): the datasets and
             # the PostGIS layers they are made from.
             self.rule_groups = rule_groups
+            self.html_labels = self._html_labels(rule_groups)
             self.live_layers = {}
             for grp in rule_groups:
                 if grp.layer_id not in self.live_layers and grp.flat_rules:
@@ -1290,6 +1298,7 @@ class RulesExporter:
             self._merge_label_lines(rule_groups, rule_outputs)
             self._collect_parts(rule_groups, rule_outputs)
             self._finish_raw_colors(rule_outputs)
+            self._finish_html_labels(rule_outputs)
             # Phase 4 — collect results on caller thread.
             return self._collect_results(rule_groups, rule_outputs)
         finally:
@@ -3824,6 +3833,88 @@ class RulesExporter:
                 self.feedback.pushWarning(f"Colours of {name} could not be converted: {e}")
             if not fields:
                 self.raw_color_fields.pop(name)
+
+    @staticmethod
+    def _html_labels(rule_groups: List[_RuleGroupSnapshot]) -> Dict[str, Dict[str, BaseFormat]]:
+        """The label fields holding HTML (labels whose text format allows
+        HTML formatting), by dataset, with their label's own format. Caller
+        thread (reads the labels' settings)."""
+        found: Dict[str, Dict[str, BaseFormat]] = {}
+        for grp in rule_groups:
+            for member in grp.members:
+                for flat_rule in member.flat_rules:
+                    if flat_rule.get_attr("t") != 1:
+                        continue
+                    settings = flat_rule.rule.settings()
+                    if settings is None or not settings.format().allowHtmlFormatting():
+                        continue
+                    field = settings.fieldName
+                    if isinstance(field, str) and field.startswith(f"{_FIELD_PREFIX}_label"):
+                        found.setdefault(grp.output_dataset, {})[field] = BaseFormat.of(settings.format())
+        return found
+
+    def _finish_html_labels(self, outputs: Dict[str, Optional[str]]) -> None:
+        """HTML label fields made plain text, their runs written to their
+        slot fields (html_label.py), as many slots as the dataset's longest
+        label needs (up to MAX_SLOTS). Caller thread."""
+        for name, fields in self.html_labels.items():
+            path = outputs.get(name)
+            if not path:
+                continue
+            try:
+                families = self.html_families.setdefault(name, set())
+                self.html_slots[name] = self._rewrite_html_labels(path, fields, families)
+            except (RuntimeError, OSError, AttributeError, TypeError, ValueError) as e:
+                self.feedback.pushWarning(f"The HTML labels of {name} could not be converted: {e}")
+
+    def _rewrite_html_labels(self, path: str, fields: Dict[str, BaseFormat], families: set) -> Dict[str, int]:
+        src_ds = ogr.Open(path)
+        src_layer = src_ds.GetLayer(0)
+        defn = src_layer.GetLayerDefn()
+        present = {f: defn.GetFieldIndex(f) for f in fields if defn.GetFieldIndex(f) >= 0}
+        if not present:
+            return {}
+        # Each label's runs, read once.
+        rows = []
+        slots = {f: 1 for f in present}
+        for feature in src_layer:
+            runs = {}
+            for f, i in present.items():
+                if feature.IsFieldSetAndNotNull(i):
+                    runs[f] = runs_of(feature.GetFieldAsString(i), fields[f], families)
+                    slots[f] = max(slots[f], min(len(runs[f]), MAX_SLOTS))
+            rows.append((feature, runs))
+        temp_path = f"{path}.html.{_TEMP_RULE_FORMAT}"
+        out_ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(temp_path)
+        out_layer = out_ds.CreateLayer(src_layer.GetName(), src_layer.GetSpatialRef(),
+                                       src_layer.GetGeomType(), ["SPATIAL_INDEX=NO"])
+        for i in range(defn.GetFieldCount()):
+            out_layer.CreateField(defn.GetFieldDefn(i))
+        for f in present:
+            for field_name, ogr_type in RichFields(f).all(slots[f]):
+                out_layer.CreateField(ogr.FieldDefn(field_name, ogr.OFTReal if ogr_type == "Real" else ogr.OFTString))
+        out_defn = out_layer.GetLayerDefn()
+        for n, (feature, runs) in enumerate(rows):
+            if n % _WRITE_BATCH_SIZE == 0:
+                self._check_cancel()
+            out = ogr.Feature(out_defn)
+            out.SetFrom(feature)
+            for f, f_runs in runs.items():
+                out.SetField(f, plain_text(f_runs))
+                rich = RichFields(f)
+                for i, slot in enumerate(slot_values(f_runs, fields[f], slots[f])):
+                    if slot.get("text"):
+                        out.SetField(rich.text(i), slot["text"])
+                    for key, field_name in (("font", rich.font(i)), ("color", rich.color(i)),
+                                            ("image", rich.image(i))):
+                        if slot.get(key):
+                            out.SetField(field_name, slot[key])
+                    if slot.get("scale"):
+                        out.SetField(rich.scale(i), float(slot["scale"]))
+            out_layer.CreateFeature(out)
+        src_ds = out_ds = None
+        os.replace(temp_path, path)
+        return slots
 
     @staticmethod
     def _distinct_count(path: str, field: str) -> int:

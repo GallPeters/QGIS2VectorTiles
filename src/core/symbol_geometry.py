@@ -16,6 +16,7 @@ import it, see rules_exporter).
 """
 
 import math
+import re
 from typing import List, Optional
 
 from qgis.PyQt.QtCore import QLineF, QPointF, QRectF
@@ -399,9 +400,38 @@ def _text_size(text: str, family: str, pixel_size: float, line_height: float) ->
         font.setPixelSize(max(1, round(pixel_size)))
         metrics = _metrics_cache[key] = (QFontMetricsF(font), pixel_size / max(1, round(pixel_size)))
     fm, scale = metrics
+    if _HTML.search(str(text)):
+        return _html_text_size(str(text), family, pixel_size, line_height)
     lines = str(text).split("\n")
     width = max(fm.horizontalAdvance(line) for line in lines) * scale
     return width, len(lines) * line_height * pixel_size
+
+
+# A label text in HTML (a text format allowing HTML formatting).
+_HTML = re.compile(r"<\s*/?\s*(p|span|br|b|i|div|font|strong|em)\b", re.IGNORECASE)
+
+
+def _html_text_size(text: str, family: str, pixel_size: float, line_height: float) -> tuple:
+    """An HTML label's box as the web map lays out its runs (html_label.py):
+    each line as wide as its runs in their fonts and sizes, as tall as its
+    largest."""
+    from .html_label import BaseFormat, runs_of  # pylint: disable=import-outside-toplevel
+    base = BaseFormat(family, 400, False, pixel_size * 72 / 96, "#000000FF")
+    lines = [[0.0, 1.0]]
+    for run in runs_of(text, base):
+        parts = run.text.split("\n")
+        for n, part in enumerate(parts):
+            if n:
+                lines.append([0.0, 1.0])
+            if not part:
+                continue
+            font = QFont(run.font.rsplit(" ", 1)[0] if run.font else family)
+            px = pixel_size * (run.scale or 1)
+            font.setPixelSize(max(1, round(px)))
+            lines[-1][0] += QFontMetricsF(font).horizontalAdvance(part) * px / max(1, round(px))
+            lines[-1][1] = max(lines[-1][1], run.scale or 1)
+    width = max(w for w, _ in lines)
+    return width, sum(line_height * pixel_size * s for _, s in lines)
 
 
 def _near(a: float, b: float, epsilon: float = 1e-8) -> bool:

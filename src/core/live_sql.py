@@ -32,6 +32,7 @@ Depends on: config, flattened_rule, ddp_fetcher, pg_expression, live_sql_library
 """
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,6 +49,7 @@ from ..utils.flattened_rule import (
     CLUSTER_SIZE_FIELD, GROUP_ZOOM_FIELD, TILE_LAYERS_KEY, group_of, group_sources,
 )
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS
+from .html_label import RichFields, sql_base, sql_fonts
 from .live_sql_library import library_sql
 from .pg_expression import (
     BOOL, DATE, DATETIME, GEOM, INT, NULL, REAL, TEXT, TIME,
@@ -195,7 +197,7 @@ class LiveSqlWriter:
     """Write q2vt_live.sql for the export's PostGIS layers."""
 
     def __init__(self, project_name: str, extent: QgsRectangle, rule_groups,
-                 live_layers: Dict[str, LiveLayer], style: dict):
+                 live_layers: Dict[str, LiveLayer], style: dict, html=None):
         self.slug = _slug(project_name)
         self.schema = f"q2vt_{self.slug}"
         self.function = f"{self.slug}_tiles"
@@ -205,6 +207,9 @@ class LiveSqlWriter:
         self.style = style
         self.style_text = str(style)
         self.static_reasons: Dict[str, str] = {}
+        # HTML labels (html_label.py): {dataset: {field: BaseFormat}},
+        # {dataset: {field: slots}}, {dataset: families}.
+        self.html_labels, self.html_slots, self.html_families = html or ({}, {}, {})
 
     # ------------------------------------------------------------------
     def write(self, path: str) -> Optional[dict]:
@@ -356,7 +361,25 @@ $f$;
         if family not in (0, 1, 2):
             raise NotTranslatable("a dataset of no geometry type")
         columns, member_exprs = self._fields(layer, grp)
+        # HTML labels: their plain text and slots (html_label.py), as the
+        # export writes them.
+        html = {f: base for f, base in self.html_labels.get(grp.output_dataset, {}).items()
+                if self.html_slots.get(grp.output_dataset, {}).get(f)}
+        for f in html:
+            rich = RichFields(f)
+            for i in range(self.html_slots[grp.output_dataset][f]):
+                columns += [(rich.text(i), 10), (rich.font(i), 10), (rich.scale(i), 6),
+                            (rich.color(i), 10), (rich.image(i), 10)]
         tiled = [(n, t) for n, t in columns if self._is_tiled(n)]
+        rich_of = {}
+        for k, f in enumerate(html):
+            rich = RichFields(f)
+            for i in range(self.html_slots[grp.output_dataset][f]):
+                for part, name in (("t", rich.text(i)), ("f", rich.font(i)), ("s", rich.scale(i)),
+                                   ("c", rich.color(i)), ("i", rich.image(i))):
+                    rich_of[name] = (k, i, part)
+        fonts = json.dumps(sql_fonts(set(self.html_families.get(grp.output_dataset, set()))
+                                     | {b.family for b in html.values()}), ensure_ascii=False)
 
         geometry = compiler.compile(grp.geometry_expression)
         if geometry.kind not in (GEOM, NULL):
@@ -380,14 +403,29 @@ $f$;
             where = compiler.condition(member.filter_expression) if member.filter_expression else "true"
             if grp.keep_biggest_part:
                 where = f"({where}) AND b.q2vt_biggest = 1"
-            values = [self._value(layer, compiler, member_exprs[index].get(n), t) + f" AS {quote_ident(n)}"
-                      for n, t in tiled]
+            values, laterals = [], []
+            for k, f in enumerate(html):
+                source = self._value(layer, compiler, member_exprs[index].get(f), 10)
+                base_format = json.dumps(sql_base(html[f]), ensure_ascii=False)
+                laterals.append(
+                    f"CROSS JOIN LATERAL (SELECT q2vt.html_label({source}, {quote_literal(base_format)}::jsonb, "
+                    f"{self.html_slots[grp.output_dataset][f]}, {quote_literal(fonts)}::jsonb) AS h) h{k}")
+            for n, t in tiled:
+                if n in html:
+                    k = list(html).index(n)
+                    values.append(f"(h{k}.h->>'plain') AS {quote_ident(n)}")
+                elif n in rich_of:
+                    k, i, part = rich_of[n]
+                    sql = f"(h{k}.h->'slots'->{i}->>'{part}')"
+                    values.append(f"{sql + '::double precision' if part == 's' else sql} AS {quote_ident(n)}")
+                else:
+                    values.append(self._value(layer, compiler, member_exprs[index].get(n), t) + f" AS {quote_ident(n)}")
             values.append(f"b.{quote_ident(_ORIG_ID)}")
             values += [f"({sql})::{kind} AS {name}" for name, sql, kind, _, _ in order_columns]
             selects.append(f"""
     SELECT {', '.join(values)}, b.q2vt_rank, b.{quote_ident(_ORIG_ID)} AS q2vt_key, {index} AS q2vt_member,
            b.q2vt_part, COALESCE(p.path[1], 1) AS q2vt_sub, ST_Force2D(p.geom) AS geom
-    FROM base b
+    FROM base b{''.join(chr(10) + '    ' + lateral for lateral in laterals)}
     CROSS JOIN LATERAL (SELECT {geom_sql} AS g) gx
     CROSS JOIN LATERAL ST_Dump(q2vt.clip_to(gx.g, {box})) p
     WHERE ({where}) AND ST_Dimension(p.geom) = {family}""")

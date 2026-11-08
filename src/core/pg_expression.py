@@ -774,6 +774,32 @@ class PgCompiler:
             raise NotTranslatable("the max() aggregate")
         return self._minmax("GREATEST", args)
 
+    def _constant_aggregate(self, name: str, args):
+        """An aggregate of a constant (over the layer, by any group or filter):
+        that constant wherever the layer has rows, as QGIS gives it."""
+        value = self._static(args[0]) if args else None
+        if value is None or isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise NotTranslatable(f"the {name}() aggregate (over the whole layer)")
+        return self._literal(value)
+
+    def _fn_maximum(self, args):
+        return self._constant_aggregate("maximum", args)
+
+    def _fn_minimum(self, args):
+        return self._constant_aggregate("minimum", args)
+
+    def _fn_mean(self, args):
+        return self._constant_aggregate("mean", args)
+
+    def _fn_median(self, args):
+        return self._constant_aggregate("median", args)
+
+    def _fn_majority(self, args):
+        return self._constant_aggregate("majority", args)
+
+    def _fn_minority(self, args):
+        return self._constant_aggregate("minority", args)
+
     def _fn_min(self, args):
         if len(args) == 1:
             raise NotTranslatable("the min() aggregate")

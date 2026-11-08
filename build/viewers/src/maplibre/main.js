@@ -5,6 +5,7 @@
 import * as maplibregl from './maplibre-gl.mjs';
 import { Protocol } from 'pmtiles';
 import { startViewer } from '../shared/app.js';
+import { drawBadge } from '../shared/badge.js';
 import { CREDIT_HTML } from '../shared/credit.js';
 import { localized, nameExpression, openFreeMapStyle, showsNames } from '../shared/openfreemap.js';
 import { archives, LIVE_SOURCE, liveTilesUrl, loadStyle, refreshLive, tileUrls, withDescription } from '../shared/style.js';
@@ -75,6 +76,13 @@ if (config.startZoom === undefined && Array.isArray(config.bounds)) {
     const camera = map.cameraForBounds([[west, south], [east, north]], { padding: 20 });
     if (camera) map.jumpTo({ center: camera.center, zoom: Math.max(camera.zoom, config.minZoom) });
 }
+// HTML labels' badges the sprite lacks (new data in a live map), drawn
+// from their names; and the empty one of a label part without a badge.
+map.on('styleimagemissing', ({ id }) => {
+    if (map.hasImage(id)) return;
+    const image = drawBadge(id);
+    if (image) map.addImage(id, { width: image.width, height: image.height, data: image.data }, { pixelRatio: image.pixelRatio });
+});
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 

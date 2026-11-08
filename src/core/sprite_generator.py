@@ -48,6 +48,18 @@ else:
     from PyQt6.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
+@dataclass(frozen=True)
+class TextBadge:
+    """A part of an HTML label on a background colour (html_label.py): its
+    text in a font (a "Family Style" key) and size (points), drawn on its
+    colour as wide as the text and as tall as the font's line."""
+    font: str
+    size_pt: float
+    color: str          # #RRGGBBAA
+    background: str     # #RRGGBBAA
+    text: str
+
+
 Img: TypeAlias = Image.Image
 MatrixShape: TypeAlias = tuple[int, int]
 ImgCoord: TypeAlias = tuple[float, float, float, float]
@@ -139,7 +151,7 @@ class BalloonShape:
     from_anchor: float = 0.0
 
 
-SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape, BalloonShape]
+SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape, BalloonShape, TextBadge]
 
 
 class _RenderCache:
@@ -208,6 +220,8 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
             definition = "hash" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(source.length)
         elif isinstance(source, BrushPattern):
             definition = f"brush{source.color}|{source.style}|{source.size}"
+        elif isinstance(source, TextBadge):
+            definition = f"badge{source!r}"
         elif isinstance(source, LabelShape):
             definition = f"shape{source!r}"
         elif isinstance(source, BalloonShape):
@@ -264,6 +278,8 @@ class SymbolImage:
                 self._render_hash()
             elif isinstance(self.symbol, BrushPattern):
                 self._render_brush()
+            elif isinstance(self.symbol, TextBadge):
+                self._render_badge()
             else:
                 self._render()
             if self.cache:
@@ -391,6 +407,45 @@ class SymbolImage:
             self.img = self._crop_centred(self._qt_to_pil(qt_img))
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
+
+    def _render_badge(self):
+        """An HTML label's part on its background colour, as QGIS draws it:
+        the text's advance wide, its font's ascent and descent tall; the
+        empty badge a transparent pixel (a slot without one)."""
+        from qgis.PyQt.QtGui import QFont, QFontMetricsF  # pylint: disable=import-outside-toplevel
+        from .glyphs_generator import qfontdb  # pylint: disable=import-outside-toplevel
+        badge = self.symbol
+        if not badge.text:
+            self.img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+            return
+        families = qfontdb.families()
+        family, style = badge.font, ""
+        for known in sorted(families, key=len, reverse=True):
+            if badge.font == known or badge.font.startswith(known + " "):
+                family, style = known, badge.font[len(known):].strip()
+                break
+        font = qfontdb.font(family, style, 12) if style else QFont(family)
+        px = max(badge.size_pt * 96 / 72 * self.scale_factor, 1)
+        font.setPixelSize(max(int(round(px)), 1))
+        metrics = QFontMetricsF(font)
+        width = max(int(ceil(metrics.horizontalAdvance(badge.text))), 1)
+        height = max(int(ceil(metrics.ascent() + metrics.descent())), 1)
+        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+
+        def color(hex_rgba: str) -> QColor:
+            value = hex_rgba.lstrip("#")
+            return QColor(int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16),
+                          int(value[6:8], 16) if len(value) >= 8 else 255)
+
+        image.fill(color(badge.background))
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setFont(font)
+        painter.setPen(color(badge.color))
+        painter.drawText(QPointF(0, metrics.ascent()), badge.text)
+        painter.end()
+        self.img = self._qt_to_pil(image)
 
     def _render_brush(self):
         """One repeat of a Qt brush pattern, scaled by the scale factor

@@ -1,4 +1,4 @@
-# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.3).
+# QGIS to MapLibre property compatibility map (QGIS2VectorTiles v4.4).
 #
 # Rendered by assets/guide.js on compatibility.html. Each property:
 #   qgis_prop      the QGIS setting, as named in the QGIS interface
@@ -8,6 +8,11 @@
 #                  the web map
 #   notes          what to know; the search also looks here, so name the
 #                  property's usual synonyms
+#   live           in live maps (PostGIS layers drawn from the database by
+#                  the export's q2vt_live.sql): "Yes", "Partial" or "No";
+#                  left out where it is as "supported" (the style draws it
+#                  alike from either source)
+#   live_notes     what differs in live maps
 #
 # How conversion works, in short: rule filters, geometry generators, label
 # text and data-defined values are computed by QGIS during the export (any
@@ -23,6 +28,8 @@ categories:
         supported: "Yes"
         data_driven: "No"
         notes: "Every visible vector layer, from any provider (files, PostGIS, SpatiaLite, WFS, temporary layers). Raster, mesh, point cloud and vector tile layers are skipped."
+        live: "Partial"
+        live_notes: "PostGIS layers become live; layers of other providers stay in the export's tiles, in the same map."
       - qgis_prop: "Layer order"
         maplibre_prop: "layers (order)"
         supported: "Yes"
@@ -73,6 +80,7 @@ categories:
         supported: "Yes"
         data_driven: "Yes"
         notes: "Features are written to the tiles in the layer's order (any expressions, ascending or descending, nulls first or last), the order MapLibre and OpenLayers draw them in."
+        live_notes: "Without an order, features are drawn in the table's physical row order, as QGIS reads them."
       - qgis_prop: "Temporal properties / time controller"
         maplibre_prop: "N/A"
         supported: "No"
@@ -83,6 +91,7 @@ categories:
         supported: "Yes"
         data_driven: "Yes"
         notes: "Included Fields keeps none, all or only the visible fields. They show in the viewers' popups and search."
+        live_notes: "Read from the table at each request."
 
   - name: "Renderers (symbology types)"
     properties:
@@ -111,11 +120,14 @@ categories:
         supported: "Yes"
         data_driven: "No"
         notes: "Points close together at each zoom level are grouped as QGIS groups them (by distance, in drawing order) and drawn around their group's centre with the renderer inside it: ring, concentric rings or grid, with the centre symbol and the circle (or the grid's lines). The renderer's own labels (label attribute, font, colour, distance factor and label scale) are drawn beside each point as QGIS draws them; the layer's labels stay at the points."
+        live: "No"
+        live_notes: "The layer stays in the export's tiles."
       - qgis_prop: "Point cluster"
         maplibre_prop: "symbol (per zoom level)"
         supported: "Yes"
         data_driven: "No"
         notes: "Points close together at each zoom level become one cluster symbol with its count (QGIS's default symbol: a circle and the number) at their centre, the others are drawn with the renderer inside it. Points are grouped as QGIS groups them: by distance, in drawing order. The cluster symbol's buffer surrounds its count too, where the number is wider than the symbol. A symbol layer's size depending on @cluster_size alone follows each cluster's count."
+        live_notes: "Grouped at each request as QGIS groups them, in the table's row order."
       - qgis_prop: "Inverted polygons"
         maplibre_prop: "fill (extent minus the polygons)"
         supported: "Yes"
@@ -383,16 +395,20 @@ categories:
         supported: "Yes"
         data_driven: "Yes"
         notes: "Any expression, computed by QGIS during the export; the resulting geometries go into the tiles."
+        live_notes: "Computed by PostGIS, with the expression limits of rule filters below."
       - qgis_prop: "Geometry generator (labels)"
         maplibre_prop: "source-layer"
         supported: "Yes"
         data_driven: "Yes"
         notes: "Label geometry generators are computed during the export, like symbol ones."
+        live_notes: "Computed by PostGIS, with the expression limits of rule filters below."
       - qgis_prop: "Rule filter expressions"
         maplibre_prop: "N/A (applied in the export)"
         supported: "Yes"
         data_driven: "Yes"
         notes: "Any QGIS expression, evaluated by QGIS during the export: only matching features reach each rule's data."
+        live: "Partial"
+        live_notes: "Translated to PostgreSQL / PostGIS, checked against QGIS's own results: about 200 functions (text, math, dates, arrays, colours, geometry), project and global variables, eval() of a variable. Not translatable (the layer then stays in the export's tiles, the script says why): Python functions, aggregates over the layer (except of a constant), get_feature() and relations."
       - qgis_prop: "Expressions using @map_scale"
         maplibre_prop: "minzoom / maxzoom"
         supported: "Yes"
@@ -403,6 +419,7 @@ categories:
         supported: "No"
         data_driven: "No"
         notes: "Only @map_scale is resolved per zoom; other map variables have no map to read during the export."
+        live: "No"
 
   - name: "Data-defined properties"
     properties:
@@ -411,6 +428,7 @@ categories:
         supported: "Yes"
         data_driven: "Yes"
         notes: "Computed by QGIS per feature (any expression) and stored in the tiles. Applies to properties marked data-driven."
+        live_notes: "Computed by PostgreSQL, with the expression limits of rule filters."
       - qgis_prop: "Data-defined colors"
         maplibre_prop: "fill-color / line-color / text-color / text-halo-color"
         supported: "Yes"
@@ -444,6 +462,7 @@ categories:
         supported: "Yes"
         data_driven: "Yes"
         notes: "Any field or expression; the label text is computed by QGIS during the export. Line breaks in the text are kept."
+        live_notes: "Computed by PostgreSQL, with the expression limits of rule filters."
       - qgis_prop: "Font family and style"
         maplibre_prop: "text-font"
         supported: "Yes"
@@ -514,11 +533,17 @@ categories:
         supported: "Yes"
         data_driven: "No"
         notes: "Shown in reading order, Arabic with joined letters (MapLibre's RTL text plugin; OpenLayers uses the browser)."
-      - qgis_prop: "Text orientation (vertical) / HTML formatting"
+      - qgis_prop: "HTML formatting (fonts, sizes, colors, backgrounds in one label)"
+        maplibre_prop: "text-field (format), inline images"
+        supported: "Partial"
+        data_driven: "Yes"
+        notes: "Labels with Allow HTML formatting are read as QGIS reads them: paragraphs and line breaks, and per part of the text its font family, weight (bold, 600...), italic, size (in points), color and background color (span and font styles, b, i, strong, em). MapLibre draws every part in its font, size and color; a part on a background color is drawn as QGIS draws it, as a small image within the text (a badge). Paragraph margins and alignment are left out (the label's own alignment applies). The OpenLayers viewer draws the fonts and sizes, without colors and backgrounds."
+        live_notes: "The HTML is read by PostgreSQL alike; a badge new to the data is drawn by the web map itself."
+      - qgis_prop: "Text orientation (vertical)"
         maplibre_prop: "N/A"
         supported: "No"
         data_driven: "No"
-        notes: "Vertical text and HTML-formatted labels are not supported."
+        notes: "Vertical text is not supported."
 
   - name: "Label buffer, background, shadow and callouts"
     properties:
@@ -557,6 +582,8 @@ categories:
         supported: "Partial"
         data_driven: "No"
         notes: "Callouts of labels at a data-defined position (X, Y), and of point labels at their point (offset from it, or around it: such a label then keeps the first side, where its callout is), as QGIS draws them: simple, Manhattan and curved lines (automatic or set orientation, curvature) with their line symbol, and balloons (margins, wedge, rounded corners) with every layer of their fill symbol (fills and outlines, and geometry generators, evaluated on the balloon as QGIS does: in screen pixels, its top its y_min), from the feature's anchor point to the label's box, with the minimum length and the offsets. They fit the label exactly at whole zoom levels. A point label's balloon (at its point, without a background shape) is the label's icon instead: drawn by QGIS around a box, with its wedge toward the point, and stretched around the text by MapLibre only along its plain bands (corners, wedge and what its generators draw keep their size), so it fits at every zoom and hides with its label; a label that can take several positions around its point (around point, or a cartographic order of several) moves through them, its balloon drawn without the pointer, while one with a single position keeps it, pointer and all; generators that read the feature's fields draw as for no feature, and the OpenLayers viewer draws its first simple fill as the text's background. A curved callout's automatic orientation is decided from the web map's label box, so where the line leaves near a corner of the label it can bend the other way than in QGIS (a set orientation bends as in QGIS). Line and polygon labels placed by the map itself have none."
+        live: "Partial"
+        live_notes: "A point label's balloon (its icon) is live; callouts drawn in the tiles (labels at a data-defined position) keep the layer in the export's tiles."
 
   - name: "Label placement"
     properties:

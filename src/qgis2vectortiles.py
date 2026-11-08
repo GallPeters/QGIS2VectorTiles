@@ -240,6 +240,9 @@ class QGIS2VectorTiles:
         result = exporter.export()
         self._raw_colors = exporter.raw_color_fields
         self._rule_groups = exporter.rule_groups
+        self._html_slots = exporter.html_slots
+        self._html_labels = exporter.html_labels
+        self._html_families = exporter.html_families
         self._live_layers = exporter.live_layers
         return result
 
@@ -256,6 +259,7 @@ class QGIS2VectorTiles:
             extent=self.extent, zoom_ranges=self._styler.zoom_ranges,
             descriptions=self._descriptions(self._styler.flattened_rules),
             raw_colors=getattr(self, "_raw_colors", {}),
+            html_slots=getattr(self, "_html_slots", {}),
         )
 
     @staticmethod
@@ -282,7 +286,8 @@ class QGIS2VectorTiles:
         self._log(". Writing the live tiles script for the PostGIS layers...")
         project = QgsProject.instance()
         name = project.baseName() or project.title() or "map"
-        writer = LiveSqlWriter(name, self.extent, self._rule_groups, live_layers, style)
+        writer = LiveSqlWriter(name, self.extent, self._rule_groups, live_layers, style,
+                               html=(self._html_labels, self._html_slots, self._html_families))
         try:
             meta = writer.write(join(temp_dir, LIVE_FILE))
         except Exception as e:  # noqa: BLE001  (the static export stands)

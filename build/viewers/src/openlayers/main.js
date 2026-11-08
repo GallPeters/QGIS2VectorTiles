@@ -107,6 +107,12 @@ const liveUrl = liveTilesUrl(config);
 // a new zoom's while they load, are MapLibre's only: OpenLayers leaves them out.
 const ready = loadStyle(config.styleUrl, tileUrls.openlayers, liveUrl).then((style) => {
     style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']);
+    // HTML labels: their parts in their fonts and sizes (OpenLayers draws
+    // neither colours nor images within a text: badges as text).
+    for (const layer of style.layers) {
+        const field = layer.metadata?.['q2vt:ol-text-field'];
+        if (field && layer.layout) layer.layout['text-field'] = field;
+    }
     return style;
 }).then((style) => apply(map, style, {
     // Without it ol-mapbox-style takes the page's address for the style's

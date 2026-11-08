@@ -2018,3 +2018,6 @@ td.prop { color: var(--text); font-weight: 500; }
   .usecase .chip { padding: 2px 9px 2px 2px; font-size: 13px; }
   .usecase .chip img, .usecase .chip .chip-glyph { width: 26px; height: 26px; padding: 2px; }
 }
+
+/* Styling guide: a row's note on live (PostGIS) maps, below its notes. */
+.live-note { display: block; margin-top: 6px; }

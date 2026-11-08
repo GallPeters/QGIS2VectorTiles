@@ -1281,7 +1281,10 @@ class RulesFlattener:
                 continue
             if renderer_rule.get_attr("t") == 1:
                 continue
-            filter_id = f'{renderer_rule.get_attr('r')}{renderer_rule.get_attr('d')}'
+            # One label per renderer rule and zoom band (a rule split into
+            # bands by its @map_scale expressions shows the label in each).
+            filter_id = (renderer_rule.get_attr('r'), renderer_rule.get_attr('d'),
+                         renderer_rule.get_attr('o'), renderer_rule.get_attr('i'))
             if filter_id in seen_datasets:
                 continue
             matched = self._match_label_to_renderer(label_rule, renderer_rule, renderer_idx)
