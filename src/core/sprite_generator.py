@@ -29,8 +29,8 @@ from typing import Optional, TypeAlias, Union
 
 from PIL import Image
 from qgis.core import (
-    Qgis, QgsApplication, QgsFillSymbol, QgsLineSymbol, QgsRenderContext, QgsSymbol, QgsSymbolLayer,
-    QgsSymbolLayerUtils,
+    Qgis, QgsApplication, QgsFillSymbol, QgsLineSymbol, QgsProperty, QgsRenderContext, QgsSymbol,
+    QgsSymbolLayer, QgsSymbolLayerUtils,
 )
 from qgis.PyQt.QtCore import qVersion
 
@@ -72,7 +72,7 @@ _SHEETS = ((1, ""), (2, "@2x"))
 # neighbour from bleeding in when an icon is scaled.
 _SPRITE_GAP = 2
 # Bump when rendering changes, so cached images drawn the old way are not reused.
-_RENDER_VERSION = "2"
+_RENDER_VERSION = "4"
 
 
 @dataclass
@@ -309,6 +309,33 @@ class SymbolImage:
         # Set buffer size
         if hasattr(marker, "bufferSettings") and marker.bufferSettings():
             marker.bufferSettings().setSize(marker.bufferSettings().size() * scale_factor)
+        if scale_factor != 1:
+            self._scale_data_defined(marker, scale_factor)
+
+    @staticmethod
+    def _scale_data_defined(marker, scale_factor):
+        """Data-defined sizes and stroke widths times ``scale_factor`` too:
+        they replace the sizes set above (e.g. a size by the map's scale,
+        which the @2x sheet would otherwise draw at 1x)."""
+        def scaled(prop):
+            if prop is None or not prop.isActive():
+                return None
+            expression = prop.asExpression()
+            return QgsProperty.fromExpression(f"({expression}) * {scale_factor}") if expression else None
+
+        # A marker symbol's own data-defined size is its layers' (QGIS keeps
+        # it on them), so scaling the layers' covers it.
+        keys =[getattr(QgsSymbolLayer.Property, name, None) for name in ("Size", "Width", "Height", "StrokeWidth")]
+        for sym_layer in marker.symbolLayers():
+            try:
+                properties = sym_layer.dataDefinedProperties()
+                for key in keys:
+                    if key is not None and properties.hasProperty(key):
+                        prop = scaled(properties.property(key))
+                        if prop is not None:
+                            sym_layer.setDataDefinedProperty(key, prop)
+            except (AttributeError, RuntimeError, TypeError):
+                continue
 
     def _render(self):
         """Render symbol at 1000 px, scale its size, then crop transparent borders.

@@ -920,6 +920,50 @@ BEGIN
   RETURN runs;
 END $$;
 
+-- A label's runs as MapLibre lays out a text with sizes
+-- (html_label.mixed_shaping): where no line is larger than scale 1, a zero
+-- width space of scale 1.0001 at the end of the first line of scale 1.
+CREATE OR REPLACE FUNCTION q2vt.html_mixed(runs jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE k int; n int := jsonb_array_length(runs); t text; s numeric; ch text; pos int; run jsonb;
+        line int := 0; scales numeric[] := ARRAY[NULL]::numeric[]; mx numeric; target int;
+        mark jsonb := jsonb_build_object('t', chr(8203), 's', 1.0001);
+BEGIN
+  FOR k IN 0 .. n - 1 LOOP
+    t := COALESCE(runs->k->>'t', '');
+    s := CASE WHEN runs->k->>'bg' IS NOT NULL THEN 1 ELSE COALESCE((runs->k->>'s')::numeric, 1) END;
+    FOREACH ch IN ARRAY regexp_split_to_array(t, '') LOOP
+      IF ch = chr(10) THEN
+        scales := scales || NULL::numeric; line := line + 1;
+      ELSE
+        scales[line + 1] := GREATEST(COALESCE(scales[line + 1], s), s);
+      END IF;
+    END LOOP;
+  END LOOP;
+  SELECT max(x) INTO mx FROM unnest(scales) x;
+  IF mx IS NULL OR mx <> 1 THEN RETURN runs; END IF;
+  SELECT min(i) - 1 INTO target FROM unnest(scales) WITH ORDINALITY u(x, i) WHERE x = 1;
+  line := 0;
+  FOR k IN 0 .. n - 1 LOOP
+    run := runs->k; t := COALESCE(run->>'t', ''); pos := 0;
+    FOREACH ch IN ARRAY regexp_split_to_array(t, '') LOOP
+      pos := pos + 1;
+      CONTINUE WHEN ch <> chr(10);
+      IF line = target THEN
+        RETURN (SELECT COALESCE(jsonb_agg(e ORDER BY o), '[]'::jsonb)
+                FROM jsonb_array_elements(runs) WITH ORDINALITY x(e, o) WHERE o <= k)
+          || CASE WHEN pos > 1 THEN jsonb_build_array(jsonb_set(run, '{t}', to_jsonb(left(t, pos - 1))))
+                  ELSE '[]'::jsonb END
+          || jsonb_build_array(mark, jsonb_set(run, '{t}', to_jsonb(substr(t, pos))))
+          || (SELECT COALESCE(jsonb_agg(e ORDER BY o), '[]'::jsonb)
+              FROM jsonb_array_elements(runs) WITH ORDINALITY x(e, o) WHERE o > k + 1);
+      END IF;
+      line := line + 1;
+    END LOOP;
+  END LOOP;
+  RETURN runs || jsonb_build_array(mark);
+END $$;
+
 CREATE OR REPLACE FUNCTION q2vt.html_label(html text, base jsonb, slots int, fonts jsonb) RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
 DECLARE
@@ -1024,6 +1068,8 @@ BEGIN
   -- White space starting or ending a line, kept behind a word joiner
   -- (html_label.kept_edges).
   runs := q2vt.html_kept_edges(runs);
+  FOR i IN 0 .. jsonb_array_length(runs) - 1 LOOP plain := plain || (runs->i->>'t'); END LOOP;
+  runs := q2vt.html_mixed(runs);
   n := jsonb_array_length(runs);
   IF n > slots THEN
     tail := '';
@@ -1034,7 +1080,6 @@ BEGIN
   END IF;
   FOR i IN 0 .. jsonb_array_length(runs) - 1 LOOP
     run := runs->i;
-    plain := plain || (run->>'t');
     IF run->>'bg' IS NOT NULL THEN
       out_slots := out_slots || jsonb_build_array(jsonb_build_object('t', run->>'t', 'i',
         'q2vtb|' || COALESCE(run->>'f', base->>'key') || '|'

@@ -201,6 +201,62 @@ def plain_text(runs: List[Run]) -> str:
     return "".join(r.text for r in runs)
 
 
+# MapLibre lays out a text two ways (shaping.ts, align): when every line's
+# largest font-scale is 1, each line's glyphs centred in its line height;
+# otherwise each line's glyphs 17 - line height / 2 (in 24ths of an em)
+# lower. So that one text-translate (a layer's, see maplibre_converter)
+# puts every label's glyphs where QGIS draws them, every HTML label takes
+# the second way: one with no line larger than 1 gets an invisible
+# character a hair larger (a zero width space), at the end of a line of
+# scale 1 (its height 0.01% more).
+MIXED_MARK = "​"
+MIXED_SCALE = 1.0001
+
+
+def line_scales(runs: List[Run]) -> List[Optional[float]]:
+    """Each line's largest font-scale, as MapLibre takes it (a badge, an
+    image, as 1); None for an empty line."""
+    lines: List[Optional[float]] = [None]
+    for run in runs:
+        scale = 1.0 if run.background else (run.scale or 1.0)
+        for ch in run.text:
+            if ch == "\n":
+                lines.append(None)
+            else:
+                lines[-1] = scale if lines[-1] is None else max(lines[-1], scale)
+    return lines
+
+
+def mixed_shaping(runs: List[Run]) -> List[Run]:
+    """``runs``, laid out by MapLibre the way a label with sizes is: a
+    MIXED_MARK added at the end of the first line of scale 1 where no line
+    is larger."""
+    scales = [s for s in line_scales(runs) if s is not None]
+    if not scales or max(scales) != 1.0:
+        return runs
+    target = line_scales(runs).index(1.0)
+    line = 0
+    for k, run in enumerate(runs):
+        for pos, ch in enumerate(run.text):
+            if ch != "\n":
+                continue
+            if line == target:
+                head, tail = run.text[:pos], run.text[pos:]
+                mark = Run(MIXED_MARK, scale=MIXED_SCALE)
+                parts = ([Run(head, run.font, run.scale, run.color, run.background)] if head else []) + [
+                    mark, Run(tail, run.font, run.scale, run.color, run.background)]
+                return runs[:k] + parts + runs[k + 1:]
+            line += 1
+    return runs + [Run(MIXED_MARK, scale=MIXED_SCALE)]
+
+
+def mixed_shift(line_height: float) -> float:
+    """How much lower than QGIS (in ems of the label's size) MapLibre draws
+    the glyphs of a label laid out the mixed way (mixed_shaping): 17/24 em
+    less half its line height (text-line-height, ems)."""
+    return 17 / 24 - line_height / 2
+
+
 def badge_name(run: Run, base: BaseFormat) -> str:
     """A badge's image name, describing it: font key, size (pt), text and
     background colours, text."""

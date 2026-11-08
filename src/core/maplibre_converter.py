@@ -40,7 +40,7 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
-from .html_label import EMPTY_IMAGE, BaseFormat, RichFields, parse_badge_name
+from .html_label import EMPTY_IMAGE, MIXED_MARK, BaseFormat, RichFields, mixed_shift, parse_badge_name
 from .sprite_generator import TextBadge
 from .sprite_generator import (
     BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
@@ -3937,6 +3937,9 @@ class QgisMapLibreStyleExporter:
         if rich_field is not None:
             layer_def["layout"]["text-field"], ol_field = rich_field
             layer_def.setdefault("metadata", {})["q2vt:ol-text-field"] = ol_field
+            # The mark making MapLibre lay it out as a text with sizes (html_label.mixed_shaping).
+            for one in fonts:
+                self.glyphs.setdefault(one, []).append((CHARS_PREFIX + MIXED_MARK, None))
         layer_def["layout"].update({
             "text-font": text_font,
             "text-size": TextPropertyExtractor.get_text_size(text_format, label_settings),
@@ -4036,8 +4039,14 @@ class QgisMapLibreStyleExporter:
             "text-translate": TextPropertyExtractor.get_text_translate(),
             "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
         })
-
-        # Deep-copy label settings to avoid mutating the caller's object.
+        if rich_field is not None:
+            # MapLibre draws an HTML label's glyphs lower in their box than
+            # QGIS (html_label.mixed_shift): moved up by as much, the glyphs
+            # only (its anchor and background stay where QGIS puts them).
+            size = layer_def["layout"]["text-size"]
+            if isinstance(size, (int, float)):
+                shift = mixed_shift(layer_def["layout"]["text-line-height"]) * size
+                layer_def["paint"]["text-translate"] = [0, round(-shift, 2)]
         label_settings = QgsPalLayerSettings(label_settings)
         label_format = QgsTextFormat(label_settings.format())
         background = QgsTextBackgroundSettings(label_format.background())
@@ -4066,13 +4075,28 @@ class QgisMapLibreStyleExporter:
                                              (name, text_fit, wide_buffer[1], box))
         else:
             self._apply_default_icon_props(layer_def)
+        # With variable anchors MapLibre draws an icon fitted to the text at
+        # the text's place, its text-translate included (and no
+        # icon-translate): the icon's box is moved back by its padding.
+        translate = layer_def["paint"].get("text-translate")
+        layout = layer_def["layout"]
+        fitted_padding = None
+        if (translate and any(translate) and "text-variable-anchor" in layout
+                and layout.get("icon-text-fit") not in (None, "none")):
+            padding = list(layout.get("icon-text-fit-padding") or [0, 0, 0, 0])
+            fitted_padding = padding
+            layout["icon-text-fit-padding"] = [round(padding[0] + translate[1], 2), padding[1] - translate[0],
+                                               round(padding[2] - translate[1], 2), padding[3] + translate[0]]
 
         self.style["layers"].append(layer_def)
         if pinned_def is not None:
             for section in ("layout", "paint"):
                 for key, value in layer_def.get(section, {}).items():
-                    if key not in ("text-variable-anchor", "text-radial-offset"):
+                    if key not in ("text-variable-anchor", "text-radial-offset", "text-variable-anchor-offset"):
                         pinned_def[section].setdefault(key, value)
+            if fitted_padding is not None:
+                # (no variable anchors: text-translate moves its text only)
+                pinned_def["layout"]["icon-text-fit-padding"] = fitted_padding
             if "metadata" in layer_def:
                 pinned_def["metadata"] = layer_def["metadata"]
             self.style["layers"].append(pinned_def)
@@ -4228,6 +4252,22 @@ class QgisMapLibreStyleExporter:
         if not moving:
             layer_def["layout"]["text-anchor"] = anchor
             layer_def["layout"]["text-offset"] = [round(corner_x / size, 4), round((corner_y + shift) / size, 4)]
+        else:
+            # Moving around its point: QGIS puts the balloon (QGIS's label
+            # box) its distance from the point, where a radial offset puts
+            # MapLibre's text box. Per anchor, that offset and the padding
+            # between the two boxes on the side facing the point (MapLibre
+            # reads these before the radial offset; others keep that).
+            layout = layer_def["layout"]
+            anchors, radial = layout.get("text-variable-anchor"), layout.get("text-radial-offset")
+            if anchors and isinstance(radial, (int, float)) and size and (top or bottom):
+                offsets = []
+                for one in anchors:
+                    x, y = TextPropertyExtractor.radial_to_offset(one, radial)
+                    y += (-bottom if one.startswith("bottom") else top if one.startswith("top")
+                          else (top - bottom) / 2) / size
+                    offsets += [one, [round(x, 4), round(y, 4)]]
+                layout["text-variable-anchor-offset"] = offsets
         # The OpenLayers viewer draws its first simple fill as the text's background.
         box = None
         for symbol_layer in callout.fillSymbol().symbolLayers():

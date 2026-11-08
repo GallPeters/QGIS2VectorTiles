@@ -160,7 +160,7 @@ from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
 from .live_sql import LiveLayer
-from .html_label import MAX_SLOTS, BaseFormat, RichFields, plain_text, runs_of, slot_values
+from .html_label import MAX_SLOTS, BaseFormat, RichFields, mixed_shaping, plain_text, runs_of, slot_values
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 
@@ -3881,8 +3881,10 @@ class RulesExporter:
             runs = {}
             for f, i in present.items():
                 if feature.IsFieldSetAndNotNull(i):
-                    runs[f] = runs_of(feature.GetFieldAsString(i), fields[f], families)
-                    slots[f] = max(slots[f], min(len(runs[f]), MAX_SLOTS))
+                    f_runs = runs_of(feature.GetFieldAsString(i), fields[f], families)
+                    # (plain text, runs as the web map lays them out)
+                    runs[f] = (plain_text(f_runs), mixed_shaping(f_runs))
+                    slots[f] = max(slots[f], min(len(runs[f][1]), MAX_SLOTS))
             rows.append((feature, runs))
         temp_path = f"{path}.html.{_TEMP_RULE_FORMAT}"
         out_ds = ogr.GetDriverByName("FlatGeobuf").CreateDataSource(temp_path)
@@ -3899,8 +3901,8 @@ class RulesExporter:
                 self._check_cancel()
             out = ogr.Feature(out_defn)
             out.SetFrom(feature)
-            for f, f_runs in runs.items():
-                out.SetField(f, plain_text(f_runs))
+            for f, (plain, f_runs) in runs.items():
+                out.SetField(f, plain)
                 rich = RichFields(f)
                 for i, slot in enumerate(slot_values(f_runs, fields[f], slots[f])):
                     if slot.get("text"):

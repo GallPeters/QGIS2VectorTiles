@@ -192,6 +192,10 @@ def _edt(mask: np.ndarray) -> np.ndarray:
 # counts of point clusters).
 CHARS_PREFIX = "chars:"
 
+# Invisible formatting characters labels hold (LRM, RLM, zero width space,
+# word joiner): given an empty glyph where no font has them.
+_ZERO_WIDTH = (0x200B, 0x200E, 0x200F, 0x2060)
+
 
 class GlyphGenerator:
     """
@@ -397,7 +401,7 @@ class GlyphGenerator:
                 blocks = {cp // _GLYPH_RANGE_SIZE for cp in used} | {0}
                 used |= {cp for block in blocks
                          for cp in range(block * _GLYPH_RANGE_SIZE, (block + 1) * _GLYPH_RANGE_SIZE)
-                         if chr(cp).isprintable() or cp in (0x200E, 0x200F, 0x2060)}
+                         if chr(cp).isprintable() or cp in _ZERO_WIDTH}
             codepoints = sorted(_with_presentation_forms(used))
             logger.info(
                 f"Fontstack '{fontstack_name}': {len(codepoints)} unique codepoints required "
@@ -467,6 +471,11 @@ class GlyphGenerator:
         if not renderer.metrics.inFontUcs4(char_code):
             renderer = self._fallback_for(char_code, renderer)
             if renderer is None:
+                # An invisible formatting character (zero width space, marks,
+                # word joiner): an empty glyph, so that its range is there.
+                if char_code in _ZERO_WIDTH:
+                    return {"id": char_code, "bitmap": b"", "width": 0, "height": 0,
+                            "left": 0, "top": 0, "advance": 0}
                 return None
         metrics = renderer.metrics
         char_str = chr(char_code)
