@@ -159,6 +159,7 @@ from ..utils.flattened_rule import (
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
+from .live_sql import LiveLayer
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 
@@ -1227,6 +1228,8 @@ class RulesExporter:
         self.cpu_percent = cpu_percent
 
         self.processed_layers: List[QgsVectorLayer] = []
+        self.rule_groups: List["_RuleGroupSnapshot"] = []
+        self.live_layers: Dict[str, "LiveLayer"] = {}
         # Per dataset: its colour fields holding raw colour values (the style
         # maps each value to its colour); others hold #RRGGBBAA values.
         self.raw_color_fields: Dict[str, Set[str]] = {}
@@ -1261,6 +1264,15 @@ class RulesExporter:
             if self._is_cancelled():
                 return [], []
             sources, rule_groups = self._snapshot_caller_thread()
+            # For the live tiles' script (live_sql.py): the datasets and
+            # the PostGIS layers they are made from.
+            self.rule_groups = rule_groups
+            self.live_layers = {}
+            for grp in rule_groups:
+                if grp.layer_id not in self.live_layers and grp.flat_rules:
+                    live = LiveLayer.of(grp.flat_rules[0].layer)
+                    if live is not None:
+                        self.live_layers[grp.layer_id] = live
 
             # Phases 1 + 2 — source materialisation (serial providers on the
             # caller thread, the rest inside workers) and the parallel

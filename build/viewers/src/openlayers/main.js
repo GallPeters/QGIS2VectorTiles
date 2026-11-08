@@ -22,7 +22,7 @@ import { apply } from 'ol-mapbox-style';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
 import { localized, openFreeMapStyle, styleUrl } from '../shared/openfreemap.js';
-import { loadStyle, readPmtilesTile, tileUrls, withDescription } from '../shared/style.js';
+import { LIVE_SOURCE, liveTilesUrl, loadStyle, readPmtilesTile, refreshLive, tileUrls, withDescription } from '../shared/style.js';
 import { applySortKeys } from './sortkey.js';
 import { applyTextBackgrounds } from './textbackground.js';
 import '../shared/ui.css';
@@ -99,12 +99,13 @@ const highlight = new VectorLayer({
 
 let basemapLayer = null;
 let basemapRequest = 0;
-const isDataLayer = (layer) => layer.get('mapbox-source') === SOURCE;
+const isDataLayer = (layer) => [SOURCE, LIVE_SOURCE].includes(layer.get('mapbox-source'));
+const liveUrl = liveTilesUrl(config);
 
 // The tiles come from the export's PMTiles file (see shared/style.js).
 // Labels' stand-in copies, drawn from the tiles MapLibre shows in place of
 // a new zoom's while they load, are MapLibre's only: OpenLayers leaves them out.
-const ready = loadStyle(config.styleUrl, tileUrls.openlayers).then((style) => {
+const ready = loadStyle(config.styleUrl, tileUrls.openlayers, liveUrl).then((style) => {
     style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']);
     return style;
 }).then((style) => apply(map, style, {
@@ -226,3 +227,14 @@ const adapter = {
 };
 
 startViewer(adapter, config);
+
+// The live layers' tiles asked again every liveRefresh seconds (their data
+// changes); OpenLayers keeps drawing the old tiles until the new arrive.
+if (liveUrl) {
+    ready.then(() => {
+        const sources = new Set(map.getLayers().getArray()
+            .filter((layer) => layer.get('mapbox-source') === LIVE_SOURCE).map((layer) => layer.getSource()));
+        refreshLive(liveUrl, Number(new URLSearchParams(window.location.search).get('refresh') ?? config.liveRefresh ?? 30),
+            (url) => sources.forEach((source) => source.setUrl(url)));
+    });
+}

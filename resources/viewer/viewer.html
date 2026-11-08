@@ -41,6 +41,15 @@
             // address: ?mapstyle=positron, bright, dark, fiord or 3d, and
             // ?lang=en, ar or he).
             basemap: "openfreemap",
+            // Live maps: the PostGIS layers drawn from their database as it is
+            // (q2vt_live.sql, run once in it, served by a tile server such as
+            // Martin or pg_tileserv). Their tile address, e.g.
+            // "https://tiles.example.com/my_map_tiles/{z}/{x}/{y}" (or
+            // ?live=<address>); until then the export's tiles are shown.
+            // liveRefresh: seconds between reloads of those layers (0: none;
+            // or ?refresh=).
+            // liveTiles: "",
+            liveRefresh: 30,
         };
 
         // The map library: ?viewer=ml|ol (set by the viewer switch), else the

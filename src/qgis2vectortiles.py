@@ -43,6 +43,7 @@ from .core.tiles_styler import TilesStyler
 from .core.maplibre_converter import QgisMapLibreStyleExporter
 from .core.server_initializer import ServerInitializer
 from .core.search_index import SearchIndexBuilder
+from .core.live_sql import LIVE_FILE, LIVE_KEY, LiveSqlWriter
 
 
 class _Background:
@@ -138,6 +139,7 @@ class QGIS2VectorTiles:
             # the style package (sprites, glyphs) and the search index.
             style_exporter = self._maplibre_style_exporter(temp_dir, styled_layer)
             style = style_exporter.convert()
+            self._write_live_sql(style, temp_dir)
             tiles, generator = None, None
             tiles_time = perf_counter()
             if self._has_features(layers):
@@ -237,6 +239,8 @@ class QGIS2VectorTiles:
         )
         result = exporter.export()
         self._raw_colors = exporter.raw_color_fields
+        self._rule_groups = exporter.rule_groups
+        self._live_layers = exporter.live_layers
         return result
 
     def _has_features(self, layers: List[QgsVectorLayer]) -> bool:
@@ -267,6 +271,29 @@ class QGIS2VectorTiles:
             text = rule.get_description()[1:-1].replace("''", "'")
             descriptions.setdefault(rule.output_dataset, {}).setdefault(member, text)
         return descriptions
+
+    def _write_live_sql(self, style: dict, temp_dir: str) -> None:
+        """The PostGIS layers' live tiles script (live_sql.py), and in the
+        style the tile layers it draws (the viewers' liveTiles setting)."""
+        live_layers = getattr(self, "_live_layers", {})
+        if not live_layers:
+            return
+        step_time = perf_counter()
+        self._log(". Writing the live tiles script for the PostGIS layers...")
+        project = QgsProject.instance()
+        name = project.baseName() or project.title() or "map"
+        writer = LiveSqlWriter(name, self.extent, self._rule_groups, live_layers, style)
+        try:
+            meta = writer.write(join(temp_dir, LIVE_FILE))
+        except Exception as e:  # noqa: BLE001  (the static export stands)
+            self.feedback.pushWarning(f"The live tiles script could not be written: {e}")
+            return
+        for layer_name, reason in sorted(writer.static_reasons.items()):
+            self.feedback.pushWarning(f'"{layer_name}" stays static in live maps: {reason}')
+        if meta:
+            style.setdefault("metadata", {})[LIVE_KEY] = meta
+            self._log(f". Wrote {LIVE_FILE}: {len(meta['layers'])} live tile layers "
+                      f"({self._elapsed_minutes(step_time)} minutes).")
 
     def _build_search_index(self, layers, rules, temp_dir: str) -> Optional[str]:
         return SearchIndexBuilder(

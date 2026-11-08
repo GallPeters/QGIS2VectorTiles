@@ -86,6 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
+        <li><a href="#v4-5">v4.5<small>Coming soon</small></a></li>
         <li><a href="#v4-4">v4.4<small>Coming soon</small></a></li>
         <li><a href="#v4-3">v4.3<small>Coming soon</small></a></li>
         <li><a href="#v4-2">v4.2<small>Nov 2026</small></a></li>
@@ -132,6 +133,17 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
+  <article class="release" id="v4-5">
+    <div class="release-meta">
+      <h2>v4.5</h2>
+      <span class="tag muted">Coming soon</span>
+    </div>
+    <ul>
+      <li><strong>Live maps from PostGIS</strong>: an export of PostGIS layers adds <code>q2vt_live.sql</code>. Run it once in the database, serve it with Martin or pg_tileserv, and the web map draws those layers from the data as it is now.</li>
+      <li>Live layers keep their <strong>QGIS styling</strong>: rules, labels, calculated fields, geometry generators and point clusters are computed by the database.</li>
+      <li>The web map <strong>refreshes live layers</strong> every 30 seconds (<code>liveTiles</code> and <code>liveRefresh</code> in <code>index.html</code>).</li>
+    </ul>
+  </article>
   <article class="release" id="v4-4">
     <div class="release-meta">
       <h2>v4.4</h2>

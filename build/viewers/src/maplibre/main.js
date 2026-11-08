@@ -7,7 +7,7 @@ import { Protocol } from 'pmtiles';
 import { startViewer } from '../shared/app.js';
 import { CREDIT_HTML } from '../shared/credit.js';
 import { localized, nameExpression, openFreeMapStyle, showsNames } from '../shared/openfreemap.js';
-import { archives, loadStyle, tileUrls, withDescription } from '../shared/style.js';
+import { archives, LIVE_SOURCE, liveTilesUrl, loadStyle, refreshLive, tileUrls, withDescription } from '../shared/style.js';
 import '../shared/ui.css';
 
 const SOURCE = 'q2vt_tiles';
@@ -26,7 +26,8 @@ maplibregl.setRTLTextPlugin(new URL('mapbox-gl-rtl-text.js', import.meta.url).hr
 
 // The tiles are read from the export's PMTiles file; the protocol reuses
 // the archives the style loader opened (and their cached directories).
-const style = await loadStyle(config.styleUrl, tileUrls.maplibre);
+const liveUrl = liveTilesUrl(config);
+const style = await loadStyle(config.styleUrl, tileUrls.maplibre, liveUrl);
 const protocol = new Protocol();
 for (const archive of archives.values()) protocol.add(archive);
 maplibregl.addProtocol('pmtiles', protocol.tile);
@@ -86,7 +87,7 @@ const popup = new maplibregl.Popup({
 let dataLayerIds = null;
 map.on('styledata', () => { dataLayerIds = null; });
 const dataLayers = () => {
-    dataLayerIds ??= map.getLayersOrder().filter((id) => map.getLayer(id)?.source === SOURCE);
+    dataLayerIds ??= map.getLayersOrder().filter((id) => [SOURCE, LIVE_SOURCE].includes(map.getLayer(id)?.source));
     return dataLayerIds;
 };
 const firstDataLayer = () => map.getLayersOrder()
@@ -254,3 +255,10 @@ const adapter = {
 };
 
 startViewer(adapter, config);
+
+// The live layers' tiles asked again every liveRefresh seconds (their data
+// changes): each tile is redrawn when its new one arrives, the old meanwhile.
+if (liveUrl && style.sources[LIVE_SOURCE]) {
+    refreshLive(liveUrl, Number(new URLSearchParams(window.location.search).get('refresh') ?? config.liveRefresh ?? 30),
+        (url) => map.getSource(LIVE_SOURCE)?.setTiles([url]));
+}

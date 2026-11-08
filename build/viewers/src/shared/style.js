@@ -136,9 +136,44 @@ function resolveUrl(url, base) {
     return new URL(head, base).href + tail;
 }
 
+// The live tiles' source: the export's PostGIS layers drawn by their
+// database (q2vt_live.sql) through a tile server, when the page names one.
+export const LIVE_SOURCE = 'q2vt_live';
+const STYLE_SOURCE = 'q2vt_tiles';
+
+/** The live tiles' URL template: ?live= or the page's liveTiles, made
+ * absolute ({z}/{x}/{y} added if it has none); null without one. */
+export function liveTilesUrl(config) {
+    const given = new URLSearchParams(window.location.search).get('live') || config.liveTiles;
+    if (!given) return null;
+    const template = given.includes('{z}') ? given : `${given.replace(/\/+$/, '')}/{z}/{x}/{y}`;
+    return resolveUrl(template, window.location.href);
+}
+
+/** ``url`` with a stamp that makes the browser (and caches between) ask the
+ * tile server again: the live tiles' data may have changed. */
+export function stamped(url, stamp) {
+    const brace = url.indexOf('{');
+    const head = brace < 0 ? url : url.slice(0, url.lastIndexOf('/', brace) + 1);
+    const tail = url.slice(head.length);
+    const [path, query] = tail.split('?');
+    return `${head}${path}?${query ? `${query}&` : ''}q2vt_t=${stamp}`;
+}
+
+/** Live tiles refreshed every ``seconds`` while the page is shown:
+ * ``refresh(url)`` gives the source a new stamped URL. */
+export function refreshLive(url, seconds, refresh) {
+    if (!url || !(seconds > 0)) return;
+    setInterval(() => {
+        if (document.visibilityState === 'visible') refresh(stamped(url, Date.now()));
+    }, seconds * 1000);
+}
+
 /** The style at ``styleUrl`` (relative to the page), ready for the map;
- * ``tileUrl(archiveUrl)`` gives the PMTiles source's tile URL template. */
-export async function loadStyle(styleUrl, tileUrl) {
+ * ``tileUrl(archiveUrl)`` gives the PMTiles source's tile URL template.
+ * With ``liveUrl``, the style's live tile layers (its q2vt:live metadata)
+ * are drawn from that tile server instead. */
+export async function loadStyle(styleUrl, tileUrl, liveUrl = null) {
     const base = new URL(styleUrl, window.location.href).href;
     const response = await fetch(base);
     if (!response.ok) throw new Error(`Cannot load the style (${response.status}): ${base}`);
@@ -162,6 +197,17 @@ export async function loadStyle(styleUrl, tileUrl) {
             source.tiles = source.tiles.map((tile) => resolveUrl(tile, base));
         } else if (typeof source.url === 'string') {
             source.url = resolveUrl(source.url, base);
+        }
+    }
+    const live = style.metadata?.['q2vt:live'];
+    const own = style.sources?.[STYLE_SOURCE];
+    if (liveUrl && own && Array.isArray(live?.layers) && live.layers.length) {
+        // Same zoom levels as the export's tiles (beyond them, enlarged).
+        const { tiles: _, ...rest } = own;
+        style.sources[LIVE_SOURCE] = { ...rest, tiles: [stamped(liveUrl, Date.now())] };
+        const names = new Set(live.layers);
+        for (const layer of style.layers) {
+            if (layer.source === STYLE_SOURCE && names.has(layer['source-layer'])) layer.source = LIVE_SOURCE;
         }
     }
     return style;

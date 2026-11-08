@@ -209,6 +209,7 @@ class GlyphGenerator:
         self,
         fonts_datasets: Dict[str, List[Tuple[str, str]]],
         output_dir: str,
+        full_blocks: bool = False,
     ):
         """
         fonts_datasets: dict mapping a combined "Family + Style" string
@@ -218,6 +219,10 @@ class GlyphGenerator:
         """
         self.fonts_datasets = fonts_datasets
         self.output_dir = Path(output_dir)
+        # Live maps (live_sql.py): their labels' text may hold characters
+        # the export's data didn't, so each 256-character block a font uses
+        # is written whole, with basic Latin and Latin-1 besides.
+        self.full_blocks = full_blocks
 
         self.font_render_size = _FONT_RENDER_SIZE
         self.sdf_cutoff = _SDF_CUTOFF
@@ -387,9 +392,13 @@ class GlyphGenerator:
                 logger.warning(f"No label characters found for fontstack '{fontstack_name}'. Skipping.")
                 continue
 
-            codepoints = sorted(_with_presentation_forms(
-                {ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE}
-            ))
+            used = {ord(c) for c in needed_chars if ord(c) <= _MAX_UNICODE}
+            if self.full_blocks:
+                blocks = {cp // _GLYPH_RANGE_SIZE for cp in used} | {0}
+                used |= {cp for block in blocks
+                         for cp in range(block * _GLYPH_RANGE_SIZE, (block + 1) * _GLYPH_RANGE_SIZE)
+                         if chr(cp).isprintable() or cp in (0x200E, 0x200F, 0x2060)}
+            codepoints = sorted(_with_presentation_forms(used))
             logger.info(
                 f"Fontstack '{fontstack_name}': {len(codepoints)} unique codepoints required "
                 f"across {len(dataset_paths)} dataset field(s)."

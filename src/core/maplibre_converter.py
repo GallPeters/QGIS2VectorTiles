@@ -2874,8 +2874,8 @@ class QgisMapLibreStyleExporter:
         """Map raw colour values (RulesExporter.raw_color_fields) to colours:
         each ["get", field] of such a field becomes a match from each value
         the dataset holds to its colour, decoded as QGIS decodes it; other
-        values give no colour (the to-color around it then falls back to
-        the symbol's own)."""
+        values are read as colours themselves (a live map's #RRGGBBAA),
+        else the to-color around it falls back to the symbol's own."""
         cache: Dict[tuple, list] = {}
 
         def mapped(dataset: str, field: str) -> list:
@@ -2886,7 +2886,10 @@ class QgisMapLibreStyleExporter:
                     color = QgsSymbolLayerUtils.decodeColor(value)
                     if color.isValid():
                         expression += [value, PropertyExtractor.convert_qcolor_to_maplibre(color)]
-                cache[key] = expression + [""] if len(expression) > 2 else ""
+                # Other values: the value itself (a live map's tiles hold
+                # #RRGGBBAA colours, see live_sql.py), else no colour.
+                own = ["to-string", ["get", field]]
+                cache[key] = expression + [own] if len(expression) > 2 else own
             return cache[key]
 
         def replace(value, dataset: str, fields: set):
@@ -4229,7 +4232,10 @@ class QgisMapLibreStyleExporter:
         if self.glyphs:
             glyphs_dir = os.path.join(self.output_dir, "style", "glyphs")
             os.mkdir(glyphs_dir)
-            fontstacks = GlyphGenerator(self.glyphs, glyphs_dir).generate()
+            fontstacks = GlyphGenerator(
+                self.glyphs, glyphs_dir,
+                full_blocks=bool((self.style.get("metadata") or {}).get("q2vt:live")),
+            ).generate()
             self._use_fontstacks(fontstacks)
         else:
              del self.style["glyphs"]
@@ -4244,6 +4250,10 @@ class QgisMapLibreStyleExporter:
                 if dataset in descriptions:
                     descriptions.setdefault(tile_layer, descriptions[dataset])
             rounded_style["metadata"] = {DESCRIPTIONS_KEY: descriptions}
+        if metadata.get("q2vt:live"):
+            # The live tile layers (live_sql.py), which the viewers draw from
+            # the page's live tile server when it names one.
+            rounded_style.setdefault("metadata", {})["q2vt:live"] = metadata["q2vt:live"]
         strip_defaults(rounded_style["layers"])
         filepath = os.path.join(style_dir, filename)
         with open(filepath, "w", encoding="utf8") as f:
