@@ -39,15 +39,15 @@ _SPRITE_QUALITY = 1                       # Pixel ratio of sprite.png (sprite@2x
                                           # sprites are drawn at their real size at each ratio
 _FIELD_PREFIX = 'q2vt'                    # Field name prefix
 # Tile geometry simplification below the highest tile zoom, in tile units
-# (a 512 px tile has 4096 units: 8 units = one screen pixel, too small to
-# see, but it leaves a third fewer vertices to download and draw in the
-# low zooms than half a pixel). None at the highest zoom, where viewers
-# enlarge the tiles.
-_SIMPLIFICATION = 8
-# Up to this zoom, twice that (two screen pixels): a world or continent at
-# once, whose detail that small isn't seen, and whose tiles are the first
-# loaded.
-_SIMPLIFICATION_LOW = 16
+# (a 512 px tile has 4096 units: 8 units = one screen pixel). Half a pixel:
+# a zoom's tiles are shown enlarged up to twice, until the next zoom's, so
+# lines stay within a pixel of their course (one pixel looked angular on
+# curves, enlarged). None at the highest zoom, where viewers enlarge the
+# tiles.
+_SIMPLIFICATION = 4
+# Up to this zoom, twice that (one screen pixel): a world or continent at
+# once, whose tiles are the first loaded.
+_SIMPLIFICATION_LOW = 8
 _SIMPLIFICATION_LOW_ZOOM = 4
 _SIMPLIFICATION_MAX_ZOOM = 0
 # Largest tile (bytes) and most features per tile. Beyond them GDAL writes a
