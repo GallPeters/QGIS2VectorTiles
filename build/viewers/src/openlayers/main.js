@@ -104,9 +104,11 @@ const liveUrl = liveTilesUrl(config);
 
 // The tiles come from the export's PMTiles file (see shared/style.js).
 // Labels' stand-in copies, drawn from the tiles MapLibre shows in place of
-// a new zoom's while they load, are MapLibre's only: OpenLayers leaves them out.
+// a new zoom's while they load, are MapLibre's only: OpenLayers leaves them out,
+// and the invisible copies of obstacles' symbols (MapLibre's collisions).
 const ready = loadStyle(config.styleUrl, tileUrls.openlayers, liveUrl).then((style) => {
-    style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']);
+    style.layers = style.layers.filter((layer) => !layer.metadata?.['q2vt:stand-in']
+        && !layer.metadata?.['q2vt:obstacle']);
     // HTML labels: their parts in their fonts and sizes (OpenLayers draws
     // neither colours nor images within a text: badges as text).
     for (const layer of style.layers) {

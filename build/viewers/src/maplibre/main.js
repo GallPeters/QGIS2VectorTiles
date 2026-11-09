@@ -95,7 +95,9 @@ const popup = new maplibregl.Popup({
 let dataLayerIds = null;
 map.on('styledata', () => { dataLayerIds = null; });
 const dataLayers = () => {
-    dataLayerIds ??= map.getLayersOrder().filter((id) => [SOURCE, LIVE_SOURCE].includes(map.getLayer(id)?.source));
+    // (Not the invisible copies of obstacles' symbols, which keep labels off them.)
+    dataLayerIds ??= map.getLayersOrder().filter((id) => [SOURCE, LIVE_SOURCE].includes(map.getLayer(id)?.source)
+        && !map.getLayer(id)?.metadata?.['q2vt:obstacle']);
     return dataLayerIds;
 };
 const firstDataLayer = () => map.getLayersOrder()

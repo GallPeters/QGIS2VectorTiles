@@ -1621,9 +1621,23 @@ class IconPropertyExtractor:
         return 1
 
     @staticmethod
-    def get_icon_rotation_alignment() -> str:
-        """Return ``icon-rotation-alignment`` (default: ``"map"`` for QGIS markers)."""
-        return "map"
+    def rotated(rotation) -> bool:
+        """Whether an icon-rotate / text-rotate turns the symbol: an
+        expression, or a constant angle other than 0."""
+        if isinstance(rotation, list):
+            return True
+        try:
+            return float(rotation or 0) % 360 != 0
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def get_icon_rotation_alignment(rotation=0) -> str:
+        """Return ``icon-rotation-alignment``: a marker stays upright on the
+        screen when the web map is rotated ("viewport"), so it reads the
+        same; one with a rotation (a direction on the ground, e.g. an
+        arrow) turns with the map ("map")."""
+        return "map" if IconPropertyExtractor.rotated(rotation) else "viewport"
 
     @staticmethod
     def get_icon_pitch_alignment() -> str:
@@ -2582,9 +2596,15 @@ class TextPropertyExtractor:
         return PropertyExtractor.get_value_or_expression(base_rotation, rotation_prop)
 
     @staticmethod
-    def get_text_rotation_alignment() -> str:
-        """Return ``text-rotation-alignment`` (default ``"map"``)."""
-        return "map"
+    def get_text_rotation_alignment(placement: str = "point", rotation=0) -> str:
+        """Return ``text-rotation-alignment``: a label stays level on the
+        screen when the web map is rotated ("viewport"), readable; one
+        along a line (``placement`` "line" / "line-center", kept upright by
+        text-keep-upright) or with a rotation (a direction on the ground)
+        turns with the map ("map")."""
+        if placement in ("line", "line-center") or IconPropertyExtractor.rotated(rotation):
+            return "map"
+        return "viewport"
 
     @staticmethod
     def get_text_pitch_alignment() -> str:
@@ -2654,6 +2674,8 @@ class QgisMapLibreStyleExporter:
         self.raw_colors = raw_colors or {}
         # HTML labels' slot counts, by dataset and label field (html_label.py).
         self.html_slots = html_slots or {}
+        # By QGIS layer (its "lNN"), the zooms its features are obstacles to labels at (add_obstacles).
+        self._obstacle_zooms: Dict[str, List[tuple]] = {}
         self.layer = self._resolve_layer(layer)
         self.source_name = "q2vt_tiles"
         self.style = self._build_style_skeleton()
@@ -2774,6 +2796,8 @@ class QgisMapLibreStyleExporter:
             # For GDALTilesGenerator; not written to style.json.
             self.style.setdefault("metadata", {})[TILE_LAYERS_KEY] = shared
         self._filter_group_zooms(self.style["layers"])
+        # Last: copies of the layers as they are finally drawn.
+        self.style["layers"] = self.add_obstacles(self.style["layers"], self._obstacle_zooms)
         return self.style
 
     @staticmethod
@@ -2850,10 +2874,84 @@ class QgisMapLibreStyleExporter:
         )
         self._apply_rule_filter(style, first)
         settings = style.labelSettings()  # A copy: kept while its properties are read.
+        self._note_obstacle(settings, style.styleName(), min_zoom, max_zoom)
         prop = QgsProperty(settings.dataDefinedProperties().property(QgsPalLayerSettings.Property.Show))
         condition = PropertyExtractor.enabled_condition(prop)
         for layer_def in list(self.style["layers"][first:]):
             self._apply_enabled(layer_def, condition)
+
+    def _note_obstacle(self, settings: QgsPalLayerSettings, style_name: str, min_zoom, max_zoom) -> None:
+        """Note the zooms at which a QGIS layer's features are obstacles to
+        labels: those of its label rules set to "Features act as obstacles"
+        (QGIS's default). See add_obstacles."""
+        match = re.match(r"l(\d+)t", style_name or "")
+        if not match:
+            return
+        try:
+            if not settings.obstacleSettings().isObstacle():
+                return
+        except (AttributeError, RuntimeError):
+            return
+        self._obstacle_zooms.setdefault(match.group(1), []).append((min_zoom, max_zoom))
+
+    @staticmethod
+    def add_obstacles(layers: List[dict], obstacle_zooms: Dict[str, List[tuple]]) -> List[dict]:
+        """Point symbols as obstacles to labels, as QGIS's "Features act as
+        obstacles": MapLibre keeps labels off a symbol already placed, and
+        places the style's layers from the top down, the labels (above the
+        symbols, which they are drawn over) first. So each obstacle
+        layer's icons are also an invisible layer (drawn over nothing), at
+        the zooms its features are obstacles, just below its own labels:
+        placed after them (QGIS never keeps a feature's label off its own
+        symbol; MapLibre can't tell a feature's own label), before every
+        label layer below. The viewers leave them out of what is clicked.
+
+        Unlike QGIS: labels above the layer's own don't avoid its symbols,
+        nor do its own labels avoid its other features' symbols; where a
+        label has no other place, MapLibre leaves it out (QGIS puts it over
+        the obstacle: a cost); and every obstacle weighs the same."""
+        obstacles = []  # (the QGIS layer's "NN", the copy)
+        for layer_def in layers:
+            layout = layer_def.get("layout") or {}
+            metadata = layer_def.get("metadata") or {}
+            match = re.match(r"l(\d+)t00", layer_def.get("id", ""))
+            if (layer_def.get("type") != "symbol" or not match or "icon-image" not in layout
+                    or "text-field" in layout or layout.get("visibility") == "none"
+                    or any(key in metadata for key in ("q2vt:stand-in", "q2vt:cluster", "q2vt:displacement"))):
+                continue
+            low, high = layer_def.get("minzoom", 0), layer_def.get("maxzoom", 24)
+            spans = sorted((max(low, a), min(high, b)) for a, b in obstacle_zooms.get(match.group(1), [])
+                           if min(high, b) > max(low, a))
+            merged: List[list] = []
+            for a, b in spans:
+                if merged and a <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], b)
+                else:
+                    merged.append([a, b])
+            for n, (a, b) in enumerate(merged):
+                obstacle = {
+                    "id": f"{layer_def['id']}_obstacle{n or ''}", "type": "symbol",
+                    "source": layer_def["source"], "source-layer": layer_def.get("source-layer"),
+                    "minzoom": a, "maxzoom": b,
+                    "layout": {k: v for k, v in layout.items() if k.startswith(("icon-", "symbol-"))},
+                    "paint": {"icon-opacity": 0},
+                    "metadata": {"q2vt:obstacle": True},
+                }
+                # icon-optional (meaningless without a text) makes its layout
+                # differ: MapLibre places layers alike in source, filter, zooms
+                # and layout as one, at the lowest's place (below the labels).
+                obstacle["layout"].update({"icon-allow-overlap": True, "icon-ignore-placement": False,
+                                           "icon-optional": True})
+                if "filter" in layer_def:
+                    obstacle["filter"] = copy.deepcopy(layer_def["filter"])
+                obstacles.append((match.group(1), obstacle))
+        result = list(layers)
+        for number, obstacle in obstacles:
+            labels = [i for i, l in enumerate(result) if re.match(rf"l{number}t01", l.get("id", ""))
+                      and not (l.get("metadata") or {}).get("q2vt:obstacle")]
+            # Below its lowest label layer (placed after all of them); none: on top.
+            result.insert(min(labels) if labels else len(result), obstacle)
+        return result
 
     def _apply_enabled(self, layer_def: dict, condition) -> None:
         """Keep a "show" condition (enabled_condition) with a layer until
@@ -3387,12 +3485,13 @@ class QgisMapLibreStyleExporter:
             marker_name, cluster_icon_size = self._cluster_sized_marker(
                 sprite_symbol, layer_def["metadata"].pop("q2vt:cluster_sizes", None), marker_name)
             ground_icon_size = cluster_icon_size or ground_icon_size
+        icon_rotate = IconPropertyExtractor.get_icon_rotate(symbol_layer=symbol_layer)
         layer_def["layout"].update({
             "icon-image": IconPropertyExtractor.get_icon_image(marker_name),
             "icon-size": ground_icon_size or IconPropertyExtractor.get_icon_size(symbol_layer, 1.0),
-            "icon-rotate": IconPropertyExtractor.get_icon_rotate(symbol_layer=symbol_layer),
+            "icon-rotate": icon_rotate,
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
-            "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
+            "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(icon_rotate),
             "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
             "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
             "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(True),
@@ -3959,7 +4058,9 @@ class QgisMapLibreStyleExporter:
             "text-max-angle": TextPropertyExtractor.get_text_max_angle(label_settings),
             "text-keep-upright": TextPropertyExtractor.get_text_keep_upright(),
             "text-rotate": TextPropertyExtractor.get_text_rotate(label_settings),
-            "text-rotation-alignment": TextPropertyExtractor.get_text_rotation_alignment(),
+            "text-rotation-alignment": TextPropertyExtractor.get_text_rotation_alignment(
+                IconPropertyExtractor.get_symbol_placement(label_settings),
+                TextPropertyExtractor.get_text_rotate(label_settings)),
             "text-pitch-alignment": TextPropertyExtractor.get_text_pitch_alignment(),
             "symbol-placement": IconPropertyExtractor.get_symbol_placement(label_settings),
             "symbol-spacing": IconPropertyExtractor.get_symbol_spacing(label_settings),
@@ -4039,7 +4140,9 @@ class QgisMapLibreStyleExporter:
             ),
             "text-halo-width": TextPropertyExtractor.get_text_halo_width(text_format, label_settings),
             "text-translate": TextPropertyExtractor.get_text_translate(),
-            "text-translate-anchor": TextPropertyExtractor.get_text_translate_anchor(),
+            # A shift on the screen for a label level on it (text-translate).
+            "text-translate-anchor": "viewport" if layer_def["layout"].get("text-rotation-alignment") == "viewport"
+            else TextPropertyExtractor.get_text_translate_anchor(),
         })
         if rich_field is not None:
             # MapLibre draws an HTML label's glyphs lower in their box than
@@ -4134,7 +4237,8 @@ class QgisMapLibreStyleExporter:
             "icon-anchor": IconPropertyExtractor.get_icon_anchor(),
             "icon-rotate": IconPropertyExtractor.get_icon_rotate(background=background),
             "icon-padding": IconPropertyExtractor.get_icon_padding(),
-            "icon-rotation-alignment": IconPropertyExtractor.get_icon_rotation_alignment(),
+            # A label's background turns as its text does.
+            "icon-rotation-alignment": layer_def["layout"].get("text-rotation-alignment", "viewport"),
             "icon-pitch-alignment": IconPropertyExtractor.get_icon_pitch_alignment(),
             "icon-allow-overlap": IconPropertyExtractor.get_icon_allow_overlap(),
             "icon-ignore-placement": IconPropertyExtractor.get_icon_ignore_placement(),
