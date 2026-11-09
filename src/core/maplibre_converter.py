@@ -1559,14 +1559,16 @@ class IconPropertyExtractor:
     ) -> Union[float, List]:
         """Return ``icon-size`` honouring any data-defined override.
 
-        The sprite draws the marker at its own size (times _SPRITE_QUALITY).
-        A data-defined size is a marker size, not a scale, so the icon is
-        scaled by its ratio to the marker's own size: a constant becomes a
-        number, a field a MapLibre expression.
+        The sprite draws the marker at its own size (times _SPRITE_QUALITY),
+        a data-defined size that is the same for every feature included (a
+        constant, or a zoom band's value of a size by the map's scale): no
+        scaling then. A size by feature is a marker size, not a scale, so
+        the icon is scaled by its ratio to the marker's own size, which the
+        sprite draws it at (the size's field has no value there).
         """
         size_prop = symbol_layer.dataDefinedProperties().property(QgsSymbolLayer.Property.PropertySize)
         size_val = PropertyExtractor.get_value_or_expression(default_size, size_prop)
-        if size_val is default_size:
+        if size_val is default_size or not isinstance(size_val, list):
             return default_size / _SPRITE_QUALITY
         try:
             base = float(symbol_layer.size())
@@ -4175,6 +4177,14 @@ class QgisMapLibreStyleExporter:
                 radius_px = px(radii.width(), background.radiiUnit(), 4.0)
         size = background.size()
         fixed = PropertyExtractor.enum_int(background.sizeType()) == _BACKGROUND_SIZE_FIXED
+        # QGIS draws a rectangle or ellipse with the background's fill symbol
+        # (its fill and stroke colours set only its first layer): so does
+        # the sprite.
+        fill_symbol = background.fillSymbol() if shape_type != _BACKGROUND_SVG else None
+        symbol_key = ""
+        if fill_symbol is not None:
+            fill_symbol = fill_symbol.clone()
+            symbol_key = QgsSymbolLayerUtils.symbolProperties(fill_symbol)
         shape = LabelShape(
             ellipse=shape_type in _BACKGROUND_ELLIPSES,
             fill=background.fillColor().name(QColor.NameFormat.HexArgb),
@@ -4183,6 +4193,7 @@ class QgisMapLibreStyleExporter:
             width=px(size.width(), background.sizeUnit(), 16.0) if fixed else 0.0,
             height=px(size.height(), background.sizeUnit(), 16.0) if fixed else 0.0,
             svg=background.svgFile() if shape_type == _BACKGROUND_SVG else "",
+            symbol=fill_symbol, symbol_key=symbol_key,
         )
         if shape_type == _BACKGROUND_SVG and not shape.svg:
             return None, None, None, None

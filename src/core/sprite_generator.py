@@ -39,12 +39,12 @@ from ..utils.config import _CACHE_DIR_NAME, _CACHE_MAX_AGE_DAYS, _CACHE_MAX_MB
 _QT_VERSION = int(qVersion()[0])
 if _QT_VERSION == 5:
     from PyQt5.QtCore import QSize, QBuffer, QIODevice, QPointF, QRectF, Qt
-    from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt5.QtGui import QBrush, QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
     from PyQt5.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.ReadWrite
 else:
     from PyQt6.QtCore import QSize, QBuffer, QIODevice, QIODeviceBase as QIODevice, QPointF, QRectF, Qt
-    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
     from PyQt6.QtSvg import QSvgRenderer
     _IO_READ_WRITE = QIODevice.OpenModeFlag.ReadWrite
 
@@ -72,7 +72,7 @@ _SHEETS = ((1, ""), (2, "@2x"))
 # neighbour from bleeding in when an icon is scaled.
 _SPRITE_GAP = 2
 # Bump when rendering changes, so cached images drawn the old way are not reused.
-_RENDER_VERSION = "4"
+_RENDER_VERSION = "5"
 
 
 @dataclass
@@ -130,6 +130,11 @@ class LabelShape:
     width: float = 0.0    # A fixed size; 0 to be stretched.
     height: float = 0.0
     svg: str = ""         # An SVG file, stretched whole (in the colours given).
+    # The background's fill symbol, which QGIS draws a rectangle or ellipse
+    # with (its fill and stroke colours above only set its first layer):
+    # drawn with it, all its layers. symbol_key identifies it.
+    symbol: Optional[QgsFillSymbol] = field(default=None, repr=False, compare=False)
+    symbol_key: str = ""
 
 
 @dataclass
@@ -504,6 +509,9 @@ class SymbolImage:
             if shape.svg:
                 self._render_svg_shape(shape, scale)
                 return
+            if shape.symbol is not None:
+                self._render_symbol_shape(shape, scale)
+                return
             if shape.width and shape.height:
                 width, height = max(2, round(shape.width * scale)), max(2, round(shape.height * scale))
             elif shape.ellipse:
@@ -547,6 +555,73 @@ class SymbolImage:
         except (RuntimeError, AttributeError, TypeError, ValueError):
             self.img = Image.new("RGBA", (8, 8), (255, 255, 255, 0))
             self.meta = {}
+
+    def _render_symbol_shape(self, shape: LabelShape, scale: float):
+        """A rectangle or ellipse background drawn by its fill symbol, as
+        QGIS draws it (a stroke straddling its outline, layers on layers),
+        cropped evenly around it; a stretched rectangle's uniform bands
+        narrowed to its stretchable parts (as a balloon's)."""
+        radius = min(shape.radius_px * scale, 64 * scale)
+        fixed = bool(shape.width and shape.height)
+        if fixed:
+            width, height = max(2.0, shape.width * scale), max(2.0, shape.height * scale)
+        elif shape.ellipse:
+            width = height = 32 * scale
+        else:
+            # Big enough for the corners and a long uniform middle.
+            width, height = 160 * scale + 2 * radius, 120 * scale + 2 * radius
+        extra = 64 * scale
+        qt_img = QImage(int(ceil(width + 2 * extra)), int(ceil(height + 2 * extra)),
+                        QImage.Format.Format_ARGB32_Premultiplied)
+        qt_img.fill(0)
+        painter = QPainter(qt_img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        context = QgsRenderContext.fromQPainter(painter)
+        context.setScaleFactor(_PX_PER_MM * scale)
+        context.setFlag(Qgis.RenderContextFlag.Antialiasing, True)
+        rect = QRectF(extra, extra, width, height)
+        path = QPainterPath()
+        if shape.ellipse:
+            path.addEllipse(rect)
+        elif radius > 0:
+            path.addRoundedRect(rect, radius, radius)
+        else:
+            path.addRect(rect)
+        symbol = shape.symbol.clone()
+        symbol.startRender(context)
+        symbol.renderPolygon(path.toFillPolygon(), None, None, context)
+        symbol.stopRender(context)
+        painter.end()
+        img = self._qt_to_pil(qt_img).convert("RGBA")
+        bbox = img.getbbox()
+        if not bbox:
+            raise ValueError("nothing drawn")
+        # Evenly around the shape: a fixed one stays centred on its point.
+        reach = int(ceil(max(rect.left() - bbox[0], bbox[2] - rect.right(),
+                             rect.top() - bbox[1], bbox[3] - rect.bottom(), 0)))
+        crop = (int(rect.left()) - reach, int(rect.top()) - reach,
+                int(ceil(rect.right())) + reach, int(ceil(rect.bottom())) + reach)
+        img = img.crop(crop)
+        content = [rect.left() - crop[0], rect.top() - crop[1], rect.right() - crop[0], rect.bottom() - crop[1]]
+        if fixed:
+            self.img, self.meta = img, {}
+            return
+        if shape.ellipse:
+            # Stretched whole, the text inside the rectangle the ellipse encloses.
+            inner_x, inner_y = width * (1 - sqrt(0.5)) / 2, height * (1 - sqrt(0.5)) / 2
+            self.img = img
+            self.meta = {"content": [round(content[0] + inner_x), round(content[1] + inner_y),
+                                     round(content[2] - inner_x), round(content[3] - inner_y)]}
+            return
+        img, stretch_x, content[0], content[2] = self._narrow(img, content[0], content[2], scale)
+        img = img.transpose(Image.Transpose.TRANSPOSE)
+        img, stretch_y, content[1], content[3] = self._narrow(img, content[1], content[3], scale)
+        self.img = img.transpose(Image.Transpose.TRANSPOSE)
+        self.meta = {"content": [round(v) for v in content]}
+        if stretch_x:
+            self.meta["stretchX"] = stretch_x
+        if stretch_y:
+            self.meta["stretchY"] = stretch_y
 
     def _render_svg_shape(self, shape: LabelShape, scale: float):
         """An SVG label background: drawn at its fixed size, or square to be
