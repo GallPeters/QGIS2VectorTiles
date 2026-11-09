@@ -50,7 +50,7 @@
       var table = el('table');
       var thead = el('thead');
       var hr = el('tr');
-      ['QGIS property', 'MapLibre property', 'Support', 'PostGIS live', 'Data-driven', 'Notes'].forEach(function (h) {
+      ['QGIS property', 'MapLibre property', 'Support', 'Postgres Live', 'Data-driven', 'Notes'].forEach(function (h) {
         var th = el('th', null, h);
         th.scope = 'col';
         hr.appendChild(th);
@@ -71,7 +71,7 @@
         var notes = el('span', null, String(p.notes || ''));
         if (p.live_notes) {
           var liveNote = el('span', 'live-note');
-          liveNote.append(el('strong', null, 'PostGIS live: '), String(p.live_notes));
+          liveNote.append(el('strong', null, 'Postgres Live: '), String(p.live_notes));
           notes = el('span');
           notes.append(el('span', null, String(p.notes || '')), liveNote);
         }
@@ -82,7 +82,7 @@
           prop,
           cell('MapLibre', el('span', 'code' + (target.toUpperCase() === 'N/A' ? ' na' : ''), target || 'N/A')),
           cell('Support', el('span', 'status ' + status, STATUS[status])),
-          cell('PostGIS live', el('span', 'status ' + live, STATUS[live])),
+          cell('Postgres Live', el('span', 'status ' + live, STATUS[live])),
           cell('Data-driven', el('span', 'dd' + (dd ? ' yes' : ''), dd ? 'Yes' : 'No')),
           cell('Notes', notes)
         );

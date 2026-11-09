@@ -78,7 +78,7 @@
     <div class="container">
       <p class="eyebrow" data-reveal>Changelog</p>
       <h1 class="h1" id="page-title" data-reveal style="--d:1">Release notes</h1>
-      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.4</strong>, 8 Nov 2026.</p>
+      <p class="lead" data-reveal style="--d:2">Every release, newest first. Latest: <strong class="text-brand">v4.3</strong>, 8 Nov 2026.</p>
     </div>
   </section>
 
@@ -86,7 +86,7 @@
     <nav class="versions" aria-label="Releases">
       <h2>Releases</h2>
       <ol>
-        <li><a href="#v4-4">v4.4<small>Nov 2026</small></a></li>
+        <li><a href="#v4-4">v4.4<small>Coming soon</small></a></li>
         <li><a href="#v4-3">v4.3<small>Nov 2026</small></a></li>
         <li><a href="#v4-2">v4.2<small>Nov 2026</small></a></li>
         <li><a href="#v4-1">v4.1<small>Oct 2026</small></a></li>
@@ -132,37 +132,31 @@
   Move class="latest" and <span class="tag">Latest</span> to the new
   release, and add it to the "Releases" list above.
 -->
-  <article class="release latest" id="v4-4">
+  <article class="release" id="v4-4">
     <div class="release-meta">
       <h2>v4.4</h2>
-      <time datetime="2026-11-08">8 Nov 2026</time>
-      <span class="tag">Latest</span>
+      <span class="tag muted">Coming soon</span>
     </div>
     <ul>
-      <li><strong>Your own OpenFreeMap style</strong>: upload a style.json in the web map, for example one edited in Maputnik.</li>
-      <li><strong>Popups</strong> show the feature's fields, or its export details (Debug).</li>
-      <li>OpenFreeMap labels in <strong>any of about 70 languages</strong>, chosen from a list.</li>
-      <li>Search finds features by <strong>their own fields</strong> when all or visible fields are exported, not by their label text too.</li>
-      <li><strong>Live maps from PostGIS</strong>: an export of PostGIS layers adds <code>q2vt_live.sql</code>. Run it once in the database, serve it with Martin or pg_tileserv, and the web map draws those layers from the data as it is now.</li>
-      <li>Live layers keep their <strong>QGIS styling</strong>: rules, labels, calculated fields, geometry generators and point clusters are computed by the database.</li>
-      <li>The web map <strong>refreshes live layers</strong> every 30 seconds (<code>liveTiles</code> and <code>liveRefresh</code> in <code>index.html</code>).</li>
-      <li><strong>HTML-formatted labels</strong>: parts of a label in their own font, weight, size, color and background color, as in QGIS.</li>
-      <li>The styling guide shows what <strong>live maps</strong> support.</li>
-      <li>Fixed: a rule-based label split by its symbols' zoom levels showed at the first of them only.</li>
-      <li><strong>Smoother lines</strong> at low zooms: half the simplification.</li>
-      <li>Point symbols set as <strong>label obstacles</strong> keep other layers' labels off them, as in QGIS.</li>
-      <li>Labels and point symbols <strong>stay level</strong> when the web map is rotated (those along lines or with a rotation turn with it).</li>
-      <li>Fixed: HTML labels with mixed font sizes sat too low in their background or callout.</li>
-      <li>Fixed: callout boxes placed around a point sat too close to it.</li>
-      <li>Fixed: symbols with a data-defined size were too small on high-resolution screens.</li>
-      <li>Fixed: label backgrounds ignored their fill symbol: its layers, colours and outline are drawn as in QGIS.</li>
-      <li>Fixed: symbols whose size depends on the map scale were drawn too small at some zooms.</li>
+      <li><strong>Live maps from PostGIS</strong>: always up to date, refreshed every 30 seconds.</li>
+      <li>Live layers keep their <strong>QGIS styling</strong>.</li>
+      <li><strong>HTML labels</strong>: fonts, sizes, colours and backgrounds per part.</li>
+      <li><strong>Label obstacles</strong>: labels keep off point symbols.</li>
+      <li>Labels and symbols <strong>stay level</strong> on a rotated map.</li>
+      <li><strong>Your own OpenFreeMap style</strong>, uploaded in the web map.</li>
+      <li>OpenFreeMap labels in <strong>about 70 languages</strong>.</li>
+      <li><strong>Popups</strong>: the feature's fields or export details.</li>
+      <li><strong>Search</strong> by the features' own fields.</li>
+      <li><strong>Smoother lines</strong> at low zooms.</li>
+      <li>Label <strong>backgrounds and callouts</strong> drawn as in QGIS.</li>
+      <li>Fixed: small symbols on high-resolution screens.</li>
     </ul>
   </article>
-  <article class="release" id="v4-3">
+  <article class="release latest" id="v4-3">
     <div class="release-meta">
       <h2>v4.3</h2>
       <time datetime="2026-11-08">8 Nov 2026</time>
+      <span class="tag">Latest</span>
     </div>
     <ul>
       <li><strong>No blank map</strong> on fast zooms: the last zoom stays on screen while tiles load.</li>
@@ -184,22 +178,15 @@
       <time datetime="2026-11-04">4 Nov 2026</time>
     </div>
     <ul>
-      <li><strong>Balloon callouts</strong> drawn as in QGIS, geometry generators included, and sized to fit the text.</li>
-      <li><strong>Callouts</strong> for labels placed around their point or at an offset.</li>
+      <li><strong>Balloon callouts</strong> as in QGIS, sized to fit the text.</li>
+      <li><strong>Callouts</strong> for labels around or offset from a point.</li>
       <li>Labels around a point <strong>placed as in QGIS</strong>.</li>
-      <li>Multi-line labels keep their <strong>alignment</strong> and <strong>line spacing</strong>.</li>
-      <li><strong>Map only</strong>: the map full screen, without controls.</li>
-      <li>A <strong>default background</strong> per web map, or in its address (<code>?basemap=osm</code>).</li>
-      <li>Credits for the plugin and the map library; MapLibre marked <strong>recommended</strong>.</li>
-      <li><strong>Faster web maps</strong>: labels appear at once, tiles need fewer requests.</li>
-      <li>The local server also answers on IPv6, so it no longer stalls.</li>
+      <li>Multi-line labels keep their <strong>alignment and spacing</strong>.</li>
+      <li><strong>Map only</strong>: the map full screen.</li>
+      <li>A <strong>default background</strong> per web map.</li>
+      <li><strong>Faster web maps</strong>: labels appear at once.</li>
       <li>Passes the plugin portal's <strong>security check</strong>.</li>
-      <li>Fixed: spaces at the start or end of label lines were dropped.</li>
-      <li>Fixed: "cartographic" balloon signs moved and left their pointer behind.</li>
-      <li>Fixed: clusters beyond zoom 15 kept zoom 15's groups.</li>
-      <li>Fixed: a symbol's halo filled the holes of SVG markers.</li>
-      <li>Fixed: stretched balloons showed stray shading while zooming.</li>
-      <li>Fixed: zoom bands beyond zoom 15 were drawn twice.</li>
+      <li>Fixed: label spaces, balloons, and clusters beyond zoom 15.</li>
     </ul>
   </article>
   <article class="release" id="v4-1">
@@ -209,35 +196,16 @@
     </div>
     <ul>
       <li><strong>Up to 2&times; faster</strong> on large projects.</li>
-      <li><strong>Point clusters</strong>, <strong>point displacement</strong>, <strong>heatmaps</strong>, <strong>merged features</strong> and <strong>inverted polygons</strong>.</li>
-      <li><strong>Label priority</strong> as in QGIS in both viewers, data-defined too.</li>
-      <li><strong>Lighter, faster web maps</strong>: half-size styles, fewer layers.</li>
-      <li>Outlines and labels <strong>share their features' data</strong> in the tiles.</li>
-      <li><code>@map_scale</code> rules export as <strong>one layer</strong>: smaller tiles.</li>
-      <li><strong>Arrows</strong> as in QGIS: curved, straight, half and tapered.</li>
-      <li><strong>Callouts</strong> for labels at a data-defined <strong>position</strong>.</li>
-      <li>Features drawn in the layer's <strong>rendering order</strong>.</li>
-      <li>Data-defined <strong>colours</strong> export faster, any number of them.</li>
-      <li>Styles <strong>shared by layers</strong> with different fields export faster.</li>
-      <li><strong>Trimmed lines</strong> and <strong>fill offsets</strong>, data-defined too; outlines drawn <strong>inside polygons</strong>.</li>
-      <li>Line markers <strong>turn with the line</strong> and keep their offset.</li>
+      <li><strong>Clusters</strong>, <strong>point displacement</strong> and <strong>heatmaps</strong>.</li>
+      <li><strong>Label priority</strong> as in QGIS.</li>
+      <li><strong>Lighter web maps</strong>: half-size styles.</li>
+      <li><strong>Arrows</strong>, trimmed lines and fill offsets.</li>
+      <li>Label <strong>backgrounds</strong> and <strong>callouts</strong>.</li>
+      <li>Line markers <strong>turn with the line</strong>.</li>
+      <li>More <strong>data-defined</strong> properties.</li>
       <li>Scale ranges switch at the <strong>exact zoom</strong>.</li>
-      <li>Label <strong>backgrounds</strong>: rectangles, ellipses and SVGs.</li>
-      <li><strong>Map-unit</strong> size limits.</li>
-      <li><strong>Hatched fills</strong> keep their hatching.</li>
-      <li>Data-defined <strong>marker colours and shapes</strong> and <strong>font family</strong>.</li>
-      <li>Data-defined <strong>show label</strong> and symbol layer <strong>enabled</strong>.</li>
-      <li>Line labels <strong>once per line</strong>; <strong>merge connected lines</strong>.</li>
-      <li><strong>Outside-polygon</strong> labels, <strong>title case</strong> and labels that <strong>wrap on a character</strong>.</li>
-      <li>Search shows <strong>one result per place</strong>.</li>
-      <li>The map opens <strong>fitted to the export extent</strong>.</li>
-      <li>The local server sends files <strong>compressed</strong>.</li>
-      <li>An export that <strong>crashes runs again</strong> by itself.</li>
-      <li>Fixed: road casings could disappear in categorized layers.</li>
-      <li>Fixed: some data-defined expressions crashed the export.</li>
-      <li>Fixed: letters missing from labels sharing a font.</li>
-      <li>Fixed: <code>@map_scale</code> in data-defined visibility.</li>
-      <li>Fixed: features beyond zoom 15 were written twice.</li>
+      <li>The map opens <strong>fitted to the export</strong>.</li>
+      <li>Fixed: road casings, missing letters and crashes.</li>
     </ul>
   </article>
   <article class="release" id="v4-0">
@@ -265,20 +233,13 @@
     </div>
     <ul>
       <li><strong>About 3× faster</strong> on large projects.</li>
-      <li>Rules drawing the same features <strong>share their data</strong>.</li>
       <li>Repeated runs <strong>reuse glyphs and symbols</strong>.</li>
-      <li><code>@map_scale</code> rules split only where they change.</li>
-      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills keep their colours.</li>
-      <li>Line markers on <strong>first, last, middle or every vertex</strong>.</li>
-      <li><strong>Data-defined</strong> sizes keep their QGIS units.</li>
+      <li><strong>Gradient</strong> and <strong>shapeburst</strong> fills.</li>
+      <li>Line markers on <strong>any vertex</strong>.</li>
       <li><strong>Map-unit</strong> markers scale with the zoom.</li>
-      <li>Rotated markers no longer turn twice.</li>
-      <li>Labels follow <strong>placement</strong>, spacing and <strong>priority</strong>.</li>
-      <li><strong>Hebrew and Arabic</strong> labels, right to left.</li>
-      <li>Viewers <strong>cache tiles</strong> and respond faster.</li>
-      <li><strong>Search</strong> zooms to where the feature is drawn.</li>
-      <li>Clearer <strong>progress messages</strong> with step times.</li>
-      <li>OpenLayers: point labels sit beside their marker.</li>
+      <li>Labels follow <strong>placement and priority</strong>.</li>
+      <li><strong>Hebrew and Arabic</strong> labels.</li>
+      <li><strong>Faster viewers</strong>; search zooms to the feature.</li>
     </ul>
   </article>
   <article class="release" id="v3-8">
@@ -287,27 +248,15 @@
       <time datetime="2026-10-11">11 Oct 2026</time>
     </div>
     <ul>
-      <li>Viewers: <strong>search</strong>, <strong>drawing</strong>, <strong>measuring</strong>, scale bar.</li>
-      <li>New <strong>basemap switcher</strong> in the viewers.</li>
+      <li>Viewers: <strong>search</strong>, measuring and a <strong>basemap switcher</strong>.</li>
       <li>New <strong>Visible Fields</strong> option.</li>
-      <li>Polygon Labels Base parameter removed.</li>
-      <li><strong>Perimeter labels</strong> follow the outline.</li>
-      <li><strong>Centroid fills</strong> follow QGIS.</li>
-      <li><strong>Faster</strong> with many rules or categories.</li>
+      <li><strong>Perimeter labels</strong> and centroid fills as in QGIS.</li>
+      <li><strong>Pattern fills</strong>, symbol levels and dashes.</li>
+      <li><strong>Map-unit</strong> widths scale with the zoom.</li>
       <li>Tiles stop at <strong>zoom 15</strong>; viewers enlarge beyond.</li>
       <li><strong>Temporary layers</strong> are exported.</li>
-      <li>MapLibre GL JS 6.13 and OpenLayers 10.11.</li>
-      <li>Popups off by default.</li>
-      <li>Fixed label fonts and the starting zoom shown.</li>
-      <li>Clearer local server description.</li>
-      <li>Fixed crashes with thousands of rules.</li>
-      <li>Fixed data-defined marker sizes.</li>
-      <li><strong>Pattern fills</strong> are drawn.</li>
-      <li><strong>Map-unit</strong> widths scale with the zoom.</li>
-      <li>Labels keep their <strong>size, position and buffer</strong>.</li>
-      <li><strong>Symbol levels</strong> keep road casings under fills.</li>
-      <li>Opacity, <strong>dashes</strong>, caps and joins follow QGIS.</li>
-      <li>Offset markers keep their place.</li>
+      <li><strong>Faster</strong> with many rules.</li>
+      <li>Fixed: label fonts, crashes and marker sizes.</li>
     </ul>
   </article>
   <article class="release" id="v3-7">
