@@ -46,8 +46,9 @@ SINGLE_LABELING = "*"
 # EPSG:3857 metres per web map pixel at zoom 0 (512 px tiles).
 _M_PER_PX_Z0 = 40075016.68557849 / 512
 # Pixels per labeling render (a side), and around it the labels placed in
-# it but kept from the next one (theirs there).
-_CHUNK_PIXELS = 3000
+# it but kept from the next one (theirs there). Nothing is drawn (see
+# _render_labels): large, few renders.
+_CHUNK_PIXELS = 20000
 _CHUNK_MARGIN = 400
 # Positions within this many pixels of each other are one place.
 _PLACE_ROUNDING = 0.5
@@ -60,6 +61,8 @@ _SIDE_TOLERANCE = 1.0
 # a symbol layer's filter and layout at whole zooms only, so each band is a
 # layer of its own (its zoom range).
 _BANDS_PER_ZOOM = 2
+# How far into its band (zoom levels) a band is laid out.
+_BAND_NUDGE = 0.002
 
 
 def placement_field(number: int, zoom: float) -> str:
@@ -207,12 +210,31 @@ class LabelPlacer:
             return {}
         layers = {mark[0] for _, mark, _, _ in targets}
         evaluated = sorted({zoom for *_, zooms in targets for zoom in zooms})
-        self._log(f". Placing {len(targets)} label rules as QGIS does, at {len(evaluated)} zoom levels...")
+        self._log(". Computing label placement...")
         coordinates = {layer_id: self._points(layer_id) for layer_id in layers}
         points = {layer_id: {fid: _key(*xy) for fid, xy in found.items()}
                   for layer_id, found in coordinates.items()}
         # Per zoom evaluated: {(layer id, provider): {feature id: label box}}.
-        boxes = {zoom: self._layout(zoom, coordinates) for zoom in evaluated}
+        # From one zoom on, QGIS places every label as at the zoom before
+        # (room enough): the higher zooms then keep that band's places.
+        boxes, previous = {}, None
+        for zoom in evaluated:
+            if self._cancelled():
+                raise RuntimeError("Label placement cancelled.")
+            # A hair within the band: at a rule's exact first zoom QGIS's own
+            # scale can fall just outside its scale range.
+            boxes[zoom] = self._layout(zoom + _BAND_NUDGE, coordinates)
+            places = {key: {fid: _place(box) for fid, box in found.items()} for key, found in boxes[zoom].items()}
+            settled = places == previous
+            self._log(f"   Zoom level {zoom:g}: {sum(len(found) for found in places.values()):,} labels placed"
+                      f"{' (unchanged; applied to higher zoom levels)' if settled else ''}")
+            if settled:
+                del boxes[zoom]
+                break
+            previous = places
+        targets = [(rule, mark, dataset, [zoom for zoom in zooms if zoom in boxes])
+                   for rule, mark, dataset, zooms in targets]
+        targets = [target for target in targets if target[3]]
 
         placements: Dict[Tuple[str, str], Placement] = {}
         values: Dict[str, Dict[str, Dict[tuple, int]]] = defaultdict(dict)
@@ -256,14 +278,20 @@ class LabelPlacer:
         to_project = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:3857"), crs, self.project)
         to_3857 = QgsCoordinateTransform(crs, QgsCoordinateReferenceSystem("EPSG:3857"), self.project)
         layer_ids = set(point_cache)
+        all_points = [xy for found in point_cache.values() for xy in found.values()]
         result: Dict[Tuple[str, str], Dict[int, tuple]] = defaultdict(dict)
         for row in range(rows):
             for column in range(columns):
+                if self._cancelled():
+                    raise RuntimeError("Label placement cancelled.")
+                # The block, within the export extent on every side.
                 core = QgsRectangle(
                     self.extent.xMinimum() + column * _CHUNK_PIXELS * resolution,
-                    self.extent.yMaximum() - (row + 1) * _CHUNK_PIXELS * resolution,
+                    max(self.extent.yMinimum(), self.extent.yMaximum() - (row + 1) * _CHUNK_PIXELS * resolution),
                     min(self.extent.xMaximum(), self.extent.xMinimum() + (column + 1) * _CHUNK_PIXELS * resolution),
                     self.extent.yMaximum() - row * _CHUNK_PIXELS * resolution)
+                if not any(core.contains(x, y) for x, y in all_points):
+                    continue  # No label of ours here.
                 margin = _CHUNK_MARGIN * resolution
                 view = QgsRectangle(core.xMinimum() - margin, core.yMinimum() - margin,
                                     core.xMaximum() + margin, core.yMaximum() + margin)
@@ -306,7 +334,9 @@ class LabelPlacer:
                               QgsExpressionContextUtils.projectScope(self.project),
                               QgsExpressionContextUtils.mapSettingsScope(settings)])
         settings.setExpressionContext(context)
-        image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
+        # Only the labels' places are kept: drawn on a pixel (clipped), the
+        # map can be laid out large without an image its size.
+        image = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(0)
         painter = QPainter(image)
         job = QgsMapRendererCustomPainterJob(settings, painter)
@@ -377,6 +407,9 @@ class LabelPlacer:
             out_layer.CreateFeature(copy)
         out = src = None
         dataset.setDataSource(path, dataset.name(), "ogr")
+
+    def _cancelled(self) -> bool:
+        return self.feedback is not None and self.feedback.isCanceled()
 
     def _log(self, message: str) -> None:
         if self.feedback is not None:
