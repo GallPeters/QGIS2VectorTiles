@@ -72,7 +72,7 @@ _SHEETS = ((1, ""), (2, "@2x"))
 # neighbour from bleeding in when an icon is scaled.
 _SPRITE_GAP = 2
 # Bump when rendering changes, so cached images drawn the old way are not reused.
-_RENDER_VERSION = "5"
+_RENDER_VERSION = "6"
 
 
 @dataclass
@@ -145,7 +145,10 @@ class BalloonShape:
     wedge pointing at the label's point (``origin``, pixels from the box's
     ``anchor``, y down). Only bands that are the same all along are
     stretched: corners, wedge and markers keep their size. Lengths in
-    pixels."""
+    pixels. With ``box`` (its width and height), drawn around a box that
+    size instead, not stretched but fitted whole: a wedge as wide as the
+    box's side (QGIS narrows a wider one to it) spans its whole side, which
+    no stretching keeps."""
 
     symbol: QgsFillSymbol
     anchor: str                                   # text-anchor
@@ -154,6 +157,7 @@ class BalloonShape:
     wedge_width: float
     corner_radius: float
     from_anchor: float = 0.0
+    box: Optional[tuple] = None
 
 
 SpriteSource = Union[QgsSymbol, FillPattern, LinePattern, HashMark, BrushPattern, LabelShape, BalloonShape, TextBadge]
@@ -232,7 +236,7 @@ def _source_key(source: SpriteSource, scale_factor: float) -> Optional[str]:
         elif isinstance(source, BalloonShape):
             definition = "balloon" + QgsSymbolLayerUtils.symbolProperties(source.symbol) + repr(
                 (source.anchor, source.origin, source.margins, source.wedge_width,
-                 source.corner_radius, source.from_anchor))
+                 source.corner_radius, source.from_anchor, source.box))
         else:
             definition = "symbol" + QgsSymbolLayerUtils.symbolProperties(source)
     except (OSError, RuntimeError, AttributeError, TypeError):
@@ -656,8 +660,9 @@ class SymbolImage:
         balloon = self.symbol
         scale = self.scale_factor
         try:
-            # A text box big enough for what is drawn in its corners.
-            width, height = 160 * scale, 120 * scale
+            # A text box big enough for what is drawn in its corners (or its own size).
+            width, height = ((balloon.box[0] * scale, balloon.box[1] * scale) if balloon.box
+                             else (160 * scale, 120 * scale))
             left, top, right, bottom = (m * scale for m in balloon.margins)
             fx, fy = _ANCHOR_FRACTIONS.get(balloon.anchor, (0.5, 0.5))
             origin = QPointF(fx * width + balloon.origin[0] * scale, fy * height + balloon.origin[1] * scale)
@@ -695,11 +700,17 @@ class SymbolImage:
             img = img.crop(crop)
             content = [shift_x - crop[0], shift_y - crop[1],
                        shift_x + width - crop[0], shift_y + height - crop[1]]
-            # Bands across the text box the same all along, each narrowed to
-            # 2 pixels that MapLibre stretches.
-            img, stretch_x, content[0], content[2] = self._narrow(img, content[0], content[2], scale)
+            if balloon.box:
+                self.img, self.meta = img, {"content": [round(v) for v in content]}
+                return
+            # Bands across the text box the same all along, narrowed to 2
+            # pixels that MapLibre stretches: with the anchor on a side, the
+            # band on the other side only (the wedge stays its distance from
+            # the anchor, as the point does).
+            side = lambda fraction: "end" if fraction == 0 else "start" if fraction == 1 else None  # noqa: E731
+            img, stretch_x, content[0], content[2] = self._narrow(img, content[0], content[2], scale, side(fx))
             img = img.transpose(Image.Transpose.TRANSPOSE)
-            img, stretch_y, content[1], content[3] = self._narrow(img, content[1], content[3], scale)
+            img, stretch_y, content[1], content[3] = self._narrow(img, content[1], content[3], scale, side(fy))
             self.img = img.transpose(Image.Transpose.TRANSPOSE)
             self.meta = {"content": [round(v) for v in content]}
             if stretch_x:
@@ -711,7 +722,7 @@ class SymbolImage:
             self.meta = {}
 
     @staticmethod
-    def _narrow(img: Img, start: float, end: float, scale: float) -> tuple:
+    def _narrow(img: Img, start: float, end: float, scale: float, side: Optional[str] = None) -> tuple:
         """``img`` with each long run of identical columns between ``start``
         and ``end`` narrowed to 2 stretched pixels between a few kept ones:
         (the image, the stretched columns' ranges (stretchX), start and end
@@ -734,11 +745,16 @@ class SymbolImage:
         pad = max(2, int(ceil(2 * scale)))
         keep = 2 * pad + 2
         least = max(keep + 1, round(6 * scale), longest / 2)
+        long_runs = [a for a, b in sorted(runs.items()) if b - a + 1 >= least]
+        if side and long_runs:
+            # Only the run on the far side from the anchor stretches: the
+            # parts from the anchor on (a balloon's wedge) keep their place.
+            long_runs = [long_runs[-1] if side == "end" else long_runs[0]]
         kept, stretch = [], []
         x, removed = 0, 0
         while x < img.width:
             run_end = runs.get(x, x)
-            if run_end - x + 1 >= least:
+            if x in long_runs:
                 stretch.append([x - removed + pad, x - removed + pad + 2])
                 kept.append((x, x + keep))
                 removed += run_end - x + 1 - keep

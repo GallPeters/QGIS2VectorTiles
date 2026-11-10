@@ -46,6 +46,7 @@ from .sprite_generator import (
     BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
 from .rules_exporter import _TEMP_RULE_FORMAT, RULE_FIELD, color_hex
+from .label_placer import placement_field, rule_mark
 from ..utils.flattened_rule import (
     CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, HEATMAP_PROPERTY,
     OFFSET_PROPERTY, TILE_LAYERS_KEY,
@@ -512,10 +513,15 @@ def bridge_zoom_bands(layers: List[dict], archive_max_zoom: int) -> List[dict]:
         low = layer_def.get("minzoom")
         high = layer_def.get("maxzoom")
         meta = layer_def.get("metadata") or {}
+        # A placed label's zoom bands (label_placer) follow each other: only
+        # the first one's start and the last one's end are its range's.
+        first_band, last_band = meta.get(PLACED_BAND_KEY, (True, True))
+        if not first_band:
+            low = None
         lower_tiles = (low is not None and 0 < low <= archive_max_zoom
                        and _LOWER_TILES_HOLD.match(layer_def["source-layer"])
                        and not meta.get("q2vt:cluster") and not meta.get("q2vt:displacement"))
-        if high is not None and high <= archive_max_zoom and float(high).is_integer():
+        if last_band and high is not None and high <= archive_max_zoom and float(high).is_integer():
             layer_def["maxzoom"] = high + 1
         if lower_tiles and layer_def["type"] in ("fill", "line"):
             opacity = f"{layer_def['type']}-opacity"
@@ -566,6 +572,9 @@ DESCRIPTIONS_KEY = "q2vt:descriptions"
 # A style layer's metadata key marking a label layer's stand-in copy
 # (_label_stand_in), which only MapLibre draws.
 STAND_IN_KEY = "q2vt:stand-in"
+# A style layer's metadata key marking one zoom band of a label QGIS places
+# (label_placer): [whether it is the first band, whether the last].
+PLACED_BAND_KEY = "q2vt:placed-band"
 
 
 # MapLibre's default values (style specification) of the properties the
@@ -2339,6 +2348,29 @@ class TextPropertyExtractor:
                 and len(TextPropertyExtractor.get_text_variable_anchor(label_settings) or []) > 1)
 
     @staticmethod
+    def placed_by_qgis(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
+        """Whether QGIS places the label (label_placer): a point's label with
+        a balloon callout that QGIS moves around its point (more than one
+        position), at a fixed distance and size, its balloon pointing at the
+        point from the side QGIS puts it on. Its background, if any, is
+        drawn as its icon, the balloon as a layer of its own below it."""
+        callout = label_settings.callout()
+        if (callout is None or not callout.enabled() or callout.type() != "balloon"
+                or callout.fillSymbol() is None):
+            return False
+        if geometry_type is None or PropertyExtractor.enum_int(geometry_type) != PropertyExtractor.enum_int(
+                Qgis.GeometryType.Point):
+            return False
+        if TextPropertyExtractor._positioned(label_settings):
+            return False
+        if len(TextPropertyExtractor.get_text_variable_anchor(label_settings) or []) < 2:
+            return False
+        if PropertyExtractor.is_map_unit(label_settings.format().sizeUnit()):
+            return False
+        _, offset = TextPropertyExtractor.fixed_anchor(label_settings)
+        return all(isinstance(v, (int, float)) for v in offset)
+
+    @staticmethod
     def has_drawn_callout(label_settings: QgsPalLayerSettings, geometry_type=None) -> bool:
         """Whether the label's callout is drawn in the tiles (RulesFlattener):
         a point's label (but a balloon that is its icon), or one at a
@@ -2350,7 +2382,8 @@ class TextPropertyExtractor:
             return True
         return (geometry_type is not None and PropertyExtractor.enum_int(geometry_type)
                 == PropertyExtractor.enum_int(Qgis.GeometryType.Point)
-                and not TextPropertyExtractor.balloon_icon(label_settings, geometry_type))
+                and not TextPropertyExtractor.balloon_icon(label_settings, geometry_type)
+                and not TextPropertyExtractor.placed_by_qgis(label_settings, geometry_type))
 
     @staticmethod
     def keeps_callout_side(label_settings: QgsPalLayerSettings) -> bool:
@@ -2645,6 +2678,7 @@ class QgisMapLibreStyleExporter:
         descriptions: Optional[Dict[str, Dict[str, str]]] = None,
         raw_colors: Optional[Dict[str, set]] = None,
         html_slots: Optional[Dict[str, Dict[str, int]]] = None,
+        placements: Optional[dict] = None,
     ):
         """Initialise the exporter.
 
@@ -2674,6 +2708,8 @@ class QgisMapLibreStyleExporter:
         self.raw_colors = raw_colors or {}
         # HTML labels' slot counts, by dataset and label field (html_label.py).
         self.html_slots = html_slots or {}
+        # Labels QGIS places (label_placer): by QGIS rule (layer id, rule key).
+        self.placements = placements or {}
         # By QGIS layer (its "lNN"), the zooms its features are obstacles to labels at (add_obstacles).
         self._obstacle_zooms: Dict[str, List[tuple]] = {}
         self.layer = self._resolve_layer(layer)
@@ -4180,6 +4216,13 @@ class QgisMapLibreStyleExporter:
                                              (name, text_fit, wide_buffer[1], box))
         else:
             self._apply_default_icon_props(layer_def)
+        placed_defs = None
+        mark = rule_mark(label_settings)
+        placement = self.placements.get(mark) if mark else None
+        if (placement is not None and source_layer_name in placement.fields
+                and TextPropertyExtractor.placed_by_qgis(label_settings, geometry_type)):
+            placed_defs = self._apply_placement(layer_def, label_settings, background, style_name,
+                                                placement, placement.fields[source_layer_name])
         # With variable anchors MapLibre draws an icon fitted to the text at
         # the text's place, its text-translate included (and no
         # icon-translate): the icon's box is moved back by its padding.
@@ -4193,7 +4236,10 @@ class QgisMapLibreStyleExporter:
             layout["icon-text-fit-padding"] = [round(padding[0] + translate[1], 2), padding[1] - translate[0],
                                                round(padding[2] - translate[1], 2), padding[3] + translate[0]]
 
-        self.style["layers"].append(layer_def)
+        if placed_defs:
+            self.style["layers"].extend(placed_defs)
+        else:
+            self.style["layers"].append(layer_def)
         if pinned_def is not None:
             for section in ("layout", "paint"):
                 for key, value in layer_def.get(section, {}).items():
@@ -4314,21 +4360,96 @@ class QgisMapLibreStyleExporter:
         }
         return name, "both", padding, box
 
+    def _apply_placement(self, layer_def: dict, label_settings: QgsPalLayerSettings, background,
+                         style_name: str, placement, zooms: List[float]) -> List[dict]:
+        """Draw a label where QGIS places it (label_placer), as the layers
+        to draw in its place: per zoom band (its placement fields, a layer
+        each), on its side of its point at QGIS's distance (text-anchor,
+        text-offset), its balloon pointing at the point from there, only the
+        labels QGIS shows, all of them (QGIS kept them apart). A balloon is
+        the label's icon, or, below a background (the label's icon), a layer
+        of its own (its text laid out alike, not drawn)."""
+        layout = layer_def["layout"]
+        for key in ("text-variable-anchor", "text-radial-offset", "text-variable-anchor-offset"):
+            layout.pop(key, None)
+        places = placement.by_code()
+        if not places:
+            layer_def["_only"] = ["==", 1, 0]
+            return [layer_def]
+        anchors, offsets, images, balloon = [], [], [], None
+        for code, place in places:
+            probe = {"layout": {}, "paint": {}}
+            shape = self._balloon_shape(label_settings, probe, place=place)
+            balloon = balloon or shape
+            anchors += [code, probe["layout"]["text-anchor"]]
+            offsets += [code, ["literal", probe["layout"]["text-offset"]]]
+            images += [code, shape[0]]
+        # QGIS has placed them apart: each is drawn (and keeps later labels away).
+        layout.update({"text-allow-overlap": True, "text-ignore-placement": False})
+        balloon_def = None
+        if layout.get("icon-image") and not TextPropertyExtractor.balloon_icon(label_settings, Qgis.GeometryType.Point):
+            # Below the label and its background: the balloon, from the same place.
+            balloon_def = copy.deepcopy(layer_def)
+            balloon_def["id"] = f"{style_name}_balloon"
+            for key in [k for k in balloon_def["layout"] if k.startswith("icon-")]:
+                del balloon_def["layout"][key]
+            for key in [k for k in balloon_def["paint"] if k.startswith("icon-")]:
+                del balloon_def["paint"][key]
+            balloon_def.get("metadata", {}).pop("q2vt:text-background", None)
+            self._apply_icon_from_background(balloon_def, background, style_name, balloon)
+            balloon_def["layout"].update({"icon-allow-overlap": True, "icon-ignore-placement": True,
+                                          "text-ignore-placement": True})
+            balloon_def["paint"].update({"text-opacity": 0, "text-halo-width": 0, "icon-opacity": 1})
+            balloon_def["paint"].pop("icon-color", None)
+            layout.update({"icon-allow-overlap": True, "icon-ignore-placement": False})
+        else:
+            self._apply_icon_from_background(layer_def, background, style_name, balloon)
+            layout.update({"icon-allow-overlap": True, "icon-ignore-placement": False})
+
+        zooms = sorted(zooms)
+        low, high = layer_def.get("minzoom", 0), layer_def.get("maxzoom", 24)
+        bands = []
+        for index, start in enumerate(zooms):
+            end = zooms[index + 1] if index + 1 < len(zooms) else high
+            band_low, band_high = (low if index == 0 else max(low, start)), min(high, end)
+            if band_high > band_low:
+                bands.append((index, start, band_low, band_high))
+        result = []
+        for number, (index, start, band_low, band_high) in enumerate(bands):
+            field = ["coalesce", ["get", placement_field(placement.number, start)], 0]
+            suffix = f"_p{index}" if index else ""
+            for base, is_balloon in ((balloon_def, True), (layer_def, False)):
+                if base is None:
+                    continue
+                band = copy.deepcopy(base)
+                band["id"] = f"{base['id']}{suffix}"
+                band["minzoom"], band["maxzoom"] = band_low, band_high
+                band["metadata"] = dict(band.get("metadata") or {},
+                                        **{PLACED_BAND_KEY: [number == 0, number == len(bands) - 1]})
+                band["_only"] = [">", field, 0]
+                band["layout"]["text-anchor"] = ["match", field, *anchors, "center"]
+                band["layout"]["text-offset"] = ["match", field, *offsets, ["literal", [0, 0]]]
+                if is_balloon or balloon_def is None:
+                    band["layout"]["icon-image"] = ["match", field, *images, ""]
+                result.append(band)
+        return result or [layer_def]
+
     def _balloon_shape(self, label_settings: QgsPalLayerSettings, layer_def: dict,
-                       moving: bool = False) -> tuple:
+                       moving: bool = False, place: Optional[tuple] = None) -> tuple:
         """(sprite name, icon-text-fit, icon-text-fit-padding, its box for
         the OpenLayers viewer) of a label's balloon callout drawn as its
         icon (see BalloonShape): around QGIS's label box where QGIS puts it
         (qgis_box_corner), its wedge pointing at the label's point. The
         label's text-anchor and text-offset put MapLibre's text there. A
         ``moving`` balloon (moving_balloon) has no wedge, its text the
-        variable anchors."""
+        variable anchors. ``place`` (text-anchor, x, y) is where QGIS put the
+        box instead (label_placer): pixels from the point to its anchor."""
         def px(value, unit) -> float:
             length = PropertyExtractor.length_to_style_value(value, unit)
             return length if isinstance(length, (int, float)) else 0.0  # Ground: none.
 
         callout = label_settings.callout()
-        anchor, corner_x, corner_y = TextPropertyExtractor.qgis_box_corner(label_settings)
+        anchor, corner_x, corner_y = place[:3] if place else TextPropertyExtractor.qgis_box_corner(label_settings)
         size = TextPropertyExtractor.get_text_size_px(label_settings.format())
         margins = callout.margins()
         unit = callout.marginsUnit()
@@ -4341,6 +4462,7 @@ class QgisMapLibreStyleExporter:
             corner_radius=px(callout.cornerRadius(), callout.cornerRadiusUnit()),
             from_anchor=(px(callout.offsetFromAnchor(), callout.offsetFromAnchorUnit())
                          if hasattr(callout, "offsetFromAnchor") else 0.0),
+            box=tuple(place[3:5]) if place and len(place) > 3 else None,
         )
         name = self._register_sprite(shape, "balloon")
         # The text box as QGIS has it (the balloon's inside): MapLibre's is

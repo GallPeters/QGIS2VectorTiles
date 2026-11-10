@@ -57,6 +57,7 @@ from ..utils.zoom_levels import ZoomLevels
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
 from .symbol_geometry import BALLOON_VARIABLE
+from .label_placer import SINGLE_LABELING, mark_rule
 
 
 # EPSG:3857 metres a screen millimetre covers at web zoom 0 (MapLibre's
@@ -433,11 +434,28 @@ class RulesFlattener:
         if (not system or not layer.labelsEnabled()) and renderer_label is None:
             return None
         if system and layer.labelsEnabled():
+            single = not isinstance(system, QgsRuleBasedLabeling)
+            keys = {}
+            if not single:
+                # Each rule's key, as QGIS's label results name it (a clone's
+                # rules may get new keys): by its place in the tree.
+                def collect(rule, path=()):
+                    keys[path] = rule.ruleKey()
+                    for index, child in enumerate(rule.children()):
+                        collect(child, path + (index,))
+                collect(system.rootRule())
             system = system.clone()
-            if not isinstance(system, QgsRuleBasedLabeling):
+            if single:
                 root = QgsRuleBasedLabeling.Rule(QgsPalLayerSettings())
                 root.appendChild(QgsRuleBasedLabeling.Rule(system.settings()))
                 system = QgsRuleBasedLabeling(root)
+
+            def mark(rule, path=()):
+                if rule.settings() is not None:
+                    mark_rule(rule.settings(), layer.id(), SINGLE_LABELING if single else keys.get(path, ""))
+                for index, child in enumerate(rule.children()):
+                    mark(child, path + (index,))
+            mark(system.rootRule())
         else:
             system = QgsRuleBasedLabeling(QgsRuleBasedLabeling.Rule(QgsPalLayerSettings()))
         if renderer_label is not None:
@@ -614,6 +632,9 @@ class RulesFlattener:
             return []
         if TextPropertyExtractor.balloon_icon(settings, layer.geometryType()):
             return []  # The label's icon (see BalloonShape).
+        if (TextPropertyExtractor.placed_by_qgis(settings, layer.geometryType())
+                and layer.providerType() != "postgres"):
+            return []  # Drawn where QGIS places the label (label_placer; not a live layer's).
         label_exp = settings.getLabelExpression().expression()
         if not label_exp:
             return []

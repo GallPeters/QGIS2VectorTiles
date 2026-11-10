@@ -38,6 +38,7 @@ from .utils.flattened_rule import FlattenedRule
 from .utils.zoom_levels import ZoomLevels
 from .core.rules_flattener import RulesFlattener
 from .core.rules_exporter import RulesExporter
+from .core.label_placer import LabelPlacer
 from .core.tiles_generator import GDALTilesGenerator
 from .core.tiles_styler import TilesStyler
 from .core.maplibre_converter import QgisMapLibreStyleExporter
@@ -127,6 +128,13 @@ class QGIS2VectorTiles:
             layers, rules = self._export_rules(rules)
             self._log(f". Successfully exported {len(rules)} rules "
                       f"({self._elapsed_minutes(step_time)} minutes).")
+
+            if LabelPlacer.placed_rules(rules):
+                step_time = perf_counter()
+                self._placements = LabelPlacer(
+                    rules, layers, self.extent, self.max_zoom, self.utils_dir, self.feedback).place()
+                self._log(f". Successfully placed the labels "
+                          f"({self._elapsed_minutes(step_time)} minutes).")
 
             step_time = perf_counter()
             self._log(". Styling tiles...")
@@ -260,6 +268,7 @@ class QGIS2VectorTiles:
             descriptions=self._descriptions(self._styler.flattened_rules),
             raw_colors=getattr(self, "_raw_colors", {}),
             html_slots=getattr(self, "_html_slots", {}),
+            placements=getattr(self, "_placements", {}),
         )
 
     @staticmethod

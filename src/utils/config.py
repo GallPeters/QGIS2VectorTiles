@@ -34,7 +34,11 @@ _PORT = 9000
 _EPSG_CRS = 3857                          # Output projection (Web Mercator)
 _DATA_SIMPLIFICATION_TOLERANCE = 1        # Geometry simplification, in CRS units
 _REMOVE_DUPLICATES_DISTANCE = 300         # Minimum spacing between points, in points
-_TOP_SCALE = 419311712                    # Max zoomed-out map scale
+# The QGIS map scale of web zoom 0: a 512 px tile spans the world's
+# 40,075,016.69 m (EPSG:3857) at 96 dpi, as the web map shows it. QGIS shows
+# the same ground per pixel at that scale, so a rule's scale range starts
+# and ends where it does in QGIS, and @map_scale sizes match.
+_TOP_SCALE = 40075016.68557849 / 512 * 96 / 0.0254   # 295,829,355.45
 _SPRITE_QUALITY = 1                       # Pixel ratio of sprite.png (sprite@2x.png: twice it);
                                           # sprites are drawn at their real size at each ratio
 _FIELD_PREFIX = 'q2vt'                    # Field name prefix
