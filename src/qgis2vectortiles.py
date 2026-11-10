@@ -133,7 +133,7 @@ class QGIS2VectorTiles:
                 step_time = perf_counter()
                 self._placements = LabelPlacer(
                     rules, layers, self.extent, self.max_zoom, self.utils_dir, self.feedback).place()
-                self._log(f". Successfully computed label placement with balloon and wedge "
+                self._log(f". Successfully computed labels with balloon and wedge placement "
                           f"({self._elapsed_minutes(step_time)} minutes).")
 
             step_time = perf_counter()

@@ -210,8 +210,8 @@ class LabelPlacer:
             return {}
         layers = {mark[0] for _, mark, _, _ in targets}
         evaluated = sorted({zoom for *_, zooms in targets for zoom in zooms})
-        first, last = math.floor(evaluated[0]), math.floor(evaluated[-1])
-        self._log(f". Computing label placement with balloon and wedge (zoom levels {first} - {last})...")
+        last = math.floor(evaluated[-1])
+        self._log(". Computing labels with balloon and wedge placement:")
         coordinates = {layer_id: self._points(layer_id) for layer_id in layers}
         points = {layer_id: {fid: _key(*xy) for fid, xy in found.items()}
                   for layer_id, found in coordinates.items()}
@@ -229,12 +229,12 @@ class LabelPlacer:
             level = math.floor(zoom)
             if places == previous:
                 del boxes[zoom]
-                self._log(f"   Zoom level {level} finished" if level == last
-                          else f"   Zoom levels {level} - {last} finished (same placement as the zoom level before)")
+                self._log(f"... Zoom level {level} finished" if level == last
+                          else f"... Zoom levels {level} - {last} finished (placement unchanged)")
                 break
             following = evaluated[index + 1] if index + 1 < len(evaluated) else None
             if following is None or math.floor(following) != level:
-                self._log(f"   Zoom level {level} finished")
+                self._log(f"... Zoom level {level} finished")
             previous = places
         targets = [(rule, mark, dataset, [zoom for zoom in zooms if zoom in boxes])
                    for rule, mark, dataset, zooms in targets]
