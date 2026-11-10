@@ -41,6 +41,7 @@ from osgeo import ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
+from ..utils.gdal_tools import gdal_tool, gdal_tool_env
 from ..utils.flattened_rule import (
     CLUSTER_SIZE_FIELD, DISPLACEMENT_ANCHOR_FIELD, DISPLACEMENT_RADIUS_FIELD, GROUP_ZOOM_FIELD, TILE_LAYERS_KEY,
     group_of, group_sources,
@@ -848,7 +849,7 @@ class GDALTilesGenerator:
             _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else simplification
         )
         return [
-            "ogr2ogr", "-f", "MBTiles", run.output, vrt_path,
+            gdal_tool("ogr2ogr"), "-f", "MBTiles", run.output, vrt_path,
             # MAXZOOM also becomes the MBTiles metadata's maxzoom, from which
             # QGIS enlarges the tiles beyond it.
             "-dsco", f"MINZOOM={lo}",
@@ -885,7 +886,7 @@ class GDALTilesGenerator:
         """Run the runs' ogr2ogr processes, as many at once as there are
         workers, the largest estimated first; the failed runs with the end
         of their error output."""
-        env = os.environ.copy()
+        env = gdal_tool_env()
         env["GDAL_NUM_THREADS"] = "1"
         startupinfo = None
         creationflags = 0

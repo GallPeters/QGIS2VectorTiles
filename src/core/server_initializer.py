@@ -14,10 +14,10 @@ static host (e.g. GitHub Pages):
 import platform
 import subprocess
 
-from os import makedirs
-from os.path import join, basename, exists, normpath
+from os import X_OK, access, makedirs
+from os.path import join, basename, dirname, exists, isfile, normpath
 from shutil import copy2, copytree
-from sys import prefix
+from sys import executable, prefix
 from typing import Optional
 
 from qgis.core import (
@@ -38,7 +38,7 @@ class ServerInitializer:
 lsof -ti :18111991 | xargs kill -9 2>/dev/null
 cd "$(dirname "$0")"
 echo "Starting the web map server..."
-_Q2VT_PYTHON _Q2VT_UTILS --port 18111991 &
+"_Q2VT_PYTHON" "_Q2VT_UTILS" --port 18111991 &
 sleep 2
 URL="http://localhost:18111991/?v=10031993"
 command -v xdg-open &>/dev/null && xdg-open "$URL" || command -v open &>/dev/null && open "$URL"
@@ -136,7 +136,12 @@ Set WshShell = Nothing
             return join(prefix, "pythonw3.exe")
         if system == "Linux":
             return join(prefix, "bin", "python3")
-        return join(prefix, "python3")
+        # macOS: QGIS 4's app keeps it next to QGIS (Contents/MacOS/python),
+        # older ones in Contents/MacOS/bin; else the system's.
+        here = dirname(executable)
+        candidates = [join(here, "python3"), join(here, "python"), join(here, "bin", "python3"),
+                      join(prefix, "bin", "python3"), join(prefix, "python3")]
+        return next((c for c in candidates if isfile(c) and access(c, X_OK)), "python3")
 
     def _configure_server_placeholders(
         self,

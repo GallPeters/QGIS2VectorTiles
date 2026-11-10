@@ -156,6 +156,7 @@ from ..utils.flattened_rule import (
     MARKER_INNER_VERTICES, MARKER_LAST_VERTEX, MARKER_SEGMENT_CENTERS, cluster_settings,
     displacement_label_settings, displacement_settings, marker_angle_field, pinned_field,
 )
+from ..utils.gdal_tools import gdal_tool, gdal_tool_env
 from ..utils.zoom_levels import ZoomLevels
 from .base_layer_cache import BaseLayerCache
 from .ddp_fetcher import COLOR_RAW_EXPRESSIONS, DataDefinedPropertiesFetcher
@@ -912,9 +913,10 @@ def _gdal_tool(arguments: List[str], cancelled=None, timeout: float = None) -> s
     """Run a GDAL command-line tool; returns its output. Raises
     RuntimeError if it fails (or _Cancelled once ``cancelled()``)."""
     kwargs = {"creationflags": _CREATE_NO_WINDOW} if os.name == "nt" else {}
+    command = [gdal_tool(arguments[0]), *arguments[1:]]
     with open(os.devnull, "rb") as stdin:
-        process = subprocess.Popen(
-            arguments, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
+        process = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, env=gdal_tool_env(), **kwargs)
     output: List[bytes] = []
     reader = threading.Thread(target=lambda: output.append(process.stdout.read()), daemon=True)
     reader.start()
