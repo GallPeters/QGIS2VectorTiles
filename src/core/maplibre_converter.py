@@ -40,7 +40,7 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
-from .html_label import (EMPTY_IMAGE, MIXED_MARK, BaseFormat, RichFields, badge_name, maplibre_box, mixed_shaping,
+from .html_label import (MIXED_MARK, BaseFormat, RichFields, badge_name, maplibre_box, mixed_shaping,
                          mixed_shift, parse_badge_name, runs_of)
 from .sprite_generator import TextBadge, badge_layout
 from .sprite_generator import (
@@ -2712,6 +2712,8 @@ class QgisMapLibreStyleExporter:
         self.html_slots = html_slots or {}
         # One label's HTML per dataset and label field (RulesExporter.html_samples).
         self.html_samples = html_samples or {}
+        # The tallest badge (pixels) of an HTML label, by dataset and label field.
+        self._tallest_badges: Dict[tuple, int] = {}
         # Labels QGIS places (label_placer): by QGIS rule (layer id, rule key).
         self.placements = placements or {}
         # By QGIS layer (its "lNN"), the zooms its features are obstacles to labels at (add_obstacles).
@@ -3317,11 +3319,11 @@ class QgisMapLibreStyleExporter:
         base = BaseFormat.of(text_format)
         default_font = text_font if isinstance(text_font, list) and text_font[:1] == ["match"] else (
             ["literal", text_font] if isinstance(text_font, list) else ["literal", [text_font]])
-        keys, badges, colors = set(), set(), False
-        for i in range(slots):
-            keys.update(self._distinct_values(dataset, rich.font(i)))
-            badges.update(self._distinct_values(dataset, rich.image(i)))
-            colors = colors or bool(self._distinct_values(dataset, rich.color(i)))
+        found = self._distinct_field_values(dataset, [name for i in range(slots)
+                                                 for name in (rich.font(i), rich.image(i), rich.color(i))])
+        keys = set().union(*(found[rich.font(i)] for i in range(slots)))
+        badges = set().union(*(found[rich.image(i)] for i in range(slots)))
+        colors = any(found[rich.color(i)] for i in range(slots))
         for key in keys:
             self.glyphs.setdefault(key, []).append((glyph_dataset, field))
         base_color = TextPropertyExtractor.get_text_color(text_format, label_settings)
@@ -3343,14 +3345,16 @@ class QgisMapLibreStyleExporter:
                 # badge on the text's baseline, its descent below it.
                 options["vertical-align"] = "top"
             ml += [["case", ["has", rich.image(i)], "", text], options]
-            if badges:
-                ml += [["image", ["coalesce", ["get", rich.image(i)], EMPTY_IMAGE]], {"vertical-align": "center"}]
+            if found[rich.image(i)]:
+                # Without a badge an empty name: no image, no width.
+                ml += [["image", ["coalesce", ["get", rich.image(i)], ""]], {"vertical-align": "center"}]
         if badges:
             for name in badges:
                 badge = parse_badge_name(name)
                 if badge:
                     self.marker_symbols[name] = TextBadge(*badge)
-            self.marker_symbols[EMPTY_IMAGE] = TextBadge("", 0.0, "#00000000", "#00000000", "")
+                    self._tallest_badges[(dataset, field)] = max(
+                        self._tallest_badges.get((dataset, field), 0), badge_layout(TextBadge(*badge))[3])
         return ml, ol
 
     def _distinct_values(self, dataset: str, field: str) -> List[str]:
@@ -3368,6 +3372,30 @@ class QgisMapLibreStyleExporter:
             values = [f.GetFieldAsString(0) for f in result if f.IsFieldSetAndNotNull(0)]
             ds.ReleaseResultSet(result)
             return values
+        finally:
+            ds = None
+
+    def _distinct_field_values(self, dataset: str, fields: List[str]) -> Dict[str, set]:
+        """The distinct non-NULL values of a dataset's fields, as text, read
+        in one pass (an HTML label has up to MAX_SLOTS slots of fields)."""
+        from osgeo import ogr  # pylint: disable=import-outside-toplevel
+        found: Dict[str, set] = {name: set() for name in fields}
+        ds = ogr.Open(join(self.utils_dir, f"{dataset}.{_TEMP_RULE_FORMAT}"))
+        if ds is None:
+            return found
+        try:
+            layer = ds.GetLayer(0)
+            defn = layer.GetLayerDefn()
+            present = [(name, defn.GetFieldIndex(name)) for name in found if defn.GetFieldIndex(name) >= 0]
+            if not present:
+                return found
+            layer.SetIgnoredFields([defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())
+                                    if defn.GetFieldDefn(i).GetName() not in found] + ["OGR_GEOMETRY"])
+            for feature in layer:
+                for name, index in present:
+                    if feature.IsFieldSetAndNotNull(index):
+                        found[name].add(feature.GetFieldAsString(index))
+            return found
         finally:
             ds = None
 
@@ -4194,6 +4222,16 @@ class QgisMapLibreStyleExporter:
             # QGIS (html_label.mixed_shift): moved up by as much, the glyphs
             # only (its anchor and background stay where QGIS puts them).
             size = layer_def["layout"]["text-size"]
+            tallest = self._tallest_badges.get((source_layer_name, label_settings.fieldName))
+            sample = self.html_samples.get(source_layer_name, {}).get(label_settings.fieldName)
+            if (tallest and isinstance(size, (int, float)) and size > 0 and sample
+                    and any("\n" in run.text for run in runs_of(sample, BaseFormat.of(text_format)))):
+                # MapLibre makes a line taller by as much as a badge is taller
+                # than the text (html_label.maplibre_box); QGIS spaces lines
+                # by the font: the line height less as much (labels of more
+                # than one line: it spaces lines only).
+                line_height = layer_def["layout"]["text-line-height"]
+                layer_def["layout"]["text-line-height"] = round(max(line_height - max(0.0, tallest / size - 1), 0.1), 4)
             if isinstance(size, (int, float)):
                 shift = mixed_shift(layer_def["layout"]["text-line-height"]) * size
                 layer_def["paint"]["text-translate"] = [0, round(-shift, 2)]
@@ -4265,23 +4303,35 @@ class QgisMapLibreStyleExporter:
 
     def _fit_badged_box(self, layer_def: dict, label_settings: QgsPalLayerSettings, dataset: str) -> None:
         """A background around an HTML label with badges fitted as QGIS
-        draws it: from the label's first baseline, its maximum ascent above
-        (the text is drawn at the box's top) and the rest of the text box
-        below (a top margin of the HTML included), as QGIS lays out one of
-        its labels (RulesExporter.html_samples); MapLibre's own box is
-        html_label.maplibre_box."""
+        draws it (_badged_padding)."""
         layout = layer_def["layout"]
         padding = layout.get("icon-text-fit-padding")
+        if layout.get("icon-text-fit") not in ("both", "height") or not padding:
+            return
+        badged = self._badged_padding(layer_def, label_settings, dataset)
+        if badged:
+            layout["icon-text-fit-padding"] = [round(padding[0] + badged[0], 2), padding[1],
+                                               round(padding[2] + badged[1], 2), padding[3]]
+
+    def _badged_padding(self, layer_def: dict, label_settings: QgsPalLayerSettings,
+                        dataset: str) -> Optional[Tuple[float, float]]:
+        """(top, bottom) pixels from MapLibre's text box of an HTML label with
+        badges out to QGIS's: from the label's first baseline, its maximum
+        ascent above (the text is drawn at the box's top) and the rest of
+        the text box below (a top margin of the HTML included), as QGIS lays
+        out one of its labels (RulesExporter.html_samples); MapLibre's box
+        is html_label.maplibre_box. None for other labels."""
+        layout = layer_def["layout"]
         sample = self.html_samples.get(dataset, {}).get(label_settings.fieldName)
         size, line_height = layout.get("text-size"), layout.get("text-line-height")
-        if (not sample or layout.get("icon-text-fit") not in ("both", "height") or not padding
-                or not isinstance(size, (int, float)) or not isinstance(line_height, (int, float)) or size <= 0):
-            return
+        if (not sample or not isinstance(size, (int, float)) or not isinstance(line_height, (int, float))
+                or size <= 0):
+            return None
         text_format = label_settings.format()
         base = BaseFormat.of(text_format)
         runs = mixed_shaping(runs_of(sample, base))
         if not any(run.background for run in runs):
-            return
+            return None
         try:
             context = QgsRenderContext()
             context.setScaleFactor(96 / 25.4)
@@ -4290,7 +4340,7 @@ class QgisMapLibreStyleExporter:
             qgis_height = metrics.documentSize(Qgis.TextLayoutMode.Labeling, Qgis.TextOrientation.Horizontal).height()
             qgis_baseline = metrics.blockMaximumAscent(0)
         except (AttributeError, RuntimeError, TypeError):
-            return
+            return None
         font = QFont(text_format.font())
         font.setPixelSize(24)
         glyph = QFontMetrics(font)
@@ -4305,9 +4355,7 @@ class QgisMapLibreStyleExporter:
         first, height = maplibre_box(runs, line_height, baseline_em, badge_height)
         baseline, box = first * size, height * size
         shift = (layer_def.get("paint", {}).get("text-translate") or [0, 0])[1]
-        layout["icon-text-fit-padding"] = [
-            round(padding[0] + qgis_baseline - baseline - shift, 2), padding[1],
-            round(padding[2] + baseline + shift + qgis_height - qgis_baseline - box, 2), padding[3]]
+        return qgis_baseline - baseline - shift, baseline + shift + qgis_height - qgis_baseline - box
 
     def _apply_icon_from_background(self, layer_def: dict, background, style_name: str,
                                     shape: Optional[tuple] = None):
@@ -4539,6 +4587,10 @@ class QgisMapLibreStyleExporter:
             half_line = TextPropertyExtractor.get_text_line_height(text_format) / 2
             padding = [round((first - half_line - centre) * size, 2), 0,
                        round((last - half_line + centre) * size, 2), 0]
+        badged = self._badged_padding(layer_def, label_settings, layer_def.get("source-layer"))
+        if badged:
+            # An HTML label with badges: laid out its own way.
+            padding = [round(badged[0], 2), 0, round(badged[1], 2), 0]
         # MapLibre's text box inside QGIS's (the padding): its anchor where
         # QGIS's box puts it.
         top, bottom = (padding[0], padding[2]) if padding else (0.0, 0.0)

@@ -28,12 +28,15 @@ from qgis.PyQt.QtGui import QColor, QFont
 
 from ..utils.config import _FIELD_PREFIX
 
-# Most runs a label's slots hold; beyond, the rest joins the last slot.
-MAX_SLOTS = 24
+# Most runs a label's slots hold; beyond, the rest joins the last slot. A
+# dataset has as many slots as its longest label needs (a sign of 85 bus
+# lines, each on its own badge: about 190).
+MAX_SLOTS = 256
 # Pixels per point (96 DPI), as label sizes are converted.
 PX_PER_PT = 96 / 72
 BADGE_PREFIX = "q2vtb|"
-# A 1 px transparent image filling a slot without a badge.
+# A 1 px transparent image filling a slot without a badge, in exports
+# before v4.5 (the viewer still draws it); a slot without one is now empty.
 EMPTY_IMAGE = "q2vt-none"
 
 
