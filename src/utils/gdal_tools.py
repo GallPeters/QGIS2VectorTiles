@@ -7,12 +7,16 @@ plugin runs in, and the environment to run them with.
 QGIS on Windows (OSGeo4W) and Linux puts its GDAL tools on the PATH; the
 macOS app does not: a program started from the Finder gets the system's
 short PATH, and the tools are inside the app bundle (QGIS.app/Contents/...).
-They are looked for next to QGIS first, so the tools of QGIS's own GDAL are
-used, then on the PATH.
+They are looked for next to QGIS first (inside its app bundle, whatever the
+app is called), so the tools of QGIS's own GDAL are used, then next to
+GDAL_DATA, then on the PATH and in common install folders. Each one found is
+run once (--version) and used only if it runs: a tool of another GDAL install
+that fails to start (e.g. Homebrew's, missing its libraries) is passed over.
 """
 
 import os
 import shutil
+import subprocess
 import sys
 import threading
 from os.path import abspath, dirname, isdir, isfile, join, normpath
@@ -45,6 +49,11 @@ _DATA_ENV = _data_env()
 _LOCK = threading.Lock()
 # How deep below an app bundle's Contents folder a tool is looked for.
 _BUNDLE_DEPTH = 4
+# Folders other GDAL installs keep their tools in (checked last).
+_COMMON_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin")
+# Seconds a tool's --version run may take.
+_VERSION_TIMEOUT = 30
+_CREATE_NO_WINDOW = 0x08000000
 
 
 def _executable(path: str) -> bool:
@@ -89,24 +98,71 @@ def _search_bundle(contents: str, name: str) -> Optional[str]:
     return None
 
 
+def _gdal_data_dirs() -> List[str]:
+    """Tool folders of the GDAL whose data QGIS uses (.../share/gdal)."""
+    gdal_data = _DATA_ENV.get("GDAL_DATA") or os.environ.get("GDAL_DATA")
+    if not gdal_data:
+        return []
+    dirs = []
+    for sub in (join("..", "..", "bin"), join("..", "..", "..", "bin"), join("..", "..", "..", "MacOS")):
+        folder = normpath(join(gdal_data, sub))
+        if isdir(folder) and folder not in dirs:
+            dirs.append(folder)
+    return dirs
+
+
+def _candidates(exe: str) -> List[str]:
+    """Every ``exe`` executable found, in the order they are tried."""
+    found: List[str] = []
+
+    def add(path: Optional[str]) -> None:
+        if path and _executable(path) and abspath(path) not in found:
+            found.append(abspath(path))
+
+    for folder in _candidate_dirs():
+        add(join(folder, exe))
+    contents = _bundle_contents()
+    if contents:
+        add(_search_bundle(contents, exe))
+    for folder in _gdal_data_dirs():
+        add(join(folder, exe))
+    add(shutil.which(exe))
+    if os.name != "nt":
+        for folder in _COMMON_DIRS:
+            add(join(folder, exe))
+    return found
+
+
+def _runs(path: str) -> bool:
+    """Whether the tool at ``path`` starts and answers --version."""
+    kwargs = {"creationflags": _CREATE_NO_WINDOW} if os.name == "nt" else {}
+    try:
+        done = subprocess.run([path, "--version"], env=gdal_tool_env(), stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=_VERSION_TIMEOUT, check=False, **kwargs)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
 def gdal_tool(name: str) -> str:
-    """The path of GDAL's ``name`` tool (e.g. "ogr2ogr"); raises
-    RuntimeError, saying where it was looked for, if it isn't found."""
+    """The path of GDAL's ``name`` tool (e.g. "ogr2ogr"): the first found
+    that runs. Raises RuntimeError, saying where it was looked for, if none
+    does."""
     with _LOCK:
         if name in _FOUND:
             return _FOUND[name]
         exe = f"{name}.exe" if os.name == "nt" else name
-        dirs = _candidate_dirs()
-        path = next((join(d, exe) for d in dirs if _executable(join(d, exe))), None)
+        candidates = _candidates(exe)
+        path = next((candidate for candidate in candidates if _runs(candidate)), None)
         if path is None:
-            contents = _bundle_contents()
-            if contents:
-                path = _search_bundle(contents, exe)
-        if path is None:
-            path = shutil.which(exe)
-        if path is None:
+            if candidates:
+                raise RuntimeError(
+                    f"GDAL's {name} tool was found but does not run: {', '.join(candidates)}. "
+                    f"QGIS2VectorTiles needs the {name} that comes with QGIS (or GDAL's, on the PATH).")
             raise RuntimeError(
-                f"GDAL's {name} tool was not found. Looked in {', '.join(dirs)} and on the PATH. "
+                f"GDAL's {name} tool was not found. Looked in {', '.join(_candidate_dirs())}, "
+                f"inside the QGIS app, next to GDAL_DATA and on the PATH. "
                 f"QGIS2VectorTiles needs the {name} that comes with QGIS (or GDAL's, on the PATH).")
         _FOUND[name] = path
         return path

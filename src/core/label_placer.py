@@ -210,8 +210,6 @@ class LabelPlacer:
             return {}
         layers = {mark[0] for _, mark, _, _ in targets}
         evaluated = sorted({zoom for *_, zooms in targets for zoom in zooms})
-        last = math.floor(evaluated[-1])
-        self._log(". Computing labels with balloon and wedge placement...")
         coordinates = {layer_id: self._points(layer_id) for layer_id in layers}
         points = {layer_id: {fid: _key(*xy) for fid, xy in found.items()}
                   for layer_id, found in coordinates.items()}
@@ -219,22 +217,16 @@ class LabelPlacer:
         # From one zoom on, QGIS places every label as at the zoom before
         # (room enough): the higher zooms then keep that band's places.
         boxes, previous = {}, None
-        for index, zoom in enumerate(evaluated):
+        for zoom in evaluated:
             if self._cancelled():
                 raise RuntimeError("Label placement cancelled.")
             # A hair within the band: at a rule's exact first zoom QGIS's own
             # scale can fall just outside its scale range.
             boxes[zoom] = self._layout(zoom + _BAND_NUDGE, coordinates)
             places = {key: {fid: _place(box) for fid, box in found.items()} for key, found in boxes[zoom].items()}
-            level = math.floor(zoom)
             if places == previous:
                 del boxes[zoom]
-                self._log(f"... Zoom level {level} finished." if level == last
-                          else f"... Zoom levels {level} - {last} finished (placement unchanged).")
                 break
-            following = evaluated[index + 1] if index + 1 < len(evaluated) else None
-            if following is None or math.floor(following) != level:
-                self._log(f"... Zoom level {level} finished.")
             previous = places
         targets = [(rule, mark, dataset, [zoom for zoom in zooms if zoom in boxes])
                    for rule, mark, dataset, zooms in targets]
@@ -414,10 +406,6 @@ class LabelPlacer:
 
     def _cancelled(self) -> bool:
         return self.feedback is not None and self.feedback.isCanceled()
-
-    def _log(self, message: str) -> None:
-        if self.feedback is not None:
-            self.feedback.pushInfo(message)
 
 
 def _key(x: float, y: float) -> Tuple[float, float]:

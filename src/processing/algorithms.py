@@ -301,8 +301,8 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
             feedback.reportError(f"Error during Vector tiles package generation: {str(e)}")
             return {}
 
-        # Return empty results dictionary (modify as needed for your use case)
-        return {}
+        # The package's folder, listed in QGIS's processing results.
+        return {self.OUTPUT_DIR: tiles_generator.temp_dir} if tiles_generator.temp_dir else {}
 
     def _process_in_worker(self, feedback, extent, params: dict) -> dict:
         """Run the conversion in a separate process (see subprocess_runner)."""
@@ -319,7 +319,7 @@ class QGIS2VectorTilesAlgorithm(QgsProcessingAlgorithm):
         # The tile server touches no project state, so it starts here.
         ServerInitializer(extent, result["min_zoom"], result["temp_dir"]).serve_tiles()
         self._finish_args = (extent, result["min_zoom"], result["temp_dir"])
-        return {}
+        return {self.OUTPUT_DIR: result["temp_dir"]}
 
     def postProcessAlgorithm(self, context, feedback):
         """Runs on QGIS's main thread after processAlgorithm.

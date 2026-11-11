@@ -16,7 +16,7 @@ pipeline from QGIS project styling to vector tiles:
 from copy import deepcopy
 from datetime import datetime
 from os import makedirs, listdir
-from os.path import join
+from os.path import join, normpath
 from shutil import rmtree
 from threading import Thread
 from time import perf_counter
@@ -126,15 +126,12 @@ class QGIS2VectorTiles:
             step_time = perf_counter()
             self._log(". Exporting rules to datasets...")
             layers, rules = self._export_rules(rules)
-            self._log(f". Successfully exported {len(rules)} rules "
-                      f"({self._elapsed_minutes(step_time)} minutes).")
-
+            # Balloon labels' places, laid out by QGIS: part of the export.
             if LabelPlacer.placed_rules(rules):
-                step_time = perf_counter()
                 self._placements = LabelPlacer(
                     rules, layers, self.extent, self.max_zoom, self.utils_dir, self.feedback).place()
-                self._log(f". Successfully computed labels with balloon and wedge placement "
-                          f"({self._elapsed_minutes(step_time)} minutes).")
+            self._log(f". Successfully exported {len(rules)} rules "
+                      f"({self._elapsed_minutes(step_time)} minutes).")
 
             step_time = perf_counter()
             self._log(". Styling tiles...")
@@ -183,6 +180,7 @@ class QGIS2VectorTiles:
                           f"({self._elapsed_minutes(tiles_time)} minutes).")
             self._log(f". Vector tiles package generation completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
+            self._log(f". Output folder: {normpath(temp_dir)}")
             self._log("")
             self.temp_dir = temp_dir
             self.serve_tiles(temp_dir)
