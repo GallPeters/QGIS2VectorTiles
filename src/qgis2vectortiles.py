@@ -247,6 +247,7 @@ class QGIS2VectorTiles:
         self._raw_colors = exporter.raw_color_fields
         self._rule_groups = exporter.rule_groups
         self._html_slots = exporter.html_slots
+        self._html_samples = exporter.html_samples
         self._html_labels = exporter.html_labels
         self._html_families = exporter.html_families
         self._live_layers = exporter.live_layers
@@ -266,6 +267,7 @@ class QGIS2VectorTiles:
             descriptions=self._descriptions(self._styler.flattened_rules),
             raw_colors=getattr(self, "_raw_colors", {}),
             html_slots=getattr(self, "_html_slots", {}),
+            html_samples=getattr(self, "_html_samples", {}),
             placements=getattr(self, "_placements", {}),
         )
 

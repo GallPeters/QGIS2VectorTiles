@@ -60,6 +60,25 @@ class TextBadge:
     text: str
 
 
+def badge_layout(badge: TextBadge, scale_factor: float = 1.0):
+    """(font, QFontMetricsF, width, height) of a badge's image at a pixel
+    ratio: the text's advance wide, its font's ascent and descent tall."""
+    from qgis.PyQt.QtGui import QFont, QFontMetricsF  # pylint: disable=import-outside-toplevel
+    from .glyphs_generator import qfontdb  # pylint: disable=import-outside-toplevel
+    family, style = badge.font, ""
+    for known in sorted(qfontdb.families(), key=len, reverse=True):
+        if badge.font == known or badge.font.startswith(known + " "):
+            family, style = known, badge.font[len(known):].strip()
+            break
+    font = qfontdb.font(family, style, 12) if style else QFont(family)
+    px = max(badge.size_pt * 96 / 72 * scale_factor, 1)
+    font.setPixelSize(max(int(round(px)), 1))
+    metrics = QFontMetricsF(font)
+    width = max(int(ceil(metrics.horizontalAdvance(badge.text))), 1)
+    height = max(int(ceil(metrics.ascent() + metrics.descent())), 1)
+    return font, metrics, width, height
+
+
 Img: TypeAlias = Image.Image
 MatrixShape: TypeAlias = tuple[int, int]
 ImgCoord: TypeAlias = tuple[float, float, float, float]
@@ -448,24 +467,11 @@ class SymbolImage:
         """An HTML label's part on its background colour, as QGIS draws it:
         the text's advance wide, its font's ascent and descent tall; the
         empty badge a transparent pixel (a slot without one)."""
-        from qgis.PyQt.QtGui import QFont, QFontMetricsF  # pylint: disable=import-outside-toplevel
-        from .glyphs_generator import qfontdb  # pylint: disable=import-outside-toplevel
         badge = self.symbol
         if not badge.text:
             self.img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
             return
-        families = qfontdb.families()
-        family, style = badge.font, ""
-        for known in sorted(families, key=len, reverse=True):
-            if badge.font == known or badge.font.startswith(known + " "):
-                family, style = known, badge.font[len(known):].strip()
-                break
-        font = qfontdb.font(family, style, 12) if style else QFont(family)
-        px = max(badge.size_pt * 96 / 72 * self.scale_factor, 1)
-        font.setPixelSize(max(int(round(px)), 1))
-        metrics = QFontMetricsF(font)
-        width = max(int(ceil(metrics.horizontalAdvance(badge.text))), 1)
-        height = max(int(ceil(metrics.ascent() + metrics.descent())), 1)
+        font, metrics, width, height = badge_layout(badge, self.scale_factor)
         image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
 
         def color(hex_rgba: str) -> QColor:

@@ -1236,6 +1236,9 @@ class RulesExporter:
         # own format}; once written, {label field: slot count} (html_label.py).
         self.html_labels: Dict[str, Dict[str, BaseFormat]] = {}
         self.html_slots: Dict[str, Dict[str, int]] = {}
+        # One label's HTML per dataset and label field, one with badges if
+        # any: how QGIS lays out its box (maplibre_converter).
+        self.html_samples: Dict[str, Dict[str, str]] = {}
         # The font families HTML labels name, by dataset (live_sql.py).
         self.html_families: Dict[str, set] = {}
         self.live_layers: Dict[str, "LiveLayer"] = {}
@@ -3865,11 +3868,13 @@ class RulesExporter:
                 continue
             try:
                 families = self.html_families.setdefault(name, set())
-                self.html_slots[name] = self._rewrite_html_labels(path, fields, families)
+                self.html_slots[name] = self._rewrite_html_labels(
+                    path, fields, families, self.html_samples.setdefault(name, {}))
             except (RuntimeError, OSError, AttributeError, TypeError, ValueError) as e:
                 self.feedback.pushWarning(f"The HTML labels of {name} could not be converted: {e}")
 
-    def _rewrite_html_labels(self, path: str, fields: Dict[str, BaseFormat], families: set) -> Dict[str, int]:
+    def _rewrite_html_labels(self, path: str, fields: Dict[str, BaseFormat], families: set,
+                             samples: Dict[str, str]) -> Dict[str, int]:
         src_ds = ogr.Open(path)
         src_layer = src_ds.GetLayer(0)
         defn = src_layer.GetLayerDefn()
@@ -3879,11 +3884,18 @@ class RulesExporter:
         # Each label's runs, read once.
         rows = []
         slots = {f: 1 for f in present}
+        badged = set()
         for feature in src_layer:
             runs = {}
             for f, i in present.items():
                 if feature.IsFieldSetAndNotNull(i):
-                    f_runs = runs_of(feature.GetFieldAsString(i), fields[f], families)
+                    html = feature.GetFieldAsString(i)
+                    f_runs = runs_of(html, fields[f], families)
+                    # The first label, until one with badges.
+                    if f_runs and f not in badged and (f not in samples or any(r.background for r in f_runs)):
+                        samples[f] = html
+                        if any(r.background for r in f_runs):
+                            badged.add(f)
                     # (plain text, runs as the web map lays them out)
                     runs[f] = (plain_text(f_runs), mixed_shaping(f_runs))
                     slots[f] = max(slots[f], min(len(runs[f][1]), MAX_SLOTS))

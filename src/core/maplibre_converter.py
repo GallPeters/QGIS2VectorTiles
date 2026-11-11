@@ -40,8 +40,9 @@ from qgis.core import (
 )
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
-from .html_label import EMPTY_IMAGE, MIXED_MARK, BaseFormat, RichFields, mixed_shift, parse_badge_name
-from .sprite_generator import TextBadge
+from .html_label import (EMPTY_IMAGE, MIXED_MARK, BaseFormat, RichFields, badge_name, maplibre_box, mixed_shaping,
+                         mixed_shift, parse_badge_name, runs_of)
+from .sprite_generator import TextBadge, badge_layout
 from .sprite_generator import (
     BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
 )
@@ -2678,6 +2679,7 @@ class QgisMapLibreStyleExporter:
         descriptions: Optional[Dict[str, Dict[str, str]]] = None,
         raw_colors: Optional[Dict[str, set]] = None,
         html_slots: Optional[Dict[str, Dict[str, int]]] = None,
+        html_samples: Optional[Dict[str, Dict[str, str]]] = None,
         placements: Optional[dict] = None,
     ):
         """Initialise the exporter.
@@ -2708,6 +2710,8 @@ class QgisMapLibreStyleExporter:
         self.raw_colors = raw_colors or {}
         # HTML labels' slot counts, by dataset and label field (html_label.py).
         self.html_slots = html_slots or {}
+        # One label's HTML per dataset and label field (RulesExporter.html_samples).
+        self.html_samples = html_samples or {}
         # Labels QGIS places (label_placer): by QGIS rule (layer id, rule key).
         self.placements = placements or {}
         # By QGIS layer (its "lNN"), the zooms its features are obstacles to labels at (add_obstacles).
@@ -3333,6 +3337,11 @@ class QgisMapLibreStyleExporter:
             ol += [text, dict(options)]
             if colors:
                 options["text-color"] = ["case", ["has", rich.color(i)], ["to-color", ["get", rich.color(i)]], base_color]
+            if badges:
+                # At the line's top, its baseline above the badges' bottom
+                # (at the bottom it would be at their edge): QGIS draws a
+                # badge on the text's baseline, its descent below it.
+                options["vertical-align"] = "top"
             ml += [["case", ["has", rich.image(i)], "", text], options]
             if badges:
                 ml += [["image", ["coalesce", ["get", rich.image(i)], EMPTY_IMAGE]], {"vertical-align": "center"}]
@@ -4201,6 +4210,8 @@ class QgisMapLibreStyleExporter:
             self._apply_icon_from_background(layer_def, background, style_name)
         elif shape_type in _BACKGROUND_SHAPES and (shape := self._label_shape(background, shape_type))[0]:
             self._apply_icon_from_background(layer_def, background, style_name, shape)
+            if rich_field is not None:
+                self._fit_badged_box(layer_def, label_settings, source_layer_name)
         elif TextPropertyExtractor.balloon_icon(label_settings, geometry_type):
             moving = TextPropertyExtractor.moving_balloon(label_settings, geometry_type)
             self._apply_icon_from_background(layer_def, background, style_name,
@@ -4251,6 +4262,52 @@ class QgisMapLibreStyleExporter:
             if "metadata" in layer_def:
                 pinned_def["metadata"] = layer_def["metadata"]
             self.style["layers"].append(pinned_def)
+
+    def _fit_badged_box(self, layer_def: dict, label_settings: QgsPalLayerSettings, dataset: str) -> None:
+        """A background around an HTML label with badges fitted as QGIS
+        draws it: from the label's first baseline, its maximum ascent above
+        (the text is drawn at the box's top) and the rest of the text box
+        below (a top margin of the HTML included), as QGIS lays out one of
+        its labels (RulesExporter.html_samples); MapLibre's own box is
+        html_label.maplibre_box."""
+        layout = layer_def["layout"]
+        padding = layout.get("icon-text-fit-padding")
+        sample = self.html_samples.get(dataset, {}).get(label_settings.fieldName)
+        size, line_height = layout.get("text-size"), layout.get("text-line-height")
+        if (not sample or layout.get("icon-text-fit") not in ("both", "height") or not padding
+                or not isinstance(size, (int, float)) or not isinstance(line_height, (int, float)) or size <= 0):
+            return
+        text_format = label_settings.format()
+        base = BaseFormat.of(text_format)
+        runs = mixed_shaping(runs_of(sample, base))
+        if not any(run.background for run in runs):
+            return
+        try:
+            context = QgsRenderContext()
+            context.setScaleFactor(96 / 25.4)
+            metrics = QgsTextDocumentMetrics.calculateMetrics(
+                QgsTextDocument.fromHtml([sample]), text_format, context)
+            qgis_height = metrics.documentSize(Qgis.TextLayoutMode.Labeling, Qgis.TextOrientation.Horizontal).height()
+            qgis_baseline = metrics.blockMaximumAscent(0)
+        except (AttributeError, RuntimeError, TypeError):
+            return
+        font = QFont(text_format.font())
+        font.setPixelSize(24)
+        glyph = QFontMetrics(font)
+        # A glyph's baseline below the top of its line, at scale 1, in ems
+        # (GlyphGenerator's top_shift, in its 24 px em).
+        baseline_em = (17 + (glyph.ascent() - glyph.descent()) / 2) / 24
+
+        def badge_height(run) -> float:
+            badge = parse_badge_name(badge_name(run, base))
+            return badge_layout(TextBadge(*badge))[3] / size if badge else 0.0
+
+        first, height = maplibre_box(runs, line_height, baseline_em, badge_height)
+        baseline, box = first * size, height * size
+        shift = (layer_def.get("paint", {}).get("text-translate") or [0, 0])[1]
+        layout["icon-text-fit-padding"] = [
+            round(padding[0] + qgis_baseline - baseline - shift, 2), padding[1],
+            round(padding[2] + baseline + shift + qgis_height - qgis_baseline - box, 2), padding[3]]
 
     def _apply_icon_from_background(self, layer_def: dict, background, style_name: str,
                                     shape: Optional[tuple] = None):

@@ -257,6 +257,39 @@ def mixed_shift(line_height: float) -> float:
     return 17 / 24 - line_height / 2
 
 
+def maplibre_box(runs: List[Run], line_height: float, baseline: float,
+                 badge_height) -> Tuple[float, float]:
+    """(first baseline, height) of the box MapLibre lays a badged label's
+    ``runs`` out in (mixed_shaping), in ems of the label's size, its text
+    aligned to the top of each line ("vertical-align": "top").
+
+    MapLibre's line is its largest scale S tall (badges count as 1) times
+    ``line_height``, plus how much its tallest badge is taller than S; a
+    text of scale s has its baseline ``baseline`` * s below the line's
+    top (the glyphs' own top: GlyphGenerator's top_shift / 24).
+    ``badge_height(run)`` is a badge's height in ems."""
+    lines: List[List[Run]] = [[]]
+    for run in runs:
+        parts = run.text.split("\n")
+        for k, part in enumerate(parts):
+            if k:
+                lines.append([])
+            if part:
+                lines[-1].append(Run(part, run.font, run.scale, run.color, run.background))
+    height, first = 0.0, None
+    for line in lines:
+        if not line:
+            height += line_height
+            continue
+        text_scales = [run.scale or 1.0 for run in line if not run.background]
+        badges = [badge_height(run) for run in line if run.background]
+        scale = max(text_scales + [1.0] * bool(badges))
+        if first is None:
+            first = height + baseline * max(text_scales or [scale])
+        height += line_height * scale + max([0.0] + [b - scale for b in badges])
+    return (first or 0.0), height
+
+
 def badge_name(run: Run, base: BaseFormat) -> str:
     """A badge's image name, describing it: font key, size (pt), text and
     background colours, text."""
