@@ -114,6 +114,15 @@ const ready = loadStyle(config.styleUrl, tileUrls.openlayers, liveUrl).then((sty
     for (const layer of style.layers) {
         const field = layer.metadata?.['q2vt:ol-text-field'];
         if (field && layer.layout) layer.layout['text-field'] = field;
+        // Labels with variable anchors and a background: their first
+        // position (MapLibre's text-anchor is the centre, see the plugin's
+        // style converter), as OpenLayers has no variable anchors.
+        const anchor = layer.metadata?.['q2vt:ol-text-anchor'];
+        if (anchor && layer.layout) {
+            layer.layout['text-anchor'] = anchor;
+            const offset = layer.metadata['q2vt:ol-text-offset'];
+            if (offset) layer.layout['text-offset'] = offset;
+        }
     }
     return style;
 }).then((style) => apply(map, style, {

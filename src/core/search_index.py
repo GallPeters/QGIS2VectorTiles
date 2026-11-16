@@ -10,9 +10,13 @@ when it is a layer's only text: with no fields exported, or none of a
 layer's exported fields text. Otherwise its source fields are searched
 and the label, made of them, would only find the same features again.
 
-    {"layers": [{"name": "...", "fields": ["...", ...]}, ...],
-     "features": [[layer index, [value, ...], [west, south, east, north]], ...],
+    {"version": 2, "strings": ["...", ...],
+     "layers": [{"name": "...", "fields": ["...", ...], "minzoom": .., "maxzoom": ..,
+                 "text": [1 or 0 per field], "rows": [[value, ...], ...],
+                 "boxes": [west, south, east, north, ...]}, ...],
      "truncated": false}
+
+(a text field's values are indices into "strings": see _compact).
 
 A source feature is in several datasets (fill, outline, label...) and, when
 multi-part, in several parts: they are merged by layer and q2vt_orig_id.
@@ -216,11 +220,44 @@ class SearchIndexBuilder:
             truncated = True
         makedirs(dirname(self.output_path), exist_ok=True)
         with open(self.output_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {"layers": layers_out, "features": features_out, "truncated": truncated},
-                f, ensure_ascii=False, separators=(",", ":"),
-            )
+            json.dump(self._compact(layers_out, features_out, truncated),
+                      f, ensure_ascii=False, separators=(",", ":"))
         return truncated
+
+    @staticmethod
+    def _compact(layers: List[Dict[str, Any]], features: List[list], truncated: bool) -> dict:
+        """The index as written (version 2): each distinct text once, in
+        "strings"; per layer its rows (a text field's values as indices
+        into "strings", others as they are, its "text" flags saying which)
+        and their boxes, four numbers each, to about a metre. Repeated
+        values (a type, a category, a city) are most of an index."""
+        strings: List[str] = []
+        string_index: Dict[str, int] = {}
+        per_layer: List[List[list]] = [[] for _ in layers]
+        for layer_index, values, box in features:
+            per_layer[layer_index].append([values, box])
+        out_layers = []
+        for layer, rows in zip(layers, per_layer):
+            if not rows:
+                continue
+            count = len(layer["fields"])
+            text = [any(isinstance(values[i], str) for values, _ in rows) for i in range(count)]
+            out_rows, boxes = [], []
+            for values, box in rows:
+                row = []
+                for i, value in enumerate(values):
+                    if value is None or not text[i]:
+                        row.append(value)
+                        continue
+                    value = value if isinstance(value, str) else json.dumps(value)
+                    if value not in string_index:
+                        string_index[value] = len(strings)
+                        strings.append(value)
+                    row.append(string_index[value])
+                out_rows.append(row)
+                boxes.extend(round(v, 5) for v in box)
+            out_layers.append({**layer, "text": [1 if t else 0 for t in text], "rows": out_rows, "boxes": boxes})
+        return {"version": 2, "strings": strings, "layers": out_layers, "truncated": truncated}
 
     @staticmethod
     def _without_duplicates(features: List[list], layers: List[Dict[str, Any]]) -> List[list]:

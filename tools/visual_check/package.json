@@ -1,0 +1,9 @@
+{
+  "name": "q2vt-visual-check",
+  "private": true,
+  "description": "Screenshots for the web map regression check (check.py).",
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "23.11.1"
+  }
+}

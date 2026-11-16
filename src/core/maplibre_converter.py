@@ -670,6 +670,64 @@ def raise_callouts(layers: List[dict]) -> List[dict]:
 
 
 
+def _opaque_color(value) -> bool:
+    """Whether a colour style value is opaque for every feature."""
+    if isinstance(value, str):
+        match = re.fullmatch(r"rgba?\(([^)]*)\)", value.replace(" ", ""))
+        if not match:
+            return False
+        parts = match.group(1).split(",")
+        return len(parts) == 3 or (len(parts) == 4 and float(parts[3]) >= 1)
+    if isinstance(value, list) and value[:1] == ["match"]:
+        outputs = value[3::2] + [value[-1]]
+        return all(_opaque_color(v) for v in outputs)
+    return False
+
+
+def _opacity_steps(value) -> Optional[set]:
+    """An opacity's values: a number, or a zoom step's outputs."""
+    if value is None:
+        return {1}
+    if isinstance(value, (int, float)):
+        return {value}
+    if isinstance(value, list) and value[:2] == ["step", ["zoom"]]:
+        outputs = [value[2]] + value[4::2]
+        return set(outputs) if all(isinstance(v, (int, float)) for v in outputs) else None
+    return None
+
+
+def covered_fill_edges(layers: List[dict]) -> None:
+    """Turn MapLibre's fill edge smoothing off for fills whose edge an opaque
+    outline of a pixel or more covers (a fill's outline is its own line
+    layer, above it, along the same polygons): MapLibre draws a smoothed
+    fill a second time along its edges, under the outline, unseen."""
+    for i, fill in enumerate(layers):
+        paint = fill.get("paint") or {}
+        if (fill.get("type") != "fill" or "fill-pattern" in paint
+                or paint.get("fill-translate") not in (None, [0, 0])):
+            continue
+        fill_opacity = _opacity_steps(paint.get("fill-opacity"))
+        for line in layers[i + 1:]:
+            if line.get("source-layer") != fill.get("source-layer"):
+                continue
+            line_paint = line.get("paint") or {}
+            if (line.get("type") != "line" or line.get("filter") != fill.get("filter")
+                    or line.get("minzoom") != fill.get("minzoom") or line.get("maxzoom") != fill.get("maxzoom")):
+                continue
+            width = line_paint.get("line-width", 1)
+            opacity = line_paint.get("line-opacity")
+            steps = _opacity_steps(opacity)
+            if (isinstance(width, (int, float)) and width >= 1 and _opaque_color(line_paint.get("line-color"))
+                    and not any(line_paint.get(key) not in (None, 0, [0, 0])
+                                for key in ("line-dasharray", "line-offset", "line-translate", "line-gap-width",
+                                            "line-pattern", "line-blur"))
+                    and steps is not None and steps <= {0, 1}
+                    and (opacity == paint.get("fill-opacity") or steps == {1} and fill_opacity is not None)):
+                paint["fill-antialias"] = False
+                fill["paint"] = paint
+                break
+
+
 def share_tile_layers(layers: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
     """Draw consecutive layers that are alike in all but their dataset as
     one layer: their datasets are written into one tile layer (the first's,
@@ -1171,6 +1229,7 @@ class LinePropertyExtractor:
             symbol_layer, "penStyle", "strokeStyle", "pen_style"
         )
 
+        pattern = None
         if custom_dash_enabled and dash_vector:
             dash_unit = PropertyExtractor.get_attribute(
                 symbol_layer, "customDashPatternUnit", "customDashVectorUnit"
@@ -1182,21 +1241,51 @@ class LinePropertyExtractor:
             if PropertyExtractor.is_map_unit(width_unit) and unit == PropertyExtractor.enum_int(width_unit):
                 # Ground dashes on a ground width: the ratio holds at every zoom.
                 width = symbol_layer.width() or 1.0
-                return [d / width for d in dash_vector]
-            width = width_px if width_px and width_px > 0 else 1.0
-            return [
-                PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit) / width
-                for d in dash_vector
-            ]
+                pattern = [d / width for d in dash_vector]
+            else:
+                if not width_px or width_px <= 0:
+                    # A width by feature or zoom: the line's own width stands in.
+                    width_px = PropertyExtractor.convert_length_to_pixels(
+                        symbol_layer.width(), width_unit) if not PropertyExtractor.is_map_unit(width_unit) else 0
+                width = width_px if width_px and width_px > 0 else 1.0
+                pattern = [
+                    PropertyExtractor.convert_length_to_pixels(d, dash_unit or width_unit) / width
+                    for d in dash_vector
+                ]
+        else:
+            # Qt's own patterns, as [dash, gap, ...] multiples of the line width.
+            fixed_presets = {
+                2: [4, 2],             # DashLine
+                3: [1, 2],             # DotLine
+                4: [4, 2, 1, 2],       # DashDotLine
+                5: [4, 2, 1, 2, 1, 2], # DashDotDotLine
+            }
+            pattern = fixed_presets.get(PropertyExtractor.enum_int(pen_style))
+        if pattern is None:
+            return None
+        return LinePropertyExtractor.dashes_for_cap(pattern, PropertyExtractor.enum_int(symbol_layer.penCapStyle()))
 
-        # Qt's own patterns, as [dash, gap, ...] multiples of the line width.
-        fixed_presets = {
-            2: [4, 2],             # DashLine
-            3: [1, 2],             # DotLine
-            4: [4, 2, 1, 2],       # DashDotLine
-            5: [4, 2, 1, 2, 1, 2], # DashDotDotLine
-        }
-        return fixed_presets.get(PropertyExtractor.enum_int(pen_style))
+    # Qt's square cap (Qt.PenCapStyle.SquareCap).
+    _SQUARE_CAP = 16
+
+    @staticmethod
+    def dashes_for_cap(pattern: List[float], cap: Optional[int]) -> Optional[List[float]]:
+        """A dash pattern (multiples of the line width) as MapLibre must draw
+        it to look as Qt does: Qt caps every dash with the pen's cap, so a
+        square cap lengthens each dash by one line width (half at each end)
+        and shortens each gap as much (measured in QGIS: a 10 px dotted line
+        is 20 px on, 10 px off). MapLibre does that for round caps itself
+        (its round dashes reach half a width into the gaps), but draws a
+        square-capped line's dashes flat. A gap of a width or less leaves a
+        solid line, as Qt draws it: None."""
+        if cap != LinePropertyExtractor._SQUARE_CAP or len(pattern) % 2:
+            return pattern
+        adjusted = []
+        for i, value in enumerate(pattern):
+            adjusted.append(value + 1 if i % 2 == 0 else value - 1)
+        if all(gap <= 1e-6 for gap in adjusted[1::2]):
+            return None
+        return [round(max(v, 0.0), 4) for v in adjusted]
 
     @staticmethod
     def get_line_offset(symbol_layer: QgsSimpleLineSymbolLayer) -> Union[float, List]:
@@ -1931,7 +2020,13 @@ class TextPropertyExtractor:
         buffer = text_format.buffer()
         if not buffer.enabled():
             return "rgb(255, 255, 255)"
-        base_color = PropertyExtractor.convert_qcolor_to_maplibre(buffer.color())
+        # The buffer's own opacity, as QGIS applies it to its colour.
+        color = QColor(buffer.color())
+        try:
+            color.setAlphaF(color.alphaF() * buffer.opacity())
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        base_color = PropertyExtractor.convert_qcolor_to_maplibre(color)
         if label_settings is None:
             return base_color
         try:
@@ -1970,18 +2065,34 @@ class TextPropertyExtractor:
                 )
             except (AttributeError, RuntimeError):
                 size_prop = None
-        # Both are the halo's width outside the letters.
+        # QGIS strokes the letters' outline with a pen as wide as the buffer:
+        # it reaches half of it past the letters (measured side by side),
+        # where MapLibre's halo reaches its whole width.
         try:
-            width = PropertyExtractor.length_value_or_expression(
+            width = TextPropertyExtractor._halved(PropertyExtractor.length_value_or_expression(
                 buffer.size(), buffer.sizeUnit(), size_prop, buffer.sizeMapUnitScale()
-            )
+            ))
         except (AttributeError, RuntimeError):
-            width = buffer.size()
+            width = buffer.size() / 2
         if isinstance(width, (int, float)):
             return min(width, cap)
         if not PropertyExtractor.uses_zoom(width):
             return ["min", width, cap]
         return width
+
+    @staticmethod
+    def _halved(value):
+        """A length style value halved: a number, a zoom curve's outputs (a
+        zoom expression must stay at the top), or a per-feature expression."""
+        if isinstance(value, (int, float)):
+            return value / 2
+        if isinstance(value, list) and value[:1] == ["interpolate"]:
+            return value[:3] + [item if i % 2 == 0 else TextPropertyExtractor._halved(item)
+                                for i, item in enumerate(value[3:])]
+        if isinstance(value, list) and value[:1] == ["step"]:
+            return value[:2] + [item if i % 2 else TextPropertyExtractor._halved(item)
+                                for i, item in enumerate(value[2:])]
+        return ["/", value, 2]
 
     @staticmethod
     def wide_buffer_background(
@@ -2255,9 +2366,12 @@ class TextPropertyExtractor:
     # "outside polygons" placements; the last is drawn around the polygon's
     # point (MapLibre can't place a label outside a polygon's outline).
     _AROUND_POINT, _ORDERED_POSITIONS, _OUTSIDE_POLYGONS = 0, 6, 8
-    # QGIS's candidate order around a point: above right first.
+    # QGIS's preference among the places around a point, as measured (each
+    # place taken by an obstacle in turn): above right, right, above, below
+    # right, above left, below, left, below left; as the anchor (the side of
+    # the label on the point) MapLibre tries in that order.
     _AROUND_POINT_ANCHORS = [
-        "bottom-left", "bottom-right", "top-left", "top-right", "left", "right", "bottom", "top",
+        "bottom-left", "left", "bottom", "top-left", "bottom-right", "top", "right", "top-right",
     ]
     # Anchor (the side of the label at the point) per
     # Qgis.LabelPredefinedPointPosition: TopLeft, TopSlightlyLeft, TopMiddle,
@@ -2286,7 +2400,11 @@ class TextPropertyExtractor:
             return None
         anchors = []
         try:
-            positions = label_settings.predefinedPositionOrder()
+            # QGIS 4 keeps the order in the point settings, QGIS 3 in the
+            # label settings themselves.
+            point_settings = getattr(label_settings, "pointSettings", None)
+            positions = (point_settings().predefinedPositionOrder() if point_settings is not None
+                         else label_settings.predefinedPositionOrder())
         except (AttributeError, RuntimeError):
             positions = []
         for position in positions:
@@ -2838,6 +2956,7 @@ class QgisMapLibreStyleExporter:
             # For GDALTilesGenerator; not written to style.json.
             self.style.setdefault("metadata", {})[TILE_LAYERS_KEY] = shared
         self._filter_group_zooms(self.style["layers"])
+        covered_fill_edges(self.style["layers"])
         # Last: copies of the layers as they are finally drawn.
         self.style["layers"] = self.add_obstacles(self.style["layers"], self._obstacle_zooms)
         return self.style
@@ -3951,7 +4070,8 @@ class QgisMapLibreStyleExporter:
                 layer_def["paint"]["line-offset"] = offset
 
             width_value = layer_def["paint"]["line-width"]
-            width_px = width_value if isinstance(width_value, (int, float)) else 1.0
+            # 0 for a width by feature or zoom (get_line_dasharray: the static width).
+            width_px = width_value if isinstance(width_value, (int, float)) else 0
             dasharray = LinePropertyExtractor.get_line_dasharray(symbol_layer, width_px)
             if dasharray:
                 layer_def["paint"]["line-dasharray"] = dasharray
@@ -4284,6 +4404,17 @@ class QgisMapLibreStyleExporter:
             fitted_padding = padding
             layout["icon-text-fit-padding"] = [round(padding[0] + translate[1], 2), padding[1] - translate[0],
                                                round(padding[2] - translate[1], 2), padding[3] + translate[0]]
+        if "text-variable-anchor" in layout and layout.get("icon-text-fit") not in (None, "none"):
+            # MapLibre lays a label with variable anchors out at its centre,
+            # but fits its icon to the text laid out at text-anchor: any
+            # other anchor there puts the background off the text, towards
+            # the point (measured: a badged bus label's cells 3.5 px right
+            # and 3 px low in it). The first position is kept for
+            # OpenLayers, which has no variable anchors (its viewer reads it).
+            layer_def.setdefault("metadata", {})["q2vt:ol-text-anchor"] = layout.get("text-anchor")
+            layer_def["metadata"]["q2vt:ol-text-offset"] = layout.get("text-offset")
+            layout["text-anchor"] = "center"
+            layout.pop("text-offset", None)
 
         if placed_defs:
             self.style["layers"].extend(placed_defs)

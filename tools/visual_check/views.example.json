@@ -1,0 +1,28 @@
+{
+    "references": "C:/q2vt_visual_references",
+    "tolerance": 0.5,
+    "threshold": 40,
+    "projects": [
+        {
+            "name": "natural_earth",
+            "project": "C:/projects/NE/Natural_Earth_quick_start/packages/NaturalEarthV3Q2VTv5.qgz",
+            "extent": [-20037508.34, -20037508.34, 20037508.34, 20037508.34],
+            "min_zoom": 0,
+            "max_zoom": 6,
+            "views": [
+                {"name": "europe_z4", "center": [1100000, 6500000], "zoom": 4, "width": 1000, "height": 700},
+                {"name": "world_z2", "center": [0, 2000000], "zoom": 2, "width": 1000, "height": 700}
+            ]
+        },
+        {
+            "name": "bus_signs",
+            "project": "C:/path/to/your/project.qgz",
+            "extent": [3910175.33, 3727520.84, 3925719.94, 3742823.83],
+            "max_zoom": 17,
+            "views": [
+                {"name": "badges_z16_9", "center": [3918400, 3735400], "zoom": 16.89},
+                {"name": "stations_z14_5", "center": [3918237, 3735282], "zoom": 14.54}
+            ]
+        }
+    ]
+}

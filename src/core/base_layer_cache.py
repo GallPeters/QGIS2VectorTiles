@@ -35,7 +35,7 @@ from ..utils.config import (
 
 # Bump whenever the way base layers are built changes, to invalidate entries
 # made by older code.
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 # Providers whose URI starts with a local file path.
 _FILE_PROVIDERS = frozenset({"ogr"})
@@ -44,8 +44,11 @@ _FILE_PROVIDERS = frozenset({"ogr"})
 class BaseLayerCache:
     """File cache of prepared base layers, shared by all runs on this machine."""
 
-    def __init__(self, extension: str, directory: Optional[str] = None):
+    def __init__(self, extension: str, directory: Optional[str] = None,
+                 tolerance: float = _DATA_SIMPLIFICATION_TOLERANCE):
         self.extension = extension
+        # The simplification the base layers are built with (EPSG:3857 m).
+        self.tolerance = tolerance
         self.directory = directory or join(tempfile.gettempdir(), _CACHE_DIR_NAME)
         self.enabled = _CACHE_MAX_MB > 0
         if self.enabled:
@@ -73,7 +76,7 @@ class BaseLayerCache:
             CACHE_VERSION, src.provider, src.source_uri,
             None if src.extent is None else [repr(v) for v in src.extent],
             None if src.required_fields is None else sorted(src.required_fields),
-            signature, _EPSG_CRS, _DATA_SIMPLIFICATION_TOLERANCE,
+            signature, _EPSG_CRS, repr(self.tolerance),
             # Built without largest-part flags when no rule reads them.
             bool(getattr(src, "needs_biggest", True)),
         ])

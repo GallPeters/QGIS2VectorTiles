@@ -11,7 +11,9 @@ static host (e.g. GitHub Pages):
     activate_server.vbs|.sh    starts the local server and opens the map
 """
 
+import json
 import platform
+import re
 import subprocess
 
 from os import X_OK, access, makedirs
@@ -165,6 +167,7 @@ Set WshShell = Nothing
                 "_Q2VT_CENTER": center,
                 "_Q2VT_BOUNDS": self._get_bounds_wgs84(),
                 "_Q2VT_STORAGE_KEY": version,
+                "_Q2VT_BASEMAP": self._default_basemap(output_folder),
             },
         )
         activator_dir = server_dir if wrapper else output_folder
@@ -183,6 +186,25 @@ Set WshShell = Nothing
                 "10031993": version,
             },
         )
+
+    @staticmethod
+    def _default_basemap(output_folder: str) -> str:
+        """The background the web map opens on: the project's own colour
+        ("none") when the project has one other than white, as QGIS shows
+        it; else OpenFreeMap, under a project drawn on a plain background.
+        Read from the style's background layer."""
+        try:
+            with open(join(output_folder, "style", "style.json"), encoding="utf-8") as f:
+                style = json.load(f)
+            color = next(layer for layer in style.get("layers", [])
+                         if layer.get("type") == "background")["paint"]["background-color"]
+            values = [float(v) for v in re.findall(r"[\d.]+", color)]
+            red, green, blue = values[:3]
+            alpha = values[3] if len(values) > 3 else 1.0
+        except (OSError, ValueError, KeyError, StopIteration, IndexError, TypeError):
+            return "openfreemap"
+        white = red >= 255 and green >= 255 and blue >= 255
+        return "openfreemap" if white or alpha <= 0 else "none"
 
     @staticmethod
     def _launch_server(output_folder: str, activator: str, wrapper: Optional[str]):

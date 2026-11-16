@@ -164,6 +164,7 @@ from .live_sql import LiveLayer
 from .html_label import MAX_SLOTS, BaseFormat, RichFields, mixed_shaping, plain_text, runs_of, slot_values
 # Registers the q2vt_* expression functions the rules' geometry generators call.
 from . import symbol_geometry  # noqa: F401  pylint: disable=unused-import
+from .source_geometry import WHOLE_VARIABLE, reads_source_geometry, source_expression
 
 
 # ============================================================================
@@ -203,6 +204,10 @@ _TEMP_RULE_FORMAT = 'fgb'
 # Unicode direction marks, embeddings and isolates (in a regex character
 # class): LRM, RLM, LRE..RLO, LRI..PDI.
 _BIDI_MARKS = "\u200e\u200f\u202a-\u202e\u2066-\u2069"
+# The label text's line starts and ends with a space (past any direction
+# marks), where a word joiner keeps the space (_add_label_expression_field).
+EDGE_SPACE_PATTERNS = (f"(?m)^([{_BIDI_MARKS}]*)(?= )", f"(?m)(?<= )([{_BIDI_MARKS}]*)$")
+_EDGE_SPACES = re.compile(f"(?m)^[{_BIDI_MARKS}]* | [{_BIDI_MARKS}]*$")
 
 # Features buffered per writer.addFeatures() call, features per base-layer
 # batch handed to a worker, and how often streaming loops poll for
@@ -341,6 +346,61 @@ _TYPE_CASE_FUNCTIONS = {1: "upper", 2: "lower", 4: "upper", 1004: "title", 1006:
 _METRES_PER_PIXEL_AT_SCALE_1 = 0.00028
 
 
+# EPSG:3857 metres per web map pixel at zoom 0 (MapLibre's 512 px tiles).
+_M_PER_PX_Z0 = 40075016.68557849 / 512
+
+
+def base_tolerance(max_zoom) -> float:
+    """The base layers' simplification tolerance (see RulesExporter)."""
+    try:
+        zoom = int(max_zoom)
+    except (TypeError, ValueError):
+        return float(_DATA_SIMPLIFICATION_TOLERANCE)
+    return 0.25 * _M_PER_PX_Z0 / 2 ** (max(zoom, 0) + 1)
+
+
+# An expression's tokens: string literals, quoted names, eval(@variable),
+# @variable.
+_VARIABLE_TOKENS = re.compile(
+    r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|eval\s*\(\s*@(\w+)\s*\)|@(\w+)", re.IGNORECASE)
+
+
+def inline_variables(expression: str, variables: Dict[str, Any], depth: int = 0) -> str:
+    """``expression`` with the global and project variables it reads
+    written in: eval(@name) of a variable holding a valid expression
+    becomes that expression (eval() evaluates it on the feature alike),
+    @name its value as a literal. A variable an expression may define
+    itself (with_variable('name', ...), its name as a text literal) is left
+    alone, as is any expression that doesn't parse afterwards."""
+    if not isinstance(expression, str) or "@" not in expression or depth > 4:
+        return expression
+    local = {match.group(0)[1:-1] for match in _VARIABLE_TOKENS.finditer(expression)
+             if match.group(0).startswith("'")}
+    changed = False
+
+    def sub(match):
+        nonlocal changed
+        token = match.group(0)
+        if token.startswith(("'", '"')):
+            return token
+        name = match.group(1) or match.group(2)
+        if name not in variables or name in local:
+            return token
+        value = variables[name]
+        if match.group(1):
+            if not isinstance(value, str) or QgsExpression(value).hasParserError():
+                return token
+            changed = True
+            return f"({inline_variables(value, variables, depth + 1)})"
+        changed = True
+        return QgsExpression.quotedValue(value)
+
+    result = _VARIABLE_TOKENS.sub(sub, expression)
+    if not changed or QgsExpression(result).hasParserError():
+        return expression
+    return result
+
+
 def _lower_thread_priority() -> None:
     """Pool-thread initializer: below-normal priority, so that when the CPU is
     saturated QGIS's interface threads are scheduled first (Windows only)."""
@@ -455,6 +515,9 @@ class _RuleGroupSnapshot:
     order_by: Tuple[Tuple[str, bool, bool], ...] = ()
     # The whole zoom levels whose tiles hold the dataset.
     zoom_range: Tuple[int, int] = (0, 22)
+    # How QGIS measures the layer's features (source_geometry): its CRS
+    # (authid, else WKT), the project's ellipsoid, distance and area units.
+    measure: Tuple[str, str, int, int] = ("", "", 0, 0)
 
     @property
     def tagged(self) -> bool:
@@ -535,6 +598,7 @@ def group_to_dict(grp: _RuleGroupSnapshot) -> dict:
         "merge_lines": grp.merge_lines,
         "geometry_sql": grp.geometry_sql,
         "order_by": [list(clause) for clause in grp.order_by],
+        "measure": list(grp.measure),
     }
 
 
@@ -559,6 +623,7 @@ def group_from_dict(data: dict) -> _RuleGroupSnapshot:
         shareable=data["shareable"], merge_lines=data["merge_lines"],
         geometry_sql=data["geometry_sql"],
         order_by=tuple(tuple(clause) for clause in data.get("order_by", ())),
+        measure=tuple(data.get("measure") or ("", "", 0, 0)),
     )
 
 
@@ -1011,6 +1076,9 @@ class _SqliteCompiler:
     def __init__(self, fields: QgsFields):
         self.fields = fields
         self._expressions: List[QgsExpression] = []
+        # Set while compiling a value that kept the label text's edge
+        # spaces (see _function): its dataset is checked afterwards.
+        self.edge_spaces = False
         ops = self._Op
         self._comparisons = {ops.boEQ: "=", ops.boNE: "<>", ops.boLT: "<", ops.boLE: "<=",
                              ops.boGT: ">", ops.boGE: ">="}
@@ -1136,8 +1204,30 @@ class _SqliteCompiler:
 
     def _function(self, node) -> Tuple[str, str]:
         name = QgsExpression.Functions()[node.fnIndex()].name().lower()
-        args = [self._node(arg) for arg in (node.args().list() if node.args() else [])]
+        arg_nodes = node.args().list() if node.args() else []
+        if (name == "regexp_replace" and len(arg_nodes) == 3
+                and arg_nodes[1].nodeType() == self._Node.ntLiteral
+                and arg_nodes[1].value() in EDGE_SPACE_PATTERNS):
+            # The label text's edge spaces kept behind a word joiner
+            # (_add_label_expression_field): the text itself, the dataset
+            # then checked for lines starting or ending with a space, which
+            # only the Python pass writes as QGIS does (_export_dataset_gdal).
+            sql, kind = self._node(arg_nodes[0])
+            if kind not in (self._STR, self._NULL):
+                raise _NotCompilable(node.dump())
+            self.edge_spaces = True
+            return sql, kind
+        args = [self._node(arg) for arg in arg_nodes]
         kinds = [kind for _, kind in args]
+        if name == "to_string" and len(args) == 1 and kinds[0] in (self._STR, self._INT, self._NULL):
+            # Texts and integers read the same in both (not reals: 1.0 is
+            # "1" in QGIS, "1.0" in SQLite).
+            return (args[0][0] if kinds[0] != self._INT else f"CAST({args[0][0]} AS TEXT)"), self._STR
+        if (name == "replace" and len(args) == 3 and kinds[0] in (self._STR, self._NULL)
+                and all(n.nodeType() == self._Node.ntLiteral and isinstance(n.value(), str)
+                        for n in arg_nodes[1:]) and arg_nodes[1].value()):
+            # A plain replacement of a non-empty text: SQLite's REPLACE.
+            return f"REPLACE({args[0][0]}, {args[1][0]}, {args[2][0]})", self._STR
         if name == "coalesce" and args:
             return f"COALESCE({', '.join(s for s, _ in args)})", self._common(kinds, node)
         if name in ("upper", "lower") and len(args) == 1 and kinds[0] in (self._STR, self._NULL):
@@ -1266,6 +1356,13 @@ class RulesExporter:
         # GDAL's SQLite dialect (see _sql_for_geometry).
         self._geometry_sql: Dict[str, str] = {}
 
+        # The base layers' simplification (EPSG:3857 metres): a quarter of a
+        # screen pixel at the highest zoom the web map shows (the export's
+        # last, enlarged up to one more), so it is never seen, where a fixed
+        # metre was up to several pixels at street zooms and needlessly
+        # fine at world zooms.
+        self._tolerance = base_tolerance(max_zoom)
+
     # -------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------
@@ -1385,6 +1482,19 @@ class RulesExporter:
         for entry in label_entries:
             self._group_entry(entry, datasets, rule_groups)
 
+        # The project's variables written into the expressions: constant for
+        # the export, they leave expressions GDAL can compute (an eval() of
+        # a variable holding an expression, a variable's value).
+        variables = self._inline_variables()
+        if variables:
+            for group in rule_groups:
+                for member in group.members:
+                    if member.filter_expression:
+                        member.filter_expression = inline_variables(member.filter_expression, variables)
+                    member.expression_fields = [
+                        (t, inline_variables(expr, variables) if isinstance(expr, str) else expr, name)
+                        for t, expr, name in member.expression_fields]
+
         # Point every rule at its dataset (and, if shared, its member number).
         for group in rule_groups:
             for index, member in enumerate(group.members):
@@ -1469,6 +1579,7 @@ class RulesExporter:
                 geometry_sql=self._sql_for_geometry(entry.geom_expr),
                 order_by=self._order_by(primary.layer) if rule_type == 0 else (),
                 zoom_range=(low, high),
+                measure=self._measure(primary.layer),
             )
             datasets[key].append(group)
             rule_groups.append(group)
@@ -1655,6 +1766,33 @@ class RulesExporter:
         return True
 
     @staticmethod
+    def _inline_variables() -> Dict[str, Any]:
+        """The global and project variables with plain values (text,
+        numbers, booleans), by name. Caller thread."""
+        context = QgsExpressionContext()
+        context.appendScope(QgsExpressionContextUtils.globalScope())
+        context.appendScope(QgsExpressionContextUtils.projectScope(QgsProject.instance()))
+        found = {}
+        for name in context.variableNames():
+            value = context.variable(name)
+            if isinstance(value, (str, int, float, bool)) and not name.startswith(_FIELD_PREFIX):
+                found[name] = value
+        return found
+
+    @staticmethod
+    def _measure(layer: QgsVectorLayer) -> Tuple[str, str, int, int]:
+        """How QGIS measures a layer's features (_RuleGroupSnapshot.measure).
+        Caller thread: reads the project."""
+        crs = layer.crs()
+        crs_text = (crs.authid() or crs.toWkt(Qgis.CrsWktVariant.Preferred)) if crs.isValid() else ""
+        project = QgsProject.instance()
+        ellipsoid = project.ellipsoid()
+        if not ellipsoid or ellipsoid.upper() == "NONE":
+            ellipsoid = ""
+        return (crs_text, ellipsoid, RulesExporter._enum_int(project.distanceUnits()),
+                RulesExporter._enum_int(project.areaUnits()))
+
+    @staticmethod
     def _order_by(layer: QgsVectorLayer) -> Tuple[Tuple[str, bool, bool], ...]:
         """A layer's feature rendering order, if "control feature rendering
         order" is on: (expression, ascending, nulls first) per clause."""
@@ -1790,7 +1928,7 @@ class RulesExporter:
         Base layers of unchanged local sources come from BaseLayerCache;
         new ones are built under a temporary name and then committed to it.
         """
-        cache = BaseLayerCache(_TEMP_LAYER_FORMAT)
+        cache = BaseLayerCache(_TEMP_LAYER_FORMAT, tolerance=self._tolerance)
         cache.prune()
         target_paths: Dict[str, str] = {}
         cached: Dict[str, bool] = {}
@@ -2036,7 +2174,7 @@ class RulesExporter:
                 format="FlatGeobuf", layerName=splitext(basename(path))[0],
                 layerCreationOptions=["SPATIAL_INDEX=NO"], explodeCollections=True,
                 geometryType=geometry_type, dim="XY", where=f"OGR_GEOMETRY IN ({kept})",
-                simplifyTolerance=None if family == 2 else _DATA_SIMPLIFICATION_TOLERANCE,
+                simplifyTolerance=None if family == 2 else self._tolerance,
                 skipFailures=True, callback=callback,
             ))
         except BaseException:
@@ -2289,12 +2427,12 @@ class RulesExporter:
                 build.path, out_fields, QgsWkbTypes.singleType(wkb_type),
                 QgsCoordinateReferenceSystem(f"EPSG:{_EPSG_CRS}"),
             )
-            batch: List[Tuple[List[Any], QgsGeometry]] = []
+            batch: List[Tuple[List[Any], QgsGeometry, int]] = []
             for feature in reader.getFeatures(request):
                 attributes = (
                     [feature.attribute(i) for i in indices] if subset else feature.attributes()
                 )
-                batch.append((attributes, feature.geometry()))
+                batch.append((attributes, feature.geometry(), feature.id()))
                 if len(batch) >= _WRITE_BATCH_SIZE:
                     self._check_cancel()
                     self._submit_base_batch(build, batch, source_crs, out_fields, pool, pending, max_workers)
@@ -2320,11 +2458,11 @@ class RulesExporter:
 
     def _prepare_base_batch(
         self,
-        batch: List[Tuple[List[Any], QgsGeometry]],
+        batch: List[Tuple[List[Any], QgsGeometry, int]],
         source_crs: str,
         out_fields: QgsFields,
         biggest_idx: int,
-    ) -> List[Optional[List[QgsFeature]]]:
+    ) -> List[Optional[Tuple[int, List[QgsFeature]]]]:
         """Worker: fix → reproject → singleparts → simplify one batch.
 
         Returns, per feature that survives, its output parts, the largest
@@ -2344,8 +2482,8 @@ class RulesExporter:
             self._transform_context,
         )
         size = out_fields.count()
-        results: List[Optional[List[QgsFeature]]] = []
-        for attributes, geometry in batch:
+        results: List[Optional[Tuple[int, List[QgsFeature]]]] = []
+        for attributes, geometry, fid in batch:
             if not geometry.isNull():
                 geometry = self._fix_geometry(geometry)
                 if not geometry.isNull():
@@ -2367,13 +2505,13 @@ class RulesExporter:
                 # Points have nothing to simplify.
                 out.setGeometry(
                     part if part.isNull() or part.type() == Qgis.GeometryType.Point
-                    else part.simplify(_DATA_SIMPLIFICATION_TOLERANCE)
+                    else part.simplify(self._tolerance)
                 )
                 out.setAttribute(biggest_idx, 0)
                 features.append(out)
             biggest = max(features, key=lambda f: self._part_size(f.geometry()))
             biggest.setAttribute(biggest_idx, 1)
-            results.append(features)
+            results.append((fid, features))
         return results
 
     @staticmethod
@@ -2409,17 +2547,18 @@ class RulesExporter:
                 self._finish_base_build(build)
 
     def _write_base_results(
-        self, build: _BaseBuild, results: List[Optional[List[QgsFeature]]]
+        self, build: _BaseBuild, results: List[Optional[Tuple[int, List[QgsFeature]]]]
     ) -> None:
         batch: List[QgsFeature] = []
-        for features in results:
-            if features is None:
+        for result in results:
+            if result is None:
                 build.dropped += 1
                 continue
-            # @id of the reprojected layer: 1-based position of the feature.
-            build.orig_id += 1
+            # The source feature's id (QGIS's $id), as the GDAL-built base
+            # layers number it (source_geometry reads it).
+            fid, features = result
             for feature in features:
-                feature.setAttribute(build.orig_idx, float(build.orig_id))
+                feature.setAttribute(build.orig_idx, float(fid))
             batch.extend(features)
         self._write_batch(build.writer, batch)
 
@@ -3074,6 +3213,9 @@ class RulesExporter:
         # SQL equivalent.
         raw_colors = set()
 
+        # Fields whose text keeps edge spaces (_SqliteCompiler._function).
+        edge_spaces = set()
+
         def value_of(expression, name: str, field_type: int) -> str:
             if not isinstance(expression, str) or not expression.strip():
                 return "NULL"
@@ -3081,7 +3223,11 @@ class RulesExporter:
             if raw is not None:
                 raw_colors.add(name)
                 return compiler.value(raw, field_type, src_fields)
-            return compiler.value(expression, field_type, src_fields)
+            compiler.edge_spaces = False
+            sql = compiler.value(expression, field_type, src_fields)
+            if compiler.edge_spaces:
+                edge_spaces.add(name)
+            return sql
 
         values = [
             [value_of(member_expressions.get(name), name, field_type) for name, field_type in columns]
@@ -3139,7 +3285,7 @@ class RulesExporter:
                 ) + ', "q2vt_order_fid", "q2vt_order_member"'
             statements = [statement]
         return {"statements": statements, "geometry": output, "dialect": "SQLITE", "fields": declared,
-                "raw_colors": sorted(raw_colors)}
+                "raw_colors": sorted(raw_colors), "edge_spaces": sorted(edge_spaces)}
 
     @staticmethod
     def _disjoint_lookups(grp: _RuleGroupSnapshot, src_fields: QgsFields) -> bool:
@@ -3339,6 +3485,8 @@ class RulesExporter:
                 ))
             ds = ogr.Open(output_path)
             count = ds.GetLayer(0).GetFeatureCount() if ds is not None else -1
+            if count > 0 and job.get("edge_spaces"):
+                self._check_edge_spaces(ds.GetLayer(0), job["edge_spaces"])
             ds = None
             if count < 0:
                 raise RuntimeError(f"cannot read {output_path}")
@@ -3352,6 +3500,22 @@ class RulesExporter:
                 self._remove_file(output_path)
             self._remove_file(clipped_path)
             self._remove_file(vrt_path)
+
+    @staticmethod
+    def _check_edge_spaces(layer, fields: List[str]) -> None:
+        """Raise if a label text written by GDAL has a line starting or
+        ending with a space (the caller then writes the dataset with the
+        Python pass, which keeps them as QGIS draws them)."""
+        defn = layer.GetLayerDefn()
+        indices = [defn.GetFieldIndex(name) for name in fields if defn.GetFieldIndex(name) >= 0]
+        layer.SetIgnoredFields([defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())
+                                if i not in indices] + ["OGR_GEOMETRY"])
+        layer.ResetReading()
+        for feature in layer:
+            for i in indices:
+                if feature.IsFieldSetAndNotNull(i) and _EDGE_SPACES.search(feature.GetFieldAsString(i)):
+                    raise RuntimeError("label text with edge spaces")
+        layer.SetIgnoredFields([])
 
     @staticmethod
     def _gdal_translate(dest: str, src, options) -> None:
@@ -3431,12 +3595,21 @@ class RulesExporter:
         # One prepared expression per distinct string, shared by the groups,
         # so that per feature each is evaluated once.
         prepared: Dict[str, QgsExpression] = {}
+        # The rules' own expressions (filters, labels, data-defined values)
+        # read the feature as QGIS does (source_geometry): its geometry in
+        # its layer's CRS, whole, measured with the project's ellipsoid.
+        # The export's geometry expressions read the part in EPSG:3857.
+        measure = groups[0].measure if groups else ("", "", 0, 0)
+        whole_scope = QgsExpressionContextScope()
+        whole_scope.setVariable(WHOLE_VARIABLE, None)
+        context.appendScope(whole_scope)
 
-        def prepare(expr_str: str) -> QgsExpression:
-            expr = prepared.get(expr_str)
+        def prepare(expr_str: str, source: bool = True) -> QgsExpression:
+            text = source_expression(expr_str, measure) if source else expr_str
+            expr = prepared.get(text)
             if expr is None:
-                expr = prepared[expr_str] = self._prepare_expression(
-                    expr_str, context, distance_area
+                expr = prepared[text] = self._prepare_expression(
+                    text, context, distance_area
                 )
             return expr
 
@@ -3468,6 +3641,13 @@ class RulesExporter:
                                 (output, index))
                 matcher = _FilterMatcher(list(by_filter), src_fields, prepare)
             biggest_idx = src_fields.lookupField(_BIGGEST_FIELD)
+            orig_idx = src_fields.lookupField(f"{_FIELD_PREFIX}_orig_id")
+            # A multi-part feature's parts, collected, for the expressions
+            # reading its whole geometry ($area of all its parts...).
+            whole = {}
+            if orig_idx >= 0 and any(reads_source_geometry(expression) for grp in groups
+                                     for expression in group_expressions(grp)[1:]):
+                whole = self._whole_geometries(layer, orig_idx, fid_range)
             request = QgsFeatureRequest()
             request.setInvalidGeometryCheck(
                 QgsFeatureRequest.InvalidGeometryCheck.GeometryNoCheck
@@ -3490,6 +3670,8 @@ class RulesExporter:
                     self._check_cancel()
                 context.setFeature(feature)
                 attributes = feature.attributes()
+                if whole:
+                    whole_scope.setVariable(WHOLE_VARIABLE, whole.get(attributes[orig_idx]))
                 passed = matcher.passed(attributes, context)
                 if not passed:
                     continue
@@ -3518,6 +3700,35 @@ class RulesExporter:
             if not output.failed and output.written:
                 results[output.grp.output_dataset] = output.path
         return results
+
+    def _whole_geometries(self, layer: QgsVectorLayer, orig_idx: int,
+                          fid_range: Optional[Tuple[float, float]]) -> Dict[Any, QgsGeometry]:
+        """The base layer's multi-part features (by q2vt_orig_id): their
+        parts collected into one geometry (EPSG:3857). Single-part features
+        are left out."""
+        orig = f"{_FIELD_PREFIX}_orig_id"
+        counts: Dict[Any, int] = {}
+        request = QgsFeatureRequest().setFlags(QgsFeatureRequest.Flag.NoGeometry)
+        request.setSubsetOfAttributes([orig_idx])
+        if fid_range is not None:
+            request.setFilterExpression(f'"{orig}" >= {fid_range[0]!r} AND "{orig}" < {fid_range[1]!r}')
+        for feature in layer.getFeatures(request):
+            key = feature.attribute(orig_idx)
+            counts[key] = counts.get(key, 0) + 1
+        repeated = {key for key, count in counts.items() if count > 1}
+        if not repeated:
+            return {}
+        parts: Dict[Any, List[QgsGeometry]] = {}
+        request = QgsFeatureRequest().setSubsetOfAttributes([orig_idx])
+        if fid_range is not None:
+            request.setFilterExpression(f'"{orig}" >= {fid_range[0]!r} AND "{orig}" < {fid_range[1]!r}')
+        for n, feature in enumerate(layer.getFeatures(request)):
+            if n % _WRITE_BATCH_SIZE == 0:
+                self._check_cancel()
+            key = feature.attribute(orig_idx)
+            if key in repeated and not feature.geometry().isNull():
+                parts.setdefault(key, []).append(feature.geometry())
+        return {key: QgsGeometry.collectGeometry(found) for key, found in parts.items()}
 
     def _open_rule_output(
         self,
@@ -3564,7 +3775,7 @@ class RulesExporter:
         if all(plan is None for plan in output.plans):
             return None
         try:
-            output.geometry = prepare(grp.geometry_expression)
+            output.geometry = prepare(grp.geometry_expression, False)
             output.writer = self._create_writer(output_path, output.fields, out_wkb, crs)
         except RuntimeError as e:
             self.feedback.pushWarning(f"A rule in the {grp.label} was skipped: {e}")
@@ -4328,12 +4539,22 @@ class RulesExporter:
             # web map breaks lines at line breaks.
             text = f"replace(({text}), {QgsExpression.quotedString(settings.wrapChar)}, '\\n')"
             settings.wrapChar = ""
+        if (settings.autoWrapLength > 0 and not settings.format().allowHtmlFormatting()
+                and flat_rule.layer.providerType() != "postgres"):
+            # "Wrap lines to": QGIS's own line breaks (wordwrap() is what it
+            # wraps labels with), written into the text, where the web map
+            # would only guess them by width. A maximum length wraps at it,
+            # a minimum one (QGIS's other mode) beyond it. PostGIS layers
+            # keep the web map's wrapping: their live SQL has no wordwrap().
+            length = settings.autoWrapLength if settings.useMaxLineLengthForAutoWrap else -settings.autoWrapLength
+            text = f"wordwrap(({text}), {int(length)})"
+            settings.autoWrapLength = 0
         # Spaces starting or ending a line, which QGIS draws and the web map
         # trims (any space): kept behind a word joiner (no width, no break),
         # past any direction marks there (the web map's right-to-left plugin
         # removes those before trimming).
-        lead = QgsExpression.quotedString(f"(?m)^([{_BIDI_MARKS}]*)(?= )")
-        trail = QgsExpression.quotedString(f"(?m)(?<= )([{_BIDI_MARKS}]*)$")
+        lead = QgsExpression.quotedString(EDGE_SPACE_PATTERNS[0])
+        trail = QgsExpression.quotedString(EDGE_SPACE_PATTERNS[1])
         text = (f"regexp_replace(regexp_replace(to_string({text}), {lead}, '\\\\1' || char(8288)), "
                 f"{trail}, char(8288) || '\\\\1')")
         position = flat_rule.label_position
@@ -4395,7 +4616,8 @@ class RulesExporter:
         if settings and settings.geometryGeneratorEnabled:
             target_geom = settings.geometryGeneratorType
            
-            generator_exp = settings.geometryGenerator
+            # $geometry is @geometry in a generator (the feature's geometry).
+            generator_exp = re.sub(r"\$geometry\b", "@geometry", settings.geometryGenerator, flags=re.I)
             layer_crs = flat_rule.layer.crs().authid()
             generator_exp = generator_exp.replace('@geometry', f"transform(@geometry, 'EPSG:3857', '{layer_crs}')")
             transform_expr =  f"transform({generator_exp}, '{layer_crs}',  'EPSG:3857')"
@@ -4439,7 +4661,8 @@ class RulesExporter:
         transform_expr = "@geometry"
         if symbol_layer.layerType() == "GeometryGenerator":
             target_geom = symbol_layer.subSymbol().type()
-            generator_exp = symbol_layer.geometryExpression()
+            # $geometry is @geometry in a generator (the feature's geometry).
+            generator_exp = re.sub(r"\$geometry\b", "@geometry", symbol_layer.geometryExpression(), flags=re.I)
             layer_crs = flat_rule.layer.crs().authid()
             generator_exp = generator_exp.replace('@geometry', f"transform(@geometry, 'EPSG:3857', '{layer_crs}')")
             transform_expr =  f"transform({generator_exp}, '{layer_crs}',  'EPSG:3857')"

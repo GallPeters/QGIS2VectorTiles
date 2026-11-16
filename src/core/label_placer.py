@@ -20,15 +20,19 @@ Depends on: maplibre_converter.TextPropertyExtractor (which labels).
 import json
 import math
 import os
+import subprocess
+import sys
+import time
 from collections import defaultdict
 from os.path import basename, join
 from typing import Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from osgeo import ogr
 from qgis.PyQt.QtCore import QSize
 from qgis.PyQt.QtGui import QImage, QPainter
 from qgis.core import (
-    Qgis, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException, QgsExpressionContext,
+    Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException, QgsExpressionContext,
     QgsExpressionContextUtils, QgsFeatureRequest, QgsMapRendererCustomPainterJob, QgsMapSettings,
     QgsPalLayerSettings, QgsProject, QgsProperty, QgsRectangle, QgsVectorLayer,
 )
@@ -62,7 +66,13 @@ _SIDE_TOLERANCE = 1.0
 # layer of its own (its zoom range).
 _BANDS_PER_ZOOM = 2
 # How far into its band (zoom levels) a band is laid out.
-_BAND_NUDGE = 0.002
+_BAND_NUDGE = BAND_NUDGE = 0.002
+
+# Bands are laid out in other processes (place_worker.py), several at once,
+# when there are at least this many; each process lays out its share.
+_PARALLEL_MIN_BANDS = 3
+_PLACE_WORKER = join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "processing", "place_worker.py")
 
 
 def placement_field(number: int, zoom: float) -> str:
@@ -216,13 +226,14 @@ class LabelPlacer:
         # Per zoom evaluated: {(layer id, provider): {feature id: label box}}.
         # From one zoom on, QGIS places every label as at the zoom before
         # (room enough): the higher zooms then keep that band's places.
+        laid_out = self._parallel_layouts(evaluated, coordinates)
         boxes, previous = {}, None
         for zoom in evaluated:
             if self._cancelled():
                 raise RuntimeError("Label placement cancelled.")
             # A hair within the band: at a rule's exact first zoom QGIS's own
             # scale can fall just outside its scale range.
-            boxes[zoom] = self._layout(zoom + _BAND_NUDGE, coordinates)
+            boxes[zoom] = laid_out[zoom] if zoom in laid_out else self._layout(zoom + _BAND_NUDGE, coordinates)
             places = {key: {fid: _place(box) for fid, box in found.items()} for key, found in boxes[zoom].items()}
             if places == previous:
                 del boxes[zoom]
@@ -256,6 +267,90 @@ class LabelPlacer:
         return placements
 
     # --- QGIS's labeling ---
+
+    def _parallel_layouts(self, zooms: List[float], coordinates: Dict[str, dict]) -> Dict[float, dict]:
+        """The bands' layouts made by place_worker.py processes, several at
+        once (each starts QGIS and reads the project: worth it from
+        _PARALLEL_MIN_BANDS bands); {} when they can't be (no project file,
+        a memory layer, no Python to start) or fail: then laid out here.
+        The bands a serial layout would skip (see place) are laid out too."""
+        from ..processing.subprocess_runner import python_executable  # pylint: disable=import-outside-toplevel
+        path = self.project.fileName()
+        if (len(zooms) < _PARALLEL_MIN_BANDS or not path or not os.path.isfile(path)
+                or python_executable() is None
+                or any(layer.providerType() == "memory" for layer in self.project.mapLayers().values()
+                       if isinstance(layer, QgsVectorLayer))):
+            return {}
+        processes_count = max(1, min(len(zooms), (os.cpu_count() or 2) // 2))
+        if processes_count < 2:
+            return {}
+        # Bands spread over the processes in turn (the lowest, most crowded,
+        # are the slowest).
+        shares = [zooms[i::processes_count] for i in range(processes_count)]
+        package_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        tag = uuid4().hex
+        cancel_file = join(self.work_dir, f"place_cancel_{tag}")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+        env["PYTHONIOENCODING"] = "utf-8"
+        kwargs = {"creationflags": 0x08000000 | 0x00004000} if os.name == "nt" else {}
+        points = {layer_id: [[fid, x, y] for fid, (x, y) in found.items()]
+                  for layer_id, found in coordinates.items()}
+        jobs, processes, files = [], [], [cancel_file]
+        try:
+            for i, share in enumerate(shares):
+                job = {
+                    "plugins_dir": os.path.dirname(package_dir), "package": os.path.basename(package_dir),
+                    "prefix_path": QgsApplication.prefixPath(), "profile_dir": QgsApplication.qgisSettingsDirPath(),
+                    "project_path": path, "work_dir": self.work_dir, "cancel_file": cancel_file,
+                    "extent": [self.extent.xMinimum(), self.extent.yMinimum(),
+                               self.extent.xMaximum(), self.extent.yMaximum()],
+                    "zooms": share, "coordinates": points,
+                    "result_path": join(self.work_dir, f"place_{tag}_{i}.json"),
+                }
+                job_path = join(self.work_dir, f"place_{tag}_{i}.job.json")
+                files += [job_path, job["result_path"], f"{job_path}.log"]
+                with open(job_path, "w", encoding="utf-8") as f:
+                    json.dump(job, f)
+                with open(f"{job_path}.log", "w", encoding="utf-8") as log:
+                    processes.append(subprocess.Popen(
+                        [python_executable(), "-u", _PLACE_WORKER, job_path],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
+                        env=env, cwd=self.work_dir, **kwargs))
+                jobs.append(job)
+            while any(process.poll() is None for process in processes):
+                if self._cancelled():
+                    open(cancel_file, "w").close()
+                    for process in processes:
+                        try:
+                            process.wait(timeout=60)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                    raise RuntimeError("Label placement cancelled.")
+                time.sleep(0.25)
+            result: Dict[float, dict] = {}
+            for job, process in zip(jobs, processes):
+                if process.returncode != 0 or not os.path.isfile(job["result_path"]):
+                    continue  # Its bands are laid out here.
+                with open(job["result_path"], encoding="utf-8") as f:
+                    data = json.load(f)
+                for zoom in job["zooms"]:
+                    found: Dict[Tuple[str, str], Dict[int, tuple]] = defaultdict(dict)
+                    for layer_id, provider, fid, *box in data.get(repr(zoom), []):
+                        found[(layer_id, provider)][int(fid)] = tuple(box)
+                    result[zoom] = found
+            return result
+        except OSError:
+            return {}
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+            for file_path in files:
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
 
     def _layout(self, zoom: float, point_cache: Dict[str, dict]) -> Dict[Tuple[str, str], Dict[int, tuple]]:
         """QGIS's labels of ``layer_ids`` at a zoom over the export extent:

@@ -1,22 +1,53 @@
 // Search across every exported feature's fields, from the index the plugin
-// writes at export time (style/search.json):
-//   {"layers": [{"name": ..., "fields": [...]}],
-//    "features": [[layer index, [values...], [west, south, east, north]], ...],
+// writes at export time (style/search.json), version 2:
+//   {"version": 2, "strings": [each distinct text once],
+//    "layers": [{"name": ..., "fields": [...], "minzoom", "maxzoom",
+//                "text": [1 where a field's values are indices into strings],
+//                "rows": [[values...], ...], "boxes": [w, s, e, n, ...]}],
 //    "truncated": bool}
+// Version 1 ("features": [[layer index, [values...], [w, s, e, n]], ...]) is
+// read too.
 // The index is loaded the first time the search box is used.
 
 import { el, escapeHtml, icon } from './dom.js';
 
 const MAX_RESULTS = 50;
 
+/** Version 2 indexes (each text once in "strings", rows and boxes per
+ * layer) as the features list the search reads; texts are shared, not
+ * copied. Version 1 indexes are read as they are. */
+function unpack(data) {
+    if (data.version !== 2) return { layers: data.layers || [], features: data.features || [] };
+    const strings = data.strings || [];
+    const features = [];
+    const layers = (data.layers || []).map((layer, index) => {
+        const text = layer.text || [];
+        (layer.rows || []).forEach((row, r) => {
+            const values = row.map((v, i) => (text[i] && typeof v === 'number' ? strings[v] : v));
+            features.push([index, values, layer.boxes.slice(4 * r, 4 * r + 4)]);
+        });
+        const { rows: _rows, boxes: _boxes, text: _text, ...rest } = layer;
+        return rest;
+    });
+    return { layers, features, strings };
+}
+
 class SearchIndex {
     constructor(data) {
-        this.layers = data.layers || [];
-        this.features = data.features || [];
+        const { layers, features, strings } = unpack(data);
+        this.layers = layers;
+        this.features = features;
         this.truncated = !!data.truncated;
-        // Lower-cased values, per feature, built once.
-        this.lower = this.features.map(([, values]) =>
-            values.map((v) => (v === null || v === undefined ? '' : String(v).toLowerCase())));
+        // Lower-cased values, per feature, built once (each distinct text once).
+        const lowered = new Map((strings || []).map((s) => [s, s.toLowerCase()]));
+        const lower = (v) => {
+            if (v === null || v === undefined) return '';
+            const text = String(v);
+            let low = lowered.get(text);
+            if (low === undefined) { low = text.toLowerCase(); lowered.set(text, low); }
+            return low;
+        };
+        this.lower = this.features.map(([, values]) => values.map(lower));
     }
 
     /** Features whose fields contain every word of the query, best first. */

@@ -22,6 +22,7 @@ Depends on: config (for constants only — no custom class dependencies)
 """
 
 import ctypes
+import hashlib
 import json
 import math
 import os
@@ -29,6 +30,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -36,8 +38,8 @@ from os import cpu_count
 from os.path import join, basename
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
-from xml.sax.saxutils import escape, quoteattr
-from osgeo import ogr
+from xml.sax.saxutils import escape, quoteattr, unescape
+from osgeo import gdal, ogr
 from qgis.core import QgsVectorLayer, QgsProcessingFeedback, QgsProcessingUtils
 
 from .pmtiles_writer import mbtiles_to_pmtiles
@@ -47,6 +49,7 @@ from ..utils.flattened_rule import (
     group_of, group_sources,
 )
 from ..utils.config import (
+    _CACHE_DIR_NAME, _CACHE_MAX_AGE_DAYS,
     _EPSG_CRS, _FIELD_PREFIX, _SIMPLIFICATION, _SIMPLIFICATION_LOW, _SIMPLIFICATION_LOW_ZOOM,
     _SIMPLIFICATION_MAX_ZOOM, _TILES_MAX_ZOOM,
     _TILE_MAX_FEATURES, _TILE_MAX_SIZE, _TILE_MAX_SIZE_FEW, _TILE_VIEW_SIZE,
@@ -77,6 +80,25 @@ _MIN_POLYGON_PIXELS = 0.25
 # (fitted on Natural Earth z0-z8 and a city z0-z15, see _plan_runs).
 _TILE_COST = 0.017
 
+# Exports reaching this zoom get the finer tile grid (see _fine_grid).
+_FINE_GRID_ZOOM = 18
+_FINE_GRID_EXTENT = 8192
+
+# Merged lines shorter than this share of a screen pixel are left out below
+# the tiles' highest zoom: a line that short is a dot no one sees.
+_MIN_LINE_PIXELS = 0.5
+
+# GDAL threads per ogr2ogr process: fewer processes, each multi-threaded,
+# shared the CPU better than one thread each (measured on Natural Earth
+# z0-8, 12 threads: 4 x 3 took 131 s, 10 x 1 143 s).
+_THREADS_PER_RUN = 3
+
+# Tile runs kept between exports (see _cache_path): their output reused
+# while every input is unchanged. Size limit in MB.
+_TILE_CACHE_MAX_MB = 2048
+# Bump when the way runs are built changes.
+_TILE_CACHE_VERSION = "1"
+
 # ogr2ogr runs per worker (see _plan_runs). More, smaller runs even out a
 # wrong estimate, but each reads and clips its features again: measured on
 # Natural Earth and a city, three per worker were slower than one.
@@ -92,6 +114,9 @@ class _Run:
     columns: Optional[Tuple[int, int]] = None
     output: str = ""
     in_memory: bool = False
+    # Its tile cache entry (see _cache_path); None when not cached.
+    cache_path: Optional[str] = None
+    from_cache: bool = False
     # Estimated work (see GDALTilesGenerator._plan_runs).
     cost: float = 0.0
 
@@ -357,7 +382,16 @@ class GDALTilesGenerator:
                 result[self._layer_name(layer)] = (layer, max(minzoom, lo), min(maxzoom, hi))
         return result
 
-    def _build_layer_conf(self, conf_path: str, run_layers: dict, extra: Optional[dict] = None):
+    @staticmethod
+    def _entries(run_layers: dict) -> List[tuple]:
+        """A run's VRT layers: (dataset, entry name, minzoom, maxzoom).
+
+        (Measured on Natural Earth z0-8, 16 Nov 2026: simplifying the
+        stand-in copies further, in entries of their own, cut their raw
+        bytes by a tenth but left the gzipped tiles larger: not done.)"""
+        return [(layer, name, minzoom, maxzoom) for name, (layer, minzoom, maxzoom) in run_layers.items()]
+
+    def _build_layer_conf(self, conf_path: str, entries: List[tuple], extra: Optional[dict] = None):
         """Write the MVT driver's CONF file: each layer's own zoom range
         (and ``extra`` entries, e.g. a grouped layer's zoom levels, see
         _group_blocks).
@@ -366,13 +400,13 @@ class GDALTilesGenerator:
         dataset, although each style only shows it within its own range.
         """
         shared = self._shared_tile_layers()
-        conf = {
-            name: {"minzoom": minzoom, "maxzoom": maxzoom}
-            for name, (_, minzoom, maxzoom) in run_layers.items()
-        }
-        for name, entry in conf.items():
-            if name in shared:
-                entry["target_name"] = shared[name]
+        conf = {}
+        for layer, entry_name, minzoom, maxzoom in entries:
+            name = self._layer_name(layer)
+            entry = conf[entry_name] = {"minzoom": minzoom, "maxzoom": maxzoom}
+            target = shared.get(name, name)
+            if target != entry_name:
+                entry["target_name"] = target
         conf.update(extra or {})
         with open(conf_path, "w", encoding="utf-8") as f:
             json.dump(conf, f)
@@ -384,11 +418,11 @@ class GDALTilesGenerator:
 
     # --- VRT construction ---
 
-    def _build_vrt(self, vrt_path: str, layers: List[QgsVectorLayer] = None, last_zoom: int = None,
+    def _build_vrt(self, vrt_path: str, entries: List[tuple], last_zoom: int = None,
                    extra: str = ""):
-        """Write an OGR VRT containing one entry per layer, for a run whose
-        last zoom level is ``last_zoom`` (see _min_area), and ``extra``
-        entries (see _group_blocks)."""
+        """Write an OGR VRT containing one entry per run entry (see
+        _entries), for a run whose last zoom level is ``last_zoom`` (see
+        _min_area), and ``extra`` entries (see _group_blocks)."""
         style_text = str(self.style)
         min_area = self._min_area(last_zoom)
         # Below the highest zoom, lines are joined within cells of a tile's
@@ -396,8 +430,8 @@ class GDALTilesGenerator:
         cell = 2 * _WORLD_HALF / 2 ** last_zoom if min_area is not None else None
         with open(vrt_path, "w", encoding="utf-8") as f:
             f.write("<OGRVRTDataSource>\n")
-            for layer in (self.layers if layers is None else layers):
-                f.write(self._vrt_layer_block(layer, style_text, min_area, cell))
+            for layer, entry_name, _, _ in entries:
+                f.write(self._vrt_layer_block(layer, style_text, min_area, cell, entry_name))
             f.write(extra)
             f.write("</OGRVRTDataSource>\n")
 
@@ -689,13 +723,16 @@ class GDALTilesGenerator:
         return _MIN_POLYGON_PIXELS * pixel * pixel
 
     def _vrt_layer_block(self, layer: QgsVectorLayer, style_text: str,
-                         min_area: Optional[float] = None, cell: Optional[float] = None) -> str:
+                         min_area: Optional[float] = None, cell: Optional[float] = None,
+                         entry_name: Optional[str] = None) -> str:
         """Return the VRT XML block for a single layer, with its tiled fields
         only (see _vrt_fields): a polygon layer's smaller polygons than
         ``min_area`` are left out; a line layer's lines alike in every tiled
         field are joined where they meet within cells of ``cell`` metres (a
-        network's many two-point parts then simplify, fewer to draw)."""
+        network's many two-point parts then simplify, fewer to draw), and
+        those left shorter than _MIN_LINE_PIXELS are left out."""
         source = layer.source().split("|layername=")[0]
+        entry_name = entry_name or self._layer_name(layer)
         geometry = re.search(r"c(\d\d)", self._layer_name(layer))
         geometry = geometry.group(1) if geometry else None
         src_sql = ""
@@ -713,14 +750,18 @@ class GDALTilesGenerator:
             # Labels keep their lines: QGIS labels each one (joined, they
             # would be fewer, elsewhere).
             symbology = self._parse_layer_zoom(layer, "t") == 0
+            columns = "".join(", " + t for t in tiled)
             if (cell and geometry == "01" and symbology and self._sqlite_geometry()
                     and not self._directed(self._layer_name(layer))):
                 grid = (f"CAST(ST_MinX(geometry) / {cell!r} AS INTEGER), "
                         f"CAST(ST_MinY(geometry) / {cell!r} AS INTEGER)")
-                columns = "".join(", " + t for t in tiled)
                 groups = "".join(t + ", " for t in tiled)
-                sql = (f"SELECT ST_LineMerge(ST_Collect(geometry)) AS geometry{columns} "
-                       f"FROM {name} GROUP BY {groups}{grid}")  # nosec B608
+                # A pixel at the run's last zoom (the cell is its tile).
+                shortest = _MIN_LINE_PIXELS * cell / _TILE_PIXELS
+                merged = "ST_LineMerge(ST_Collect(geometry))"
+                sql = (f"SELECT {merged} AS geometry{columns} "
+                       f"FROM {name} GROUP BY {groups}{grid} "
+                       f"HAVING ST_Length({merged}) >= {shortest!r}")  # nosec B608
                 src_sql = f'        <SrcSQL dialect="SQLITE">{escape(sql)}</SrcSQL>\n'
             elif (min_area and geometry == "02") or (untiled and not tiled):
                 # Without <Field> elements (no tiled field) a VRT layer
@@ -731,7 +772,7 @@ class GDALTilesGenerator:
                 src_sql = f'        <SrcSQL dialect="OGRSQL">{escape(sql)}</SrcSQL>\n'
             ds = None
         return (
-            f'    <OGRVRTLayer name={quoteattr(self._layer_name(layer))}>\n'
+            f'    <OGRVRTLayer name={quoteattr(entry_name)}>\n'
             f'        <SrcDataSource>{escape(source)}</SrcDataSource>\n'
             f'{src_sql}'
             f'        <LayerSRS>EPSG:{_EPSG_CRS}</LayerSRS>\n'
@@ -833,8 +874,10 @@ class GDALTilesGenerator:
         plain = {name: entry for name, entry in run_layers.items()
                  if self._group_of(name, grouped) is None}
         group_xml, group_conf = self._group_blocks(run_layers, grouped, tag) if grouped else ("", {})
-        self._build_vrt(vrt_path, [layer for layer, _, _ in plain.values()], hi, group_xml)
-        self._build_layer_conf(conf_path, plain, group_conf)
+        entries = self._entries(plain)
+        self._build_vrt(vrt_path, entries, hi, group_xml)
+        self._build_layer_conf(conf_path, entries, group_conf)
+        run.cache_path = None
         # The temporary database is written heavily: in memory if it fits,
         # else on local disk, not next to the output (which may be a synced
         # or network folder).
@@ -848,7 +891,7 @@ class GDALTilesGenerator:
         last_zoom_simplification = (
             _SIMPLIFICATION_MAX_ZOOM if hi >= getattr(self, "_last_zoom", hi) else simplification
         )
-        return [
+        command = [
             gdal_tool("ogr2ogr"), "-f", "MBTiles", run.output, vrt_path,
             # MAXZOOM also becomes the MBTiles metadata's maxzoom, from which
             # QGIS enlarges the tiles beyond it.
@@ -861,8 +904,23 @@ class GDALTilesGenerator:
             "-dsco", f"MAX_FEATURES={_TILE_MAX_FEATURES}",
             "-dsco", f"SIMPLIFICATION={simplification}",
             "-dsco", f"SIMPLIFICATION_MAX_ZOOM={last_zoom_simplification}",
+            *self._fine_grid(run),
             *self._strip_filter(run),
         ]
+        if not group_xml:
+            run.cache_path = self._cache_path(command, vrt_path, conf_path)
+        return command
+
+    def _fine_grid(self, run: _Run) -> List[str]:
+        """A finer coordinate grid for the tiles viewers enlarge far: when
+        the export goes to zoom _FINE_GRID_ZOOM or beyond, the last tile
+        zoom's tiles are drawn several times their size, where the default
+        grid (4096 units a tile, 0.3 m at zoom 15) would move vertices by a
+        pixel or two. MapLibre reads any tile extent."""
+        if run.hi < getattr(self, "_last_zoom", run.hi) or self._get_global_max_zoom() < _FINE_GRID_ZOOM:
+            return []
+        scale = _FINE_GRID_EXTENT // 4096
+        return ["-dsco", f"EXTENT={_FINE_GRID_EXTENT}", "-dsco", f"BUFFER={80 * scale}"]
 
     def _run_ogr2ogr_runs(self, runs: List[_Run]):
         """Run ogr2ogr once per run, a worker's each, on one thread; raises
@@ -886,8 +944,11 @@ class GDALTilesGenerator:
         """Run the runs' ogr2ogr processes, as many at once as there are
         workers, the largest estimated first; the failed runs with the end
         of their error output."""
+        workers = self._worker_count()
+        # Fewer processes, each with several GDAL threads (_THREADS_PER_RUN).
+        concurrent = max(1, round(workers / _THREADS_PER_RUN)) if workers >= _THREADS_PER_RUN else workers
         env = gdal_tool_env()
-        env["GDAL_NUM_THREADS"] = "1"
+        env["GDAL_NUM_THREADS"] = str(max(1, workers // concurrent))
         startupinfo = None
         creationflags = 0
         if os.name == "nt":
@@ -899,7 +960,6 @@ class GDALTilesGenerator:
         processes = []
         failed = []
         waiting = sorted(runs, key=lambda r: -r.cost)
-        workers = self._worker_count()
         # Per run: when it started, and how long it took.
         started: Dict[int, float] = {}
         took: Dict[int, float] = {}
@@ -911,18 +971,25 @@ class GDALTilesGenerator:
                 for run, process, _ in processes:
                     if process.poll() is not None and id(run) not in took:
                         took[id(run)] = time.perf_counter() - started[id(run)]
-                while waiting and len(processes) - len(took) < workers:
+                while waiting and len(processes) - len(took) < concurrent:
                     run = waiting.pop(0)
+                    command = self._ogr2ogr_command(run)
+                    if self._from_cache(run):
+                        continue
                     stderr_path = f"{run.output}.log"
                     with open(stderr_path, "w", encoding="utf-8") as stderr:
                         started[id(run)] = time.perf_counter()
                         processes.append((run, subprocess.Popen(
-                            self._ogr2ogr_command(run), env=env,
+                            command, env=env,
                             stdout=subprocess.DEVNULL, stderr=stderr,
                             startupinfo=startupinfo, creationflags=creationflags,
                         ), stderr_path))
                 time.sleep(0.25)
             if self.feedback is not None:
+                for run in runs:
+                    if run.from_cache:
+                        columns = f" columns {run.columns[0]}-{run.columns[1]}" if run.columns else ""
+                        self.feedback.pushDebugInfo(f"Tiles z{run.lo}-{run.hi}{columns}: reused")
                 for run, _, _ in processes:
                     columns = f" columns {run.columns[0]}-{run.columns[1]}" if run.columns else ""
                     seconds = took.get(id(run), time.perf_counter() - started[id(run)])
@@ -933,6 +1000,8 @@ class GDALTilesGenerator:
                 if process.returncode != 0:
                     with open(stderr_path, encoding="utf-8", errors="replace") as f:
                         failed.append((run, f.read()[-4000:]))
+                else:
+                    self._to_cache(run)
         finally:
             for _, process, stderr_path in processes:
                 if process.poll() is None:
@@ -940,6 +1009,95 @@ class GDALTilesGenerator:
                     process.wait()
                 self._remove(stderr_path)
         return failed
+
+    # --- Tile runs kept between exports ---
+
+    def _cache_dir(self) -> str:
+        return join(tempfile.gettempdir(), _CACHE_DIR_NAME, "tiles")
+
+    def _file_hash(self, path: str) -> str:
+        """A dataset's content hash, computed once per export."""
+        hashes = self.__dict__.setdefault("_hashes", {})
+        if path not in hashes:
+            digest = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+            hashes[path] = digest.hexdigest()
+        return hashes[path]
+
+    def _cache_path(self, command: List[str], vrt_path: str, conf_path: str) -> Optional[str]:
+        """The cache entry of a run (an MBTiles file), keyed by everything
+        its tiles depend on: GDAL's version, its options, its VRT with each
+        dataset read as its content, its CONF; None if it can't be keyed
+        (it reads files made for this export only, e.g. grouped points)."""
+        if _TILE_CACHE_MAX_MB <= 0:
+            return None
+        try:
+            with open(vrt_path, encoding="utf-8") as f:
+                vrt = f.read()
+            with open(conf_path, encoding="utf-8") as f:
+                conf = f.read()
+
+            def content(match):
+                path = unescape(match.group(1))
+                if not os.path.isfile(path) or os.path.dirname(path) == QgsProcessingUtils.tempFolder():
+                    raise OSError(path)
+                return f"<SrcDataSource>{self._file_hash(path)}</SrcDataSource>"
+            vrt = re.sub(r"<SrcDataSource>(.*?)</SrcDataSource>", content, vrt)
+        except OSError:
+            return None
+        options = [a for a in command[1:] if not a.startswith(("CONF=", "TEMPORARY_DB="))]
+        options = [a for a in options if a not in (vrt_path,)][3:]  # After "-f MBTiles <output>".
+        key = json.dumps([_TILE_CACHE_VERSION, gdal.VersionInfo(), options, vrt, conf])
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:40]
+        return join(self._cache_dir(), f"run_{digest}.mbtiles")
+
+    def _from_cache(self, run: _Run) -> bool:
+        """Copy a run's kept tiles to its output, if kept."""
+        if not run.cache_path or not os.path.isfile(run.cache_path):
+            return False
+        try:
+            shutil.copyfile(run.cache_path, run.output)
+            os.utime(run.cache_path)
+        except OSError:
+            return False
+        run.from_cache = True
+        return True
+
+    def _to_cache(self, run: _Run) -> None:
+        """Keep a finished run's tiles for later exports."""
+        if not run.cache_path or run.from_cache or not os.path.isfile(run.output):
+            return
+        try:
+            os.makedirs(self._cache_dir(), exist_ok=True)
+            temp = f"{run.cache_path}.tmp_{uuid4().hex}"
+            shutil.copyfile(run.output, temp)
+            os.replace(temp, run.cache_path)
+            self._prune_cache()
+        except OSError:
+            pass
+
+    def _prune_cache(self) -> None:
+        """Remove kept runs unused for too long, then the least recently
+        used beyond the size limit."""
+        now = time.time()
+        entries = []
+        for entry in os.scandir(self._cache_dir()):
+            try:
+                stat = entry.stat()
+            except OSError:
+                continue
+            if now - stat.st_mtime > _CACHE_MAX_AGE_DAYS * 86400 or ".tmp_" in entry.name and now - stat.st_mtime > 86400:
+                self._remove(entry.path)
+            elif entry.name.endswith(".mbtiles"):
+                entries.append((stat.st_mtime, stat.st_size, entry.path))
+        total = sum(size for _, size, _ in entries)
+        for _, size, path in sorted(entries):
+            if total <= _TILE_CACHE_MAX_MB * 1024 * 1024:
+                break
+            self._remove(path)
+            total -= size
 
     # --- Merging the runs' MBTiles ---
 

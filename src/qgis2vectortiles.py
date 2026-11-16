@@ -242,6 +242,7 @@ class QGIS2VectorTiles:
         exporter = RulesExporter(
             rules, self.extent, self.included_fields,
             self.max_zoom, self.utils_dir, self.feedback,
+            cpu_percent=self.cpu_percent,
         )
         result = exporter.export()
         self._raw_colors = exporter.raw_color_fields
