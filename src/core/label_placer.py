@@ -329,6 +329,10 @@ class LabelPlacer:
                     raise RuntimeError("Label placement cancelled.")
                 time.sleep(0.25)
             result: Dict[float, dict] = {}
+            if self.feedback is not None:
+                self.feedback.pushDebugInfo(
+                    f"Label placement: {len(zooms)} zoom bands laid out in {len(processes)} processes; "
+                    f"{sum(p.returncode != 0 for p in processes)} failed (laid out here).")
             for job, process in zip(jobs, processes):
                 if process.returncode != 0 or not os.path.isfile(job["result_path"]):
                     continue  # Its bands are laid out here.

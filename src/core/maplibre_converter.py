@@ -696,9 +696,14 @@ def _opacity_steps(value) -> Optional[set]:
     return None
 
 
+# The narrowest outline (px) covering a fill's smoothed edge (about a pixel
+# wide): QGIS's default outline, 0.26 mm, is 0.98 px.
+_COVERING_OUTLINE_PX = 0.95
+
+
 def covered_fill_edges(layers: List[dict]) -> None:
     """Turn MapLibre's fill edge smoothing off for fills whose edge an opaque
-    outline of a pixel or more covers (a fill's outline is its own line
+    outline of about a pixel or more covers (a fill's outline is its own line
     layer, above it, along the same polygons): MapLibre draws a smoothed
     fill a second time along its edges, under the outline, unseen."""
     for i, fill in enumerate(layers):
@@ -717,7 +722,8 @@ def covered_fill_edges(layers: List[dict]) -> None:
             width = line_paint.get("line-width", 1)
             opacity = line_paint.get("line-opacity")
             steps = _opacity_steps(opacity)
-            if (isinstance(width, (int, float)) and width >= 1 and _opaque_color(line_paint.get("line-color"))
+            if (isinstance(width, (int, float)) and width >= _COVERING_OUTLINE_PX
+                    and _opaque_color(line_paint.get("line-color"))
                     and not any(line_paint.get(key) not in (None, 0, [0, 0])
                                 for key in ("line-dasharray", "line-offset", "line-translate", "line-gap-width",
                                             "line-pattern", "line-blur"))
@@ -4441,8 +4447,36 @@ class QgisMapLibreStyleExporter:
             return
         badged = self._badged_padding(layer_def, label_settings, dataset)
         if badged:
-            layout["icon-text-fit-padding"] = [round(padding[0] + badged[0], 2), padding[1],
-                                               round(padding[2] + badged[1], 2), padding[3]]
+            top, bottom = badged
+            left = right = 0.0
+            if self._badges_only(label_settings, dataset):
+                # Nothing but badges to see: the box goes around them as
+                # MapLibre draws them, which is _IMAGE_DRAW_OFFSET from the
+                # places its text box counts them at.
+                dx, dy = self._IMAGE_DRAW_OFFSET
+                top, bottom, left, right = top - dy, bottom + dy, -dx, dx
+            layout["icon-text-fit-padding"] = [round(padding[0] + top, 2), round(padding[1] + right, 2),
+                                               round(padding[2] + bottom, 2), round(padding[3] + left, 2)]
+
+    # How far right and down MapLibre draws an image within a text from the
+    # place it lays it out at, in pixels: its shaping gives images the
+    # glyph metrics left 1 and top -3 (maplibre-gl 6.13 shaping), which its
+    # quads add, the atlas padding cancelling. Its text box (and so an icon
+    # fitted to it) follows the places. Measured on badged bus signs: every
+    # box's badges 1 px right and 3 px low of QGIS's.
+    _IMAGE_DRAW_OFFSET = (1.0, 3.0)
+    # Characters of a label's text that draw nothing.
+    _INVISIBLE = "  ​‎‏⁠‪‫‬‭‮⁦⁧⁨⁩\n\t"
+
+    def _badges_only(self, label_settings: QgsPalLayerSettings, dataset: str) -> bool:
+        """Whether an HTML label shows badges and no text (its sample's other
+        runs draw nothing): its background then fits the badges, as drawn."""
+        sample = self.html_samples.get(dataset, {}).get(label_settings.fieldName)
+        if not sample:
+            return False
+        runs = runs_of(sample, BaseFormat.of(label_settings.format()))
+        return (any(run.background for run in runs)
+                and not any(run.text.strip(self._INVISIBLE) for run in runs if not run.background))
 
     def _badged_padding(self, layer_def: dict, label_settings: QgsPalLayerSettings,
                         dataset: str) -> Optional[Tuple[float, float]]:

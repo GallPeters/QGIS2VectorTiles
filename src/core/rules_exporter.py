@@ -2737,6 +2737,8 @@ class RulesExporter:
                             continue
                         if kind == "gdal":
                             # Redo it the general way.
+                            self.feedback.pushDebugInfo(
+                                f"The {groups[0].label} ({groups[0].output_dataset}) is redone by Python: {e}")
                             submit_pass(src_path, groups)
                             continue
                         if kind == "process":
@@ -3485,9 +3487,14 @@ class RulesExporter:
                 ))
             ds = ogr.Open(output_path)
             count = ds.GetLayer(0).GetFeatureCount() if ds is not None else -1
-            if count > 0 and job.get("edge_spaces"):
-                self._check_edge_spaces(ds.GetLayer(0), job["edge_spaces"])
+            edge_spaces = (count > 0 and bool(job.get("edge_spaces"))
+                           and self._has_edge_spaces(ds.GetLayer(0), job["edge_spaces"]))
+            # Closed before anything is raised: an open file can't be
+            # removed (Windows), and the Python pass redoing the dataset
+            # would then take it as its own.
             ds = None
+            if edge_spaces:
+                raise RuntimeError("label text with edge spaces")
             if count < 0:
                 raise RuntimeError(f"cannot read {output_path}")
             completed = True
@@ -3502,8 +3509,8 @@ class RulesExporter:
             self._remove_file(vrt_path)
 
     @staticmethod
-    def _check_edge_spaces(layer, fields: List[str]) -> None:
-        """Raise if a label text written by GDAL has a line starting or
+    def _has_edge_spaces(layer, fields: List[str]) -> bool:
+        """Whether a label text written by GDAL has a line starting or
         ending with a space (the caller then writes the dataset with the
         Python pass, which keeps them as QGIS draws them)."""
         defn = layer.GetLayerDefn()
@@ -3511,11 +3518,14 @@ class RulesExporter:
         layer.SetIgnoredFields([defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())
                                 if i not in indices] + ["OGR_GEOMETRY"])
         layer.ResetReading()
-        for feature in layer:
-            for i in indices:
-                if feature.IsFieldSetAndNotNull(i) and _EDGE_SPACES.search(feature.GetFieldAsString(i)):
-                    raise RuntimeError("label text with edge spaces")
-        layer.SetIgnoredFields([])
+        try:
+            for feature in layer:
+                for i in indices:
+                    if feature.IsFieldSetAndNotNull(i) and _EDGE_SPACES.search(feature.GetFieldAsString(i)):
+                        return True
+            return False
+        finally:
+            layer.SetIgnoredFields([])
 
     @staticmethod
     def _gdal_translate(dest: str, src, options) -> None:
