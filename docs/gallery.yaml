@@ -48,7 +48,7 @@ examples:
     view: { zoom: 2.4, center: [20, 40] }
     project:
       url: "https://github.com/GallPeters/QGIS2VectorTiles/releases/download/examples/natural_earth_styled_sample.zip"
-      size: 150.5
+      size: 149.7
     source: { name: Natural Earth, url: "https://www.naturalearthdata.com/" }
 
   - id: jerusalem-public-transportation
