@@ -48,7 +48,7 @@ const firstKnown = (options, ...choices) => choices.find((id) => options.some(([
  * shown: the address's ?basemap= (none, osm, bluemarble, openfreemap), else
  * the visitor's last choice, else ``initial`` (the page's default), else the
  * project's background; the style: ?mapstyle= (positron, bright, liberty,
- * dark, fiord, 3d), else the last one, else Liberty; the language: ?lang=
+ * dark, fiord, 3d), else the last one, else Bright; the language: ?lang=
  * (local, latin, nonlatin, or a language's code: en, de, he...), else the
  * last one, else local.
  *

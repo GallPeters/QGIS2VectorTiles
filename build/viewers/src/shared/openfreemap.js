@@ -16,10 +16,13 @@ export const STYLES = [
 ];
 /** The visitor's own style (a style.json they chose, see setCustomStyle). */
 export const CUSTOM = 'custom';
-export const DEFAULT_STYLE = 'liberty';
+/** The style shown first (until the visitor picks one). */
+export const DEFAULT_STYLE = 'bright';
+/** The style 3D shows, and an uploaded style's missing parts are taken from. */
+export const BASE_STYLE = 'liberty';
 
 /** The address of a style's style.json. */
-export const styleUrl = (id) => `https://tiles.openfreemap.org/styles/${id === '3d' || id === 'custom' ? 'liberty' : id}`;
+export const styleUrl = (id) => `https://tiles.openfreemap.org/styles/${id === '3d' || id === 'custom' ? BASE_STYLE : id}`;
 
 // The languages OpenFreeMap's tiles name places in (OpenMapTiles' name:xx
 // fields): how many places have a name in each depends on OpenStreetMap
@@ -93,7 +96,7 @@ async function completed(style) {
         || Object.values(copy.sources).some((source) => !tiles(source));
     copy.sprite = absolute(sprite) ? sprite : undefined;
     if (!lacking) return copy;
-    const base = await openFreeMapStyle(DEFAULT_STYLE);
+    const base = await openFreeMapStyle(BASE_STYLE);
     if (!absolute(copy.glyphs)) copy.glyphs = base.glyphs;
     if (!copy.sprite) copy.sprite = base.sprite;
     for (const [id, source] of Object.entries(copy.sources)) {
