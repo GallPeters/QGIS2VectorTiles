@@ -86,7 +86,6 @@
       <a href="#demos">Gallery</a>
       <a href="#features">Features</a>
       <a href="#use-cases">Use cases</a>
-      <a href="#how-it-works">How it works</a>
       <a href="changelog.html">Changelog</a>
       <a href="compatibility.html">Styling guide</a>
     </nav>
@@ -101,7 +100,6 @@
     <a href="#demos">Gallery</a>
     <a href="#features">Features</a>
     <a href="#use-cases">Use cases</a>
-    <a href="#how-it-works">How it works</a>
     <a href="changelog.html">Changelog</a>
     <a href="compatibility.html">Styling guide</a>
     <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
@@ -134,6 +132,7 @@
               <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
               <a class="btn btn-ghost" href="#demos">See the gallery <svg><use href="#i-arrow"/></svg></a>
             </div>
+            <p class="hero-star" data-reveal style="--d:3"><svg aria-hidden="true"><use href="#i-star"/></svg><span>Like it? <a class="link" href="https://github.com/GallPeters/QGIS2VectorTiles">Star it on GitHub</a></span></p>
             <div class="hero-tags" data-reveal style="--d:4">
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Free &amp; open source</span>
               <span class="hero-tag"><svg><use href="#i-check"/></svg>Works offline</span>
@@ -153,7 +152,7 @@
           <div class="live-demo" data-reveal style="--d:2">
             <ul class="live-facts">
               <li><svg aria-hidden="true"><use href="#i-globe"/></svg><span><b>Project:</b> <a class="link" href="https://www.naturalearthdata.com/">Natural Earth</a>, hundreds of layers and data sources.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent → zoom levels 0–8 → <span class="text-brand">3.1 minutes</span></span></li>
+              <li><svg aria-hidden="true"><use href="#i-gear"/></svg><span><b>Processing:</b> world extent → zoom levels 0–8 → <span class="text-brand">6.8 minutes</span></span></li>
               <li><svg aria-hidden="true"><use href="#i-github"/></svg><span><b>Published:</b> uploaded to <a class="link" href="https://github.com/GallPeters/QGIS2VectorTiles/tree/main/docs/examples">GitHub Pages</a> as is.</span></li>
             </ul>
             <figure class="window">
@@ -197,15 +196,16 @@
         <noscript>
           <p class="gallery-note">The gallery needs JavaScript. Open the examples directly:
             <a class="link" href="examples/natural-earth/">Natural Earth</a> ·
-            <a class="link" href="examples/israel-bus-stops/">Jerusalem bus stops</a></p>
+            <a class="link" href="examples/jerusalem_public_transportation/">Jerusalem public transportation</a></p>
         </noscript>
       </div>
     </div>
   </section>
 
-  <!-- 3 · Features ----------------------------------------------------- -->
+  <!-- 3 · Features and output ------------------------------------------ -->
+  <!-- The features beside the output package; on phones, a screen each. -->
   <section class="slide" id="features" data-title="Features" aria-labelledby="features-title">
-    <div class="container slide-inner">
+    <div class="container slide-inner features-split">
       <div class="screen">
         <div class="section-head split" data-reveal>
           <div>
@@ -259,12 +259,32 @@
         </div>
         <p class="tap-hint">Tap a feature for details.</p>
       </div>
+      <div class="screen">
+        <div class="section-head screen-head">
+          <p class="eyebrow">Output</p>
+          <p class="h2">One folder, ready to use.</p>
+          <p class="lead">Tiles, style and viewer, side by side.</p>
+        </div>
+        <div class="output-side">
+          <div class="panel" data-reveal style="--d:1">
+            <div class="panel-head"><span>Output package</span><span class="mono">5 parts</span></div>
+            <ul class="tree">
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-grid"/></svg></span><span class="tree-name">Vector tiles archive</span><span class="tree-ext">.pmtiles</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-globe"/></svg></span><span class="tree-name">MapLibre style sheet</span><span class="tree-ext">.json</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-image"/></svg></span><span class="tree-name">Icon sprites</span><span class="tree-ext">.png &amp; .json</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Web viewer &amp; local server</span><span class="tree-ext">.html &amp; .py</span></li>
+              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-type"/></svg></span><span class="tree-name">Font glyphs</span><span class="tree-ext">.pbf</span></li>
+            </ul>
+          </div>
+          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it or publish it.</strong> The map opens in your browser after each run. Upload the folder to GitHub Pages or any web host as it is.</span></p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- 4 · Use cases ---------------------------------------------------- -->
-  <section class="slide" id="use-cases" data-title="Use cases" aria-labelledby="uc-title">
-    <div class="container slide-inner usecases">
+  <!-- 4 · Use cases + footer, the last slide ---------------------------- -->
+  <div class="slide slide-end" id="use-cases" data-title="Use cases">
+  <section class="container slide-inner usecases" aria-labelledby="uc-title">
       <div class="screen">
         <div class="section-head split" data-reveal>
           <div>
@@ -308,104 +328,8 @@
           <p class="usecase-note">One <a class="link" href="https://docs.protomaps.com/pmtiles/">PMTiles</a> file, over plain HTTP.</p>
         </article>
       </div>
-    </div>
   </section>
 
-  <!-- 5 · How it works ------------------------------------------------- -->
-  <section class="slide" id="how-it-works" data-title="How it works" aria-labelledby="how-title">
-    <div class="container slide-inner pipeline">
-      <div class="screen">
-        <div class="section-head split" data-reveal>
-          <div>
-            <p class="eyebrow">How it works</p>
-            <h2 class="h2" id="how-title">One run. Six modules. A complete web map.</h2>
-          </div>
-          <p class="lead">Open source. Click a module to see what it does.</p>
-        </div>
-
-        <div class="panel pipeline-main" data-reveal>
-          <div class="panel-head"><span>Execution pipeline</span><span class="mono">src/</span></div>
-          <div class="steps">
-            <button class="step core" type="button" data-module="orchestrator">
-              <span class="step-num" aria-hidden="true">◆</span>
-              <span class="step-text"><span class="step-title">qgis2vectortiles.py</span><span class="step-desc" title="Execution wrapper and environment manager">Execution wrapper and environment manager</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="flattener">
-              <span class="step-num" aria-hidden="true">01</span>
-              <span class="step-text"><span class="step-title">rules_flattener.py</span><span class="step-desc" title="Flattens complex nested symbology and filters">Flattens complex nested symbology and filters</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="exporter">
-              <span class="step-num" aria-hidden="true">02</span>
-              <span class="step-text"><span class="step-title">rules_exporter.py</span><span class="step-desc" title="Trims bounds and exports to intermediate vectors">Trims bounds and exports to intermediate vectors</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="generator">
-              <span class="step-num" aria-hidden="true">03</span>
-              <span class="step-text"><span class="step-title">tiles_generator.py</span><span class="step-desc" title="Slices geometries into PMTiles with parallel GDAL runs">Slices geometries into PMTiles with parallel GDAL runs</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="styler">
-              <span class="step-num" aria-hidden="true">04</span>
-              <span class="step-text"><span class="step-title">tiles_styler.py</span><span class="step-desc" title="Binds original QGIS styles to vector channels">Binds original QGIS styles to vector channels</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="converter">
-              <span class="step-num" aria-hidden="true">05</span>
-              <span class="step-text"><span class="step-title">maplibre_converter.py</span><span class="step-desc" title="Translates configs to MapLibre JSON schema">Translates configs to MapLibre JSON schema</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-            <button class="step" type="button" data-module="server">
-              <span class="step-num" aria-hidden="true">06</span>
-              <span class="step-text"><span class="step-title">server_initializer.py</span><span class="step-desc" title="Lays out the web map folder and opens the viewer">Lays out the web map folder and opens the viewer</span></span>
-              <svg class="step-go" aria-hidden="true"><use href="#i-chevron"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="screen">
-        <div class="section-head screen-head">
-          <p class="eyebrow">How it works</p>
-          <p class="h2">One folder, ready to use.</p>
-          <p class="lead">Tiles, style and viewer, side by side.</p>
-        </div>
-        <div class="pipeline-side">
-          <div class="panel" data-reveal style="--d:1">
-            <div class="panel-head"><span>Output package</span><span class="mono">5 parts</span></div>
-            <ul class="tree">
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-grid"/></svg></span><span class="tree-name">Vector tiles archive</span><span class="tree-ext">.pmtiles</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-globe"/></svg></span><span class="tree-name">MapLibre style sheet</span><span class="tree-ext">.json</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-image"/></svg></span><span class="tree-name">Icon sprites</span><span class="tree-ext">.png &amp; .json</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-monitor"/></svg></span><span class="tree-name">Web viewer &amp; local server</span><span class="tree-ext">.html &amp; .py</span></li>
-              <li class="tree-row"><span class="tree-icon"><svg><use href="#i-type"/></svg></span><span class="tree-name">Font glyphs</span><span class="tree-ext">.pbf</span></li>
-            </ul>
-          </div>
-          <p class="callout" data-reveal style="--d:2"><svg aria-hidden="true"><use href="#i-info"/></svg><span><strong>Open it or publish it.</strong> The map opens in your browser after each run. Upload the folder to GitHub Pages or any web host as it is.</span></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-</main>
-
-<!-- 6 · Download + footer, one screen ----------------------------------- -->
-<div class="slide slide-end" id="get-started" data-title="Download">
-  <section class="container slide-inner" aria-labelledby="cta-title">
-    <div class="cta" data-reveal>
-      <h2 class="h2" id="cta-title">Your next web map is <span class="text-gradient">one run away.</span></h2>
-      <p class="lead">Free and open source, from the official QGIS plugin repository.</p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/"><svg><use href="#i-download"/></svg>Download for QGIS</a>
-        <a class="btn btn-ghost" href="https://github.com/GallPeters/QGIS2VectorTiles"><svg><use href="#i-github"/></svg>Star on GitHub</a>
-      </div>
-      <p class="cta-rate">
-        <span class="stars" aria-hidden="true"><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg><svg><use href="#i-star"/></svg></span>
-        Enjoying the plugin? <a class="link" href="https://plugins.qgis.org/plugins/QGIS2VectorTiles/">Rate it on the QGIS plugin repository</a>
-      </p>
-    </div>
-  </section>
 
   <footer class="site-footer">
     <div class="container">
@@ -419,7 +343,6 @@
           <a href="#demos">Gallery</a>
           <a href="#features">Features</a>
           <a href="#use-cases">Use cases</a>
-          <a href="#how-it-works">How it works</a>
         </nav>
         <nav class="footer-col" aria-label="Resources">
           <h2>Resources</h2>
@@ -440,28 +363,20 @@
       </div>
     </div>
   </footer>
-</div>
+  </div>
+
+</main>
 
 <nav class="dots" aria-label="Sections"></nav>
-
-<dialog class="module-dialog" id="module-dialog" aria-labelledby="module-title">
-  <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
-  <div class="dialog-inner">
-    <p class="mono"></p>
-    <h2 id="module-title"></h2>
-    <ul></ul>
-    <a class="btn btn-primary" href="https://github.com/GallPeters/QGIS2VectorTiles"><svg><use href="#i-github"/></svg>View source on GitHub</a>
-  </div>
-</dialog>
 
 <dialog class="module-dialog info-dialog" id="info-dialog" aria-label="Details">
   <button class="dialog-close" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button>
   <div class="dialog-inner"></div>
 </dialog>
 
-<script src="assets/site.js?v=4.2.4" defer></script>
-<script src="assets/home.js?v=4.2.4" defer></script>
+<script src="assets/site.js?v=4.5.0" defer></script>
+<script src="assets/home.js?v=4.5.0" defer></script>
 <script src="assets/vendor/js-yaml.min.js" defer></script>
-<script src="assets/gallery.js?v=4.3.0" defer></script>
+<script src="assets/gallery.js?v=4.5.0" defer></script>
 </body>
 </html>

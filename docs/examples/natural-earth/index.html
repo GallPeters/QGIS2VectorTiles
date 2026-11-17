@@ -27,17 +27,30 @@
         // MapLibre's in both viewers (OpenLayers converts them).
         window.Q2VT_CONFIG = {
             minZoom: 0,
-            center: [-4.498604850676338, -21.099572612093873],
+            center: [-4.437367297735155, 5.758856486870096],
             // The export extent [west, south, east, north]: the map opens
             // fitted to it (unless ?z= gives a zoom).
-            bounds: [-180.0, -88.21400898643309, 180.0, 86.20593729413739],
-            storageKey: "04_11_2026_10_47_26_400522",
+            bounds: [-180.0, -86.62207715880483, 180.0, 87.23788787201914],
+            storageKey: "17_11_2026_12_38_38_042315",
             // Relative to this page, so the folder works on any web server.
             styleUrl: "style/style.json",
             searchUrl: "style/search.json",
             // The background shown first (until the visitor picks one): "none"
-            // (the project's background colour), "osm" or "bluemarble".
-            // basemap: "osm",
+            // (the project's background colour), "osm", "bluemarble" or
+            // "openfreemap" (Bright style, local names; others in the
+            // address: ?mapstyle=positron, bright, dark, fiord or 3d, and
+            // ?lang=en, ar or he). The plugin sets it: the project's colour
+            // when it isn't white, else OpenFreeMap.
+            basemap: "none",
+            // Live maps: the PostGIS layers drawn from their database as it is
+            // (q2vt_live.sql, run once in it, served by a tile server such as
+            // Martin or pg_tileserv). Their tile address, e.g.
+            // "https://tiles.example.com/my_map_tiles/{z}/{x}/{y}" (or
+            // ?live=<address>); until then the export's tiles are shown.
+            // liveRefresh: seconds between reloads of those layers (0: none;
+            // or ?refresh=).
+            // liveTiles: "",
+            liveRefresh: 30,
         };
 
         // The map library: ?viewer=ml|ol (set by the viewer switch), else the

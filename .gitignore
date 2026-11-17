@@ -2,3 +2,9 @@ __pycache__
 .vscode
 node_modules
 HANDOFF.md
+# The Natural Earth example's styled data (316 MB) is an asset of the
+# "examples" release on GitHub, not in the repository.
+docs/examples/natural-earth/natural_earth_styled_sample.gpkg
+# SQLite temporary files of a GeoPackage open in QGIS.
+*.gpkg-shm
+*.gpkg-wal

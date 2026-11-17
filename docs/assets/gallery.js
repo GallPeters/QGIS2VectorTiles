@@ -182,6 +182,12 @@
       button('Download project' + (project.url && project.size ? ' (' + size(project.size) + ')' : ''), 'download', 'btn-ghost',
         soon ? null : project.url, soon ? 'Coming soon' : 'The project download is coming soon')
     );
+    // Credit to the data's owner: their site, in a new tab.
+    if (!soon && ex.source && ex.source.url) {
+      var credit = button('Data source', 'link', 'btn-quiet', ex.source.url);
+      if (ex.source.name) credit.title = 'The data: ' + ex.source.name;
+      actions.appendChild(credit);
+    }
 
     body.append(head);
     if (stats.children.length) body.appendChild(stats);

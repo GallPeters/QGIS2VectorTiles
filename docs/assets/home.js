@@ -45,61 +45,6 @@
     document.body.addEventListener('scroll', releaseLive, { passive: true });
   }
 
-  // --- Pipeline module dialog --------------------------------------------
-  var modules = {
-    orchestrator: {
-      file: 'qgis2vectortiles.py',
-      bullets: ['Core plugin framework entry point script.', 'Manages operational properties and runtime variables.', 'Coordinates sequential execution across the workspace.']
-    },
-    flattener: {
-      file: 'core/rules_flattener.py',
-      bullets: ['Processes intricate desktop renderer rules.', 'Flattens compound parameters into clear conditional groups.', 'Preserves filters and scaling logic.']
-    },
-    exporter: {
-      file: 'core/rules_exporter.py',
-      bullets: ['Slices vector features into intermediate datastores.', 'Executes spatial bounds trimming.', 'Applies geometry correction schemas.']
-    },
-    generator: {
-      file: 'core/tiles_generator.py',
-      bullets: ['Slices the datasets into vector tiles with parallel GDAL runs, split by zoom level and area.', 'Uses the GDAL that ships with QGIS.', 'Writes all the tiles into one PMTiles file.']
-    },
-    styler: {
-      file: 'core/tiles_styler.py',
-      bullets: ['Transforms styling definitions.', 'Matches and binds QGIS styles to vector channels.', 'Hands one styled layer to the MapLibre converter.']
-    },
-    converter: {
-      file: 'core/maplibre_converter.py',
-      bullets: ['Translates QGIS configurations to MapLibre JSON.', 'Maps coordinate grids, fonts, and limits.', 'Generates icon sprite sheets.']
-    },
-    server: {
-      file: 'core/server_initializer.py',
-      bullets: ['Lays out the output folder as a complete static web map: index.html, style and tiles.pmtiles.', 'Starts a small local server at the end of each run and opens the viewer in your browser.', 'The same folder can be uploaded to GitHub Pages or any web host as it is.']
-    }
-  };
-  var repo = 'https://github.com/GallPeters/QGIS2VectorTiles/blob/main/src/';
-  var moduleDialog = document.getElementById('module-dialog');
-  if (moduleDialog) {
-    var title = moduleDialog.querySelector('h2');
-    var path = moduleDialog.querySelector('.mono');
-    var list = moduleDialog.querySelector('ul');
-    var link = moduleDialog.querySelector('a');
-    document.querySelectorAll('.step[data-module]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var m = modules[btn.dataset.module];
-        if (!m) return;
-        title.textContent = m.file.split('/').pop();
-        path.textContent = 'src/' + m.file;
-        list.replaceChildren.apply(list, m.bullets.map(function (b) {
-          var li = document.createElement('li');
-          li.textContent = b;
-          return li;
-        }));
-        link.href = repo + m.file;
-        moduleDialog.showModal();
-      });
-    });
-  }
-
   // --- Section dots ------------------------------------------------------
   // One link per full-screen section; the browser's scroll snapping does the
   // moving, the dots show where you are and jump on click.
