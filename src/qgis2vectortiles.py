@@ -16,7 +16,7 @@ pipeline from QGIS project styling to vector tiles:
 from copy import deepcopy
 from datetime import datetime
 from os import makedirs, listdir
-from os.path import join, normpath
+from os.path import join
 from shutil import rmtree
 from threading import Thread
 from time import perf_counter
@@ -189,7 +189,6 @@ class QGIS2VectorTiles:
                           f"({self._elapsed_minutes(tiles_time)} minutes).")
             self._log(f". Vector tiles package generation completed successfully "
                       f"({self._elapsed_minutes(start_time)} minutes).")
-            self._log(f". Output folder: {normpath(temp_dir)}")
             self._log("")
             self.temp_dir = temp_dir
             self.serve_tiles(temp_dir)
