@@ -273,7 +273,7 @@ class LiveSqlWriter:
             raise NotTranslatable("it has no geometry")
         # Unique per layer (its id's hash), readable (its name), within
         # PostgreSQL's 63-character names.
-        digest = hashlib.md5(layer.layer_id.encode("utf-8")).hexdigest()[:8]
+        digest = hashlib.md5(layer.layer_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
         base = f"{self.schema}.{quote_ident('base_' + _slug(layer.name)[:40] + '_' + digest)}"
         parts = [self._base_function(layer, base)]
         sets: List[_Dataset] = []

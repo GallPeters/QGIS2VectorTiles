@@ -4508,7 +4508,7 @@ class QgisMapLibreStyleExporter:
     # box's badges 1 px right and 3 px low of QGIS's.
     _IMAGE_DRAW_OFFSET = (1.0, 3.0)
     # Characters of a label's text that draw nothing.
-    _INVISIBLE = "  ​‎‏⁠‪‫‬‭‮⁦⁧⁨⁩\n\t"
+    _INVISIBLE = " \u00a0\u200b\u200e\u200f\u2060\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\n\t"
 
     def _badges_only(self, label_settings: QgsPalLayerSettings, dataset: str) -> bool:
         """Whether an HTML label shows badges and no text (its sample's other
