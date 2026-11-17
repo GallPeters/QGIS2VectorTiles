@@ -29,9 +29,13 @@ from qgis.PyQt.QtGui import QColor, QFont
 from ..utils.config import _FIELD_PREFIX
 
 # Most runs a label's slots hold; beyond, the rest joins the last slot. A
-# dataset has as many slots as its longest label needs (a sign of 85 bus
-# lines, each on its own badge: about 190).
-MAX_SLOTS = 256
+# dataset has as many slots as its longest label needs (85 badges in rows:
+# about 180). The web map lays each label out with its tier's slots only
+# (slot_tiers), so a long label costs the others nothing.
+MAX_SLOTS = 2048
+# The smallest slot tier: a label of up to this many runs is laid out with
+# this many slots; each next tier doubles (slot_tiers).
+FIRST_TIER = 16
 # Pixels per point (96 DPI), as label sizes are converted.
 PX_PER_PT = 96 / 72
 BADGE_PREFIX = "q2vtb|"
@@ -354,6 +358,20 @@ class RichFields:
             if match:
                 found[match.group(1)] = max(found.get(match.group(1), 0), int(match.group(2)) + 1)
         return found
+
+
+def slot_tiers(slots: int) -> List[int]:
+    """The slot counts the web map lays a dataset's labels out with: 16, 32,
+    64... below ``slots``, then ``slots``. A label with no slot ``t`` (it
+    has at most ``t`` runs) takes the first tier ``t``: MapLibre evaluates
+    only the branch of a ``case`` it takes, so a label's format holds its
+    tier's sections only (measured: layout 2-2.5 times faster where a few
+    labels have many runs)."""
+    tiers, tier = [], FIRST_TIER
+    while tier < slots:
+        tiers.append(tier)
+        tier *= 2
+    return tiers + [slots]
 
 
 def slot_values(runs: List[Run], base: BaseFormat, slots: int) -> List[dict]:

@@ -125,11 +125,20 @@ class QGIS2VectorTiles:
 
             step_time = perf_counter()
             self._log(". Exporting rules to datasets...")
-            layers, rules = self._export_rules(rules)
-            # Balloon labels' places, laid out by QGIS: part of the export.
+            # Balloon labels' places, laid out by QGIS: begun in other
+            # processes now (they read the project only), taken once the
+            # rules are exported (their datasets get the places).
+            placer = None
             if LabelPlacer.placed_rules(rules):
-                self._placements = LabelPlacer(
-                    rules, layers, self.extent, self.max_zoom, self.utils_dir, self.feedback).place()
+                placer = LabelPlacer(rules, [], self.extent, self.max_zoom, self.utils_dir, self.feedback)
+                placer.start()
+            try:
+                layers, rules = self._export_rules(rules)
+                if placer is not None:
+                    self._placements = placer.place(rules, layers)
+            finally:
+                if placer is not None:
+                    placer.abort()
             self._log(f". Successfully exported {len(rules)} rules "
                       f"({self._elapsed_minutes(step_time)} minutes).")
 

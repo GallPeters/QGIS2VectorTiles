@@ -3,7 +3,7 @@ place_worker.py
 
 Lays out balloon labels' zoom bands (LabelPlacer._layout) in a separate
 Python process, so that several bands are laid out on several cores at once
-(QGIS's labeling engine runs on one). Started by LabelPlacer._layouts:
+(QGIS's labeling engine runs on one). Started by LabelPlacer._launch:
 
     python place_worker.py <job.json>
 

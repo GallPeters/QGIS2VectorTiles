@@ -41,7 +41,7 @@ from qgis.core import (
 from qgis.utils import iface
 from .glyphs_generator import CHARS_PREFIX, GlyphGenerator, qfontdb
 from .html_label import (MIXED_MARK, BaseFormat, RichFields, badge_name, maplibre_box, mixed_shaping,
-                         mixed_shift, parse_badge_name, runs_of)
+                         mixed_shift, parse_badge_name, runs_of, slot_tiers)
 from .sprite_generator import TextBadge, badge_layout
 from .sprite_generator import (
     BalloonShape, BrushPattern, FillPattern, HashMark, LabelShape, LinePattern, SpriteGenerator, sprite_key,
@@ -56,6 +56,23 @@ from ..utils.flattened_rule import (
 )
 from ..utils.config import _SPRITE_QUALITY, _TILES_MAX_ZOOM
 from ..utils.zoom_levels import ZoomLevels
+
+
+def _tiered_format(rich: RichFields, slots: List[list]) -> list:
+    """An HTML label's ``format`` of its slots' sections (``slots``, per
+    slot), by slot tier (html_label.slot_tiers): a ``case`` taking the first
+    tier whose next slot the label leaves empty, each branch a format of its
+    tier's slots only. Every branch has its own copy of its sections (later
+    passes rewrite their fonts in place)."""
+    def formatted(count: int) -> list:
+        return ["format"] + copy.deepcopy([part for sections in slots[:count] for part in sections])
+    tiers = slot_tiers(len(slots))
+    if len(tiers) == 1:
+        return formatted(tiers[0])
+    expression = ["case"]
+    for tier in tiers[:-1]:
+        expression += [["!", ["has", rich.text(tier)]], formatted(tier)]
+    return expression + [formatted(tiers[-1])]
 
 
 def _mix_colors(*colors: QColor) -> QColor:
@@ -3431,9 +3448,9 @@ class QgisMapLibreStyleExporter:
                          dataset: str, text_font, glyph_dataset: str) -> Optional[tuple]:
         """An HTML label's text-field: a ``format`` of its slots (html_label.py),
         each run in its own font, size and colour, a run on a background
-        colour as its badge image; and the same for OpenLayers (fonts and
-        sizes, badges as text: it draws neither colours nor images in a
-        text). None for other labels."""
+        colour as its badge image, by slot tier (_tiered_format); and the
+        same for OpenLayers (fonts and sizes, badges as text: it draws
+        neither colours nor images in a text). None for other labels."""
         if not text_format.allowHtmlFormatting():
             return None
         field = label_settings.fieldName
@@ -3452,7 +3469,7 @@ class QgisMapLibreStyleExporter:
         for key in keys:
             self.glyphs.setdefault(key, []).append((glyph_dataset, field))
         base_color = TextPropertyExtractor.get_text_color(text_format, label_settings)
-        ml, ol = ["format"], ["format"]
+        ml_slots, ol_slots = [], []  # Each slot's format sections.
         for i in range(slots):
             options = {"font-scale": ["coalesce", ["get", rich.scale(i)], 1]}
             if keys:
@@ -3461,7 +3478,7 @@ class QgisMapLibreStyleExporter:
                     font += [key, ["literal", [key]]]
                 options["text-font"] = font + [default_font]
             text = ["coalesce", ["get", rich.text(i)], ""]
-            ol += [text, dict(options)]
+            ol_slots.append([text, dict(options)])
             if colors:
                 options["text-color"] = ["case", ["has", rich.color(i)], ["to-color", ["get", rich.color(i)]], base_color]
             if badges:
@@ -3469,10 +3486,12 @@ class QgisMapLibreStyleExporter:
                 # (at the bottom it would be at their edge): QGIS draws a
                 # badge on the text's baseline, its descent below it.
                 options["vertical-align"] = "top"
-            ml += [["case", ["has", rich.image(i)], "", text], options]
+            sections = [["case", ["has", rich.image(i)], "", text], options]
             if found[rich.image(i)]:
                 # Without a badge an empty name: no image, no width.
-                ml += [["image", ["coalesce", ["get", rich.image(i)], ""]], {"vertical-align": "center"}]
+                sections += [["image", ["coalesce", ["get", rich.image(i)], ""]], {"vertical-align": "center"}]
+            ml_slots.append(sections)
+        ml, ol = _tiered_format(rich, ml_slots), _tiered_format(rich, ol_slots)
         if badges:
             for name in badges:
                 badge = parse_badge_name(name)
