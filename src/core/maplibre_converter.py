@@ -3250,13 +3250,15 @@ class QgisMapLibreStyleExporter:
         key = self._font_key(font, style or "Regular") or self._font_key(font, "") or "Arial"
         self.glyphs.setdefault(key, []).append((f"{CHARS_PREFIX}0123456789", None))
         layer_def = dict(layer_def)
+        base_size = PropertyExtractor.length_to_style_value(font_marker.size(), font_marker.sizeUnit())
         layer_def["layout"] = {
             "text-field": ["to-string", ["get", CLUSTER_SIZE_FIELD]],
             "text-font": [key],
             "text-size": self._by_cluster_size(
                 (layer_def.get("metadata") or {}).get("q2vt:cluster_sizes"),
                 lambda size: PropertyExtractor.length_to_style_value(size, font_marker.sizeUnit()),
-                PropertyExtractor.length_to_style_value(font_marker.size(), font_marker.sizeUnit())),
+                base_size),
+            "text-offset": self._font_marker_offset(font_marker, base_size),
             "text-allow-overlap": True,
             "text-ignore-placement": True,
             "visibility": "visible",
@@ -3265,6 +3267,27 @@ class QgisMapLibreStyleExporter:
             "text-color": PropertyExtractor.convert_qcolor_to_maplibre(font_marker.color()),
         }
         return layer_def
+
+    @staticmethod
+    def _font_marker_offset(font_marker, size_px) -> List[float]:
+        """The text-offset (ems) drawing a font marker's text where QGIS draws
+        it: moved by the marker's offset, and its baseline half the font's
+        ascent below the point, as QGIS puts it; MapLibre puts it half the
+        ascent less the descent below (GlyphGenerator's top_shift), so half
+        a descent lower. An offset in map units is left out."""
+        if not isinstance(size_px, (int, float)) or size_px <= 0:
+            return [0.0, 0.0]
+        offset, unit = font_marker.offset(), font_marker.offsetUnit()
+        dx = dy = 0.0
+        if not PropertyExtractor.is_map_unit(unit):
+            dx = PropertyExtractor.convert_length_to_pixels(offset.x(), unit) or 0.0
+            dy = PropertyExtractor.convert_length_to_pixels(offset.y(), unit) or 0.0
+        font = QFont(font_marker.fontFamily())
+        if hasattr(font_marker, "fontStyle") and font_marker.fontStyle():
+            font.setStyleName(font_marker.fontStyle())
+        font.setPixelSize(24)  # The glyphs' em (GlyphGenerator).
+        half_descent = QFontMetrics(font).descent() / 24 / 2
+        return [round(dx / size_px, 4), round(dy / size_px + half_descent, 4)]
 
     @staticmethod
     def _by_cluster_size(sizes: Optional[dict], convert, default):
