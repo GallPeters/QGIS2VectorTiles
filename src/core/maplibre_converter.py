@@ -4433,6 +4433,7 @@ class QgisMapLibreStyleExporter:
                                              (name, text_fit, wide_buffer[1], box))
         else:
             self._apply_default_icon_props(layer_def)
+        self._boxed_anchor_offsets(layer_def, label_settings, source_layer_name)
         placed_defs = None
         mark = rule_mark(label_settings)
         placement = self.placements.get(mark) if mark else None
@@ -4479,6 +4480,53 @@ class QgisMapLibreStyleExporter:
             if "metadata" in layer_def:
                 pinned_def["metadata"] = layer_def["metadata"]
             self.style["layers"].append(pinned_def)
+
+    def _boxed_anchor_offsets(self, layer_def: dict, label_settings: QgsPalLayerSettings, dataset: str) -> None:
+        """A label with a background around its point: per side, the offset
+        putting MapLibre's text box where QGIS puts its own. QGIS keeps its
+        text box (the font's ascent and descent, an HTML label's laid-out
+        document) its distance from the point; MapLibre its own, shorter
+        box: the text, and its background, was that much nearer the point
+        (an HTML label of text and badges, above its point: 4-5 px low, its
+        background on the symbol; 1-2 px with this). As _balloon_shape does
+        for balloons."""
+        layout = layer_def["layout"]
+        anchors, radial, size = (layout.get("text-variable-anchor"), layout.get("text-radial-offset"),
+                                 layout.get("text-size"))
+        if (not anchors or not isinstance(radial, (int, float)) or not isinstance(size, (int, float)) or size <= 0
+                or "text-variable-anchor-offset" in layout or layout.get("icon-text-fit") in (None, "none")):
+            return
+        if self._badges_only(label_settings, dataset):
+            # Badges and no text (rows of them): placed as QGIS places them
+            # already (measured: bus signs' cells 0 px off vertically; the
+            # badges' box below moved them 4-5 px low).
+            return
+        badged = self._badged_padding(layer_def, label_settings, dataset)
+        if badged:
+            top, bottom = badged
+        else:
+            text_format = label_settings.format()
+            metrics = TextPropertyExtractor.label_box_metrics(text_format)
+            if metrics is None:
+                return
+            first, _, last = metrics
+            font = QFont(text_format.font())
+            font.setPixelSize(24)
+            glyph_metrics = QFontMetrics(font)
+            centre = (glyph_metrics.ascent() - glyph_metrics.descent()) / 2 / 24
+            half_line = layout.get("text-line-height", TextPropertyExtractor.get_text_line_height(text_format)) / 2
+            top, bottom = (first - half_line - centre) * size, (last - half_line + centre) * size
+        if abs(top) < 0.25 and abs(bottom) < 0.25:
+            return
+        offsets = []
+        for one in anchors:
+            x, y = TextPropertyExtractor.radial_to_offset(one, radial)
+            y += (-bottom if one.startswith("bottom") else top if one.startswith("top") else (top - bottom) / 2) / size
+            offsets += [one, [round(x, 4), round(y, 4)]]
+        layout["text-variable-anchor-offset"] = offsets
+        # Renderers without variable anchors read the first side (text-offset).
+        if layout.get("text-anchor") == anchors[0]:
+            layout["text-offset"] = offsets[1]
 
     def _fit_badged_box(self, layer_def: dict, label_settings: QgsPalLayerSettings, dataset: str) -> None:
         """A background around an HTML label with badges fitted as QGIS
